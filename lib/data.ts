@@ -39,7 +39,7 @@ async function writeJSON<T>(key: string, data: T): Promise<void> {
       for (const b of blobs) await del(b.url);
     } catch { /* ignore */ }
     await put(`${key}.json`, body, {
-      access: "public",
+      access: "private" as never,
       contentType: "application/json",
       addRandomSuffix: false,
     });
