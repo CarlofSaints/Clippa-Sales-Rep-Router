@@ -13,8 +13,10 @@ async function readJSON<T>(key: string, fallback: T): Promise<T> {
     try {
       const { blobs } = await list({ prefix: `${key}.json` });
       if (blobs.length === 0) return fallback;
-      // downloadUrl works for both public and private blobs (signed URL)
-      const res = await fetch(blobs[0].downloadUrl);
+      // Private store: fetch with Bearer token
+      const res = await fetch(blobs[0].url, {
+        headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` },
+      });
       return (await res.json()) as T;
     } catch {
       return fallback;
