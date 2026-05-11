@@ -39,12 +39,7 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-3 mb-2">
-            <div className="w-12 h-12 bg-clippa-red rounded-xl flex items-center justify-center">
-              <span className="text-white font-bold text-xl">CS</span>
-            </div>
-          </div>
-          <h1 className="text-2xl font-bold text-white">Clippa Sales</h1>
+          <Image src="/clippa-logo.jpg" alt="Clippa Sales" width={180} height={60} className="mx-auto mb-3" />
           <p className="text-gray-400 text-sm">Rep Router</p>
         </div>
 

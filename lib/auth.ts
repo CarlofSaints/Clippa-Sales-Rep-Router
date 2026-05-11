@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import bcrypt from "bcryptjs";
 import { getUsers } from "./data";
 import { SessionPayload } from "./types";
 
@@ -49,7 +50,6 @@ export async function validateCredentials(
   email: string,
   password: string
 ): Promise<SessionPayload | null> {
-  const bcrypt = await import("bcryptjs");
   const users = await getUsers();
   const user = users.find(
     (u) => u.email.toLowerCase() === email.toLowerCase()
