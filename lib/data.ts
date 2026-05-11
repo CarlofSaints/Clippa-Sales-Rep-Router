@@ -1,5 +1,5 @@
 import { put, list, del } from "@vercel/blob";
-import { Channel, Rep, Store, User, Team, RoutePlanDocument } from "./types";
+import { Channel, Rep, Store, User, Team, RoutePlanDocument, RolePermission, ROLE_DEFINITIONS, ALL_PERMISSIONS } from "./types";
 import fs from "fs";
 import path from "path";
 
@@ -110,4 +110,39 @@ export async function getRoutes(): Promise<RoutePlanDocument | null> {
 
 export async function saveRoutes(doc: RoutePlanDocument | null): Promise<void> {
   await writeJSON("routes", doc);
+}
+
+// ---------- Role Permissions ----------
+
+const ALL_PERM_KEYS = ALL_PERMISSIONS.map((p) => p.key);
+
+export async function getRolePermissions(): Promise<RolePermission[]> {
+  const saved = await readJSON<RolePermission[] | null>("role-permissions", null);
+  if (!saved) return ROLE_DEFINITIONS;
+
+  // Backfill: ensure every default role exists in saved data
+  const merged = [...saved];
+  for (const def of ROLE_DEFINITIONS) {
+    if (!merged.find((r) => r.role === def.role)) {
+      merged.push(def);
+    }
+  }
+  // Enforce: superAdmin always has ALL permissions
+  const sa = merged.find((r) => r.role === "superAdmin");
+  if (sa) sa.permissions = [...ALL_PERM_KEYS];
+
+  return merged;
+}
+
+export async function saveRolePermissions(perms: RolePermission[]): Promise<void> {
+  // Enforce: superAdmin always has ALL permissions
+  const sa = perms.find((r) => r.role === "superAdmin");
+  if (sa) sa.permissions = [...ALL_PERM_KEYS];
+
+  // Strip unknown permission keys
+  for (const rp of perms) {
+    rp.permissions = rp.permissions.filter((k) => ALL_PERM_KEYS.includes(k));
+  }
+
+  await writeJSON("role-permissions", perms);
 }

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { UserRole, ROLE_DEFINITIONS, ALL_PERMISSIONS } from "@/lib/types";
+import { useState, useEffect, useCallback } from "react";
+import { useSession } from "@/components/SessionProvider";
+import { UserRole, RolePermission, ROLE_DEFINITIONS, ALL_PERMISSIONS } from "@/lib/types";
 
 interface UserData {
   id: string;
@@ -46,6 +47,73 @@ export default function AdminPage() {
   const [msg, setMsg] = useState("");
   const [msgType, setMsgType] = useState<"info" | "success" | "error">("info");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  // Role Permissions state
+  const { session } = useSession();
+  const isSuperAdmin = session?.role === "superAdmin";
+  const [rolePerms, setRolePerms] = useState<RolePermission[]>(ROLE_DEFINITIONS);
+  const [savedPerms, setSavedPerms] = useState<RolePermission[]>(ROLE_DEFINITIONS);
+  const [permsSaving, setPermsSaving] = useState(false);
+  const permsDirty = JSON.stringify(rolePerms) !== JSON.stringify(savedPerms);
+
+  const loadPerms = useCallback(async () => {
+    try {
+      const res = await fetch("/api/role-permissions");
+      if (res.ok) {
+        const data: RolePermission[] = await res.json();
+        setRolePerms(data);
+        setSavedPerms(data);
+      }
+    } catch { /* use defaults */ }
+  }, []);
+
+  useEffect(() => {
+    if (isSuperAdmin) loadPerms();
+  }, [isSuperAdmin, loadPerms]);
+
+  const togglePermission = (role: UserRole, permKey: string) => {
+    if (role === "superAdmin") return;
+    setRolePerms((prev) =>
+      prev.map((rp) => {
+        if (rp.role !== role) return rp;
+        const has = rp.permissions.includes(permKey);
+        return {
+          ...rp,
+          permissions: has
+            ? rp.permissions.filter((k) => k !== permKey)
+            : [...rp.permissions, permKey],
+        };
+      })
+    );
+  };
+
+  const savePerms = async () => {
+    setPermsSaving(true);
+    try {
+      const res = await fetch("/api/role-permissions", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(rolePerms),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRolePerms(data);
+        setSavedPerms(data);
+        showMsg("Permissions saved", "success");
+      } else {
+        const err = await res.json();
+        showMsg(err.error || "Save failed", "error");
+      }
+    } catch {
+      showMsg("Save failed", "error");
+    } finally {
+      setPermsSaving(false);
+    }
+  };
+
+  const discardPerms = () => {
+    setRolePerms([...savedPerms]);
+  };
 
   const showMsg = (text: string, type: "info" | "success" | "error" = "info") => {
     setMsg(text);
@@ -357,20 +425,46 @@ export default function AdminPage() {
 
       {/* Roles & Permissions Matrix */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100">
-        <div className="px-6 py-4 border-b border-gray-100">
-          <h3 className="font-semibold text-gray-900">Roles &amp; Permissions</h3>
-          <p className="text-xs text-gray-500 mt-1">Permission matrix for each role</p>
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-gray-900">Roles &amp; Permissions</h3>
+            <p className="text-xs text-gray-500 mt-1">
+              {isSuperAdmin ? "Click checkmarks to toggle permissions" : "Permission matrix for each role"}
+            </p>
+          </div>
+          {permsDirty && isSuperAdmin && (
+            <div className="flex gap-2">
+              <button
+                onClick={discardPerms}
+                className="px-3 py-1.5 border border-gray-300 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-50"
+              >
+                Discard
+              </button>
+              <button
+                onClick={savePerms}
+                disabled={permsSaving}
+                className="px-3 py-1.5 bg-clippa-red text-white rounded-lg text-xs font-medium hover:bg-red-700 disabled:opacity-50"
+              >
+                {permsSaving ? "Saving..." : "Save Changes"}
+              </button>
+            </div>
+          )}
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
                 <th className="px-6 py-3 text-left">Permission</th>
-                {ROLE_DEFINITIONS.map((rd) => (
+                {rolePerms.map((rd) => (
                   <th key={rd.role} className="px-4 py-3 text-center">
                     <div className="flex items-center justify-center gap-1.5">
                       <span className={`w-2 h-2 rounded-full ${ROLE_DOTS[rd.role]}`} />
                       <span>{rd.label}</span>
+                      {rd.role === "superAdmin" && (
+                        <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                        </svg>
+                      )}
                     </div>
                   </th>
                 ))}
@@ -380,19 +474,38 @@ export default function AdminPage() {
               {ALL_PERMISSIONS.map((perm) => (
                 <tr key={perm.key} className="hover:bg-gray-50">
                   <td className="px-6 py-3 text-gray-700 font-medium">{perm.label}</td>
-                  {ROLE_DEFINITIONS.map((rd) => {
+                  {rolePerms.map((rd) => {
                     const has = rd.permissions.includes(perm.key);
+                    const locked = rd.role === "superAdmin";
+                    const canClick = isSuperAdmin && !locked;
                     return (
                       <td key={rd.role} className="px-4 py-3 text-center">
-                        {has ? (
-                          <svg className="w-5 h-5 text-green-500 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          </svg>
-                        ) : (
-                          <svg className="w-5 h-5 text-gray-300 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        )}
+                        <button
+                          onClick={() => canClick && togglePermission(rd.role, perm.key)}
+                          disabled={!canClick}
+                          className={`inline-flex items-center justify-center w-7 h-7 rounded-md transition-colors ${
+                            canClick ? "cursor-pointer hover:bg-gray-100" : "cursor-default"
+                          }`}
+                          title={
+                            locked
+                              ? "Super Admin always has all permissions"
+                              : !isSuperAdmin
+                                ? "Only Super Admins can edit permissions"
+                                : has
+                                  ? `Remove "${perm.label}" from ${rd.label}`
+                                  : `Grant "${perm.label}" to ${rd.label}`
+                          }
+                        >
+                          {has ? (
+                            <svg className={`w-5 h-5 ${locked ? "text-green-400" : "text-green-500"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                          ) : (
+                            <svg className="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          )}
+                        </button>
                       </td>
                     );
                   })}
@@ -403,7 +516,7 @@ export default function AdminPage() {
         </div>
         <div className="px-6 py-3 border-t border-gray-100">
           <div className="flex flex-wrap gap-4">
-            {ROLE_DEFINITIONS.map((rd) => (
+            {rolePerms.map((rd) => (
               <div key={rd.role} className="flex items-center gap-2">
                 <span className={`w-2 h-2 rounded-full ${ROLE_DOTS[rd.role]}`} />
                 <span className="text-xs text-gray-500">{rd.label}: {rd.description}</span>
