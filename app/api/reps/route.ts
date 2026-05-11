@@ -42,6 +42,7 @@ export async function POST(request: NextRequest) {
       homeGpsLat: body.homeGpsLat || "",
       homeGpsLng: body.homeGpsLng || "",
       teamId: body.teamId || "",
+      workingHoursPerDay: body.workingHoursPerDay ?? 8.5,
     };
     reps.push(newRep);
     await saveReps(reps);

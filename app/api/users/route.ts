@@ -6,7 +6,6 @@ import bcrypt from "bcryptjs";
 export async function GET() {
   try {
     const users = await getUsers();
-    // Strip passwords
     const safe = users.map(({ password: _, ...u }) => u);
     return NextResponse.json(safe);
   } catch (err) {
@@ -35,6 +34,7 @@ export async function POST(request: NextRequest) {
       email,
       password: hashed,
       role: (role as UserRole) || "viewer",
+      forcePasswordChange: body.forcePasswordChange ?? false,
     };
     users.push(newUser);
     await saveUsers(users);
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { id, name, email, role, password } = body;
+    const { id, name, email, role, password, forcePasswordChange } = body;
 
     const users = await getUsers();
     const idx = users.findIndex((u) => u.id === id);
@@ -59,6 +59,7 @@ export async function PUT(request: NextRequest) {
     if (email) users[idx].email = email;
     if (role) users[idx].role = role as UserRole;
     if (password) users[idx].password = await bcrypt.hash(password, 10);
+    if (forcePasswordChange !== undefined) users[idx].forcePasswordChange = forcePasswordChange;
 
     await saveUsers(users);
     const { password: _, ...safe } = users[idx];

@@ -70,6 +70,7 @@ export async function POST() {
         email: "carl@outerjoin.co.za",
         password: defaultPw,
         role: "superAdmin",
+        forcePasswordChange: false,
       },
       {
         id: crypto.randomUUID(),
@@ -77,6 +78,7 @@ export async function POST() {
         email: "ago@clippasales.com",
         password: defaultPw,
         role: "superAdmin",
+        forcePasswordChange: false,
       },
       {
         id: crypto.randomUUID(),
@@ -84,6 +86,7 @@ export async function POST() {
         email: "rolie@clippasales.com",
         password: defaultPw,
         role: "teamManager",
+        forcePasswordChange: false,
       },
     ];
     await saveUsers(users);

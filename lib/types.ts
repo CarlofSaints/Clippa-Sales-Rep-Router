@@ -40,6 +40,7 @@ export interface Rep {
   homeGpsLat: string;
   homeGpsLng: string;
   teamId: string;
+  workingHoursPerDay?: number; // default 8.5
 }
 
 export interface Team {
@@ -75,11 +76,120 @@ export interface User {
   email: string;
   password: string; // hashed
   role: UserRole;
+  forcePasswordChange: boolean;
 }
+
+export interface RolePermission {
+  role: UserRole;
+  label: string;
+  description: string;
+  permissions: string[];
+}
+
+export const ROLE_DEFINITIONS: RolePermission[] = [
+  {
+    role: "superAdmin",
+    label: "Super Admin",
+    description: "Full unrestricted access",
+    permissions: ["manage_users", "manage_roles", "manage_teams", "manage_reps", "manage_stores", "manage_channels", "view_dashboard", "view_map", "upload_data", "export_data"],
+  },
+  {
+    role: "admin",
+    label: "Admin",
+    description: "Manage reps, stores, channels, and view reports",
+    permissions: ["manage_teams", "manage_reps", "manage_stores", "manage_channels", "view_dashboard", "view_map", "upload_data", "export_data"],
+  },
+  {
+    role: "teamManager",
+    label: "Team Manager",
+    description: "View and manage assigned team and reps",
+    permissions: ["manage_reps", "manage_stores", "view_dashboard", "view_map"],
+  },
+  {
+    role: "rep",
+    label: "Rep",
+    description: "View own routes and store assignments",
+    permissions: ["view_dashboard", "view_map"],
+  },
+  {
+    role: "viewer",
+    label: "Viewer",
+    description: "Read-only access to dashboards and reports",
+    permissions: ["view_dashboard", "view_map"],
+  },
+];
+
+export const ALL_PERMISSIONS = [
+  { key: "manage_users", label: "Manage Users" },
+  { key: "manage_roles", label: "Manage Roles" },
+  { key: "manage_teams", label: "Manage Teams" },
+  { key: "manage_reps", label: "Manage Reps" },
+  { key: "manage_stores", label: "Manage Stores" },
+  { key: "manage_channels", label: "Manage Channels" },
+  { key: "view_dashboard", label: "View Dashboard" },
+  { key: "view_map", label: "View Map" },
+  { key: "upload_data", label: "Upload Data" },
+  { key: "export_data", label: "Export Data" },
+];
 
 export interface SessionPayload {
   userId: string;
   email: string;
   name: string;
   role: UserRole;
+  forcePasswordChange?: boolean;
+}
+
+// ---------- Route Plan Types ----------
+
+export interface RouteStop {
+  storeId: string;
+  storeName: string;
+  lat: number;
+  lng: number;
+  visitDuration: number; // minutes
+  travelTimeFromPrev: number; // minutes
+  distanceFromPrev: number; // km
+  arrivalTime: string; // "HH:mm"
+  departureTime: string; // "HH:mm"
+  sequence: number;
+}
+
+export type WeekLabel = "Wk1" | "Wk2" | "Wk3" | "Wk4";
+export type DayLabel = "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday";
+
+export interface RouteDayPlan {
+  day: DayLabel;
+  week: WeekLabel;
+  stops: RouteStop[];
+  totalTravelTime: number; // minutes
+  totalVisitTime: number; // minutes
+  totalTime: number; // minutes (travel + visits)
+  totalDistance: number; // km
+  overCapacity: boolean;
+  polyline?: string; // encoded Google polyline
+}
+
+export interface RepRoutePlan {
+  repCode: string;
+  repName: string;
+  homeLatLng: { lat: number; lng: number } | null;
+  workingHoursPerDay: number;
+  generatedAt: string; // ISO datetime
+  days: RouteDayPlan[];
+  stats: {
+    totalStores: number;
+    unassignedStores: { storeId: string; storeName: string; reason: string }[];
+  };
+}
+
+export interface RoutePlanDocument {
+  id: string;
+  generatedAt: string; // ISO datetime
+  generatedBy: string;
+  repPlans: RepRoutePlan[];
+  config: {
+    useGoogleMaps: boolean;
+    defaultStartTime: string; // "HH:mm"
+  };
 }

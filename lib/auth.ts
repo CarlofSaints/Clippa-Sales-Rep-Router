@@ -62,5 +62,6 @@ export async function validateCredentials(
     email: user.email,
     name: user.name,
     role: user.role,
+    forcePasswordChange: user.forcePasswordChange ?? false,
   };
 }

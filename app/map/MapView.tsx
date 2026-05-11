@@ -1,64 +1,249 @@
 "use client";
 
-import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
+import { useMemo } from "react";
+import { MapContainer, TileLayer, CircleMarker, Popup, Polyline, Marker } from "react-leaflet";
+import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { Store, Rep, Channel } from "@/lib/types";
+import { Store, Rep, Channel, RouteStop } from "@/lib/types";
 
 interface Props {
   stores: Store[];
   repMap: Map<string, Rep>;
   channelMap: Map<string, Channel>;
   repColors: Record<string, string>;
+  routeStops?: RouteStop[];
+  routePolyline?: string;
+  repHome?: { lat: number; lng: number } | null;
+  showRoute?: boolean;
 }
 
-export default function MapView({ stores, repMap, channelMap, repColors }: Props) {
-  // Center on Gauteng
+/** Decode Google's encoded polyline format */
+function decodePolyline(encoded: string): [number, number][] {
+  const points: [number, number][] = [];
+  let index = 0;
+  let lat = 0;
+  let lng = 0;
+
+  while (index < encoded.length) {
+    let shift = 0;
+    let result = 0;
+    let byte: number;
+    do {
+      byte = encoded.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+    lat += result & 1 ? ~(result >> 1) : result >> 1;
+
+    shift = 0;
+    result = 0;
+    do {
+      byte = encoded.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+    lng += result & 1 ? ~(result >> 1) : result >> 1;
+
+    points.push([lat / 1e5, lng / 1e5]);
+  }
+
+  return points;
+}
+
+/** Create a numbered circle marker icon */
+function numberedIcon(num: number): L.DivIcon {
+  return L.divIcon({
+    className: "",
+    html: `<div style="
+      background: #DC2626;
+      color: white;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      border: 2px solid white;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    ">${num}</div>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
+  });
+}
+
+/** Home marker icon */
+const homeIcon = L.divIcon({
+  className: "",
+  html: `<div style="
+    background: #1D4ED8;
+    color: white;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    border: 2px solid white;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  ">&#8962;</div>`,
+  iconSize: [28, 28],
+  iconAnchor: [14, 14],
+});
+
+export default function MapView({
+  stores,
+  repMap,
+  channelMap,
+  repColors,
+  routeStops,
+  routePolyline,
+  repHome,
+  showRoute,
+}: Props) {
   const center: [number, number] = [-26.2, 28.05];
   const zoom = 10;
 
   const fmt = (n: number) =>
     "R " + n.toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+  // Build polyline positions
+  const polylinePositions = useMemo((): [number, number][] => {
+    if (!showRoute || !routeStops || routeStops.length === 0) return [];
+
+    // If we have a Google-encoded polyline, decode it
+    if (routePolyline) {
+      return decodePolyline(routePolyline);
+    }
+
+    // Otherwise build straight lines: home → stops → home
+    const positions: [number, number][] = [];
+    if (repHome) {
+      positions.push([repHome.lat, repHome.lng]);
+    }
+    for (const stop of routeStops) {
+      positions.push([stop.lat, stop.lng]);
+    }
+    if (repHome) {
+      positions.push([repHome.lat, repHome.lng]);
+    }
+    return positions;
+  }, [showRoute, routeStops, routePolyline, repHome]);
+
+  // Route summary stats
+  const routeSummary = useMemo(() => {
+    if (!showRoute || !routeStops || routeStops.length === 0) return null;
+    const totalDistance = routeStops.reduce((s, st) => s + st.distanceFromPrev, 0);
+    const totalTravel = routeStops.reduce((s, st) => s + st.travelTimeFromPrev, 0);
+    return {
+      stops: routeStops.length,
+      distance: Math.round(totalDistance),
+      travelHours: (totalTravel / 60).toFixed(1),
+    };
+  }, [showRoute, routeStops]);
+
   return (
-    <MapContainer center={center} zoom={zoom} style={{ height: "100%", width: "100%" }}>
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
-      {stores.map((store) => {
-        const lat = parseFloat(store.gpsLat);
-        const lng = parseFloat(store.gpsLng);
-        if (isNaN(lat) || isNaN(lng)) return null;
+    <div className="relative h-full w-full">
+      <MapContainer center={center} zoom={zoom} style={{ height: "100%", width: "100%" }}>
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
 
-        const color = repColors[store.repCode] || "#6B7280";
-        const rep = repMap.get(store.repCode);
-        const ch = channelMap.get(store.channelId);
+        {/* Store markers */}
+        {stores.map((store) => {
+          const lat = parseFloat(store.gpsLat);
+          const lng = parseFloat(store.gpsLng);
+          if (isNaN(lat) || isNaN(lng)) return null;
 
-        return (
-          <CircleMarker
-            key={store.id}
-            center={[lat, lng]}
-            radius={5}
+          const color = repColors[store.repCode] || "#6B7280";
+          const rep = repMap.get(store.repCode);
+          const ch = channelMap.get(store.channelId);
+
+          return (
+            <CircleMarker
+              key={store.id}
+              center={[lat, lng]}
+              radius={showRoute ? 3 : 5}
+              pathOptions={{
+                fillColor: color,
+                color: color,
+                weight: 1,
+                opacity: showRoute ? 0.3 : 0.8,
+                fillOpacity: showRoute ? 0.2 : 0.6,
+              }}
+            >
+              <Popup>
+                <div className="text-xs space-y-1">
+                  <p className="font-bold text-sm">{store.name}</p>
+                  <p><span className="text-gray-500">Channel:</span> {ch?.name || store.channelId}</p>
+                  <p><span className="text-gray-500">Rep:</span> {rep?.name || store.repCode}</p>
+                  <p><span className="text-gray-500">Sales:</span> {fmt(store.monthlySales)}</p>
+                  <p><span className="text-gray-500">ID:</span> {store.placeId}</p>
+                </div>
+              </Popup>
+            </CircleMarker>
+          );
+        })}
+
+        {/* Route polyline */}
+        {showRoute && polylinePositions.length > 1 && (
+          <Polyline
+            positions={polylinePositions}
             pathOptions={{
-              fillColor: color,
-              color: color,
-              weight: 1,
-              opacity: 0.8,
-              fillOpacity: 0.6,
+              color: "#DC2626",
+              weight: 3,
+              opacity: 0.7,
+              dashArray: routePolyline ? undefined : "8, 6",
             }}
-          >
+          />
+        )}
+
+        {/* Route numbered stop markers */}
+        {showRoute &&
+          routeStops?.map((stop) => (
+            <Marker
+              key={`route-${stop.storeId}`}
+              position={[stop.lat, stop.lng]}
+              icon={numberedIcon(stop.sequence)}
+            >
+              <Popup>
+                <div className="text-xs space-y-1">
+                  <p className="font-bold text-sm">#{stop.sequence} {stop.storeName}</p>
+                  <p><span className="text-gray-500">Arrive:</span> {stop.arrivalTime}</p>
+                  <p><span className="text-gray-500">Depart:</span> {stop.departureTime}</p>
+                  <p><span className="text-gray-500">Visit:</span> {stop.visitDuration} min</p>
+                  {stop.distanceFromPrev > 0 && (
+                    <p><span className="text-gray-500">Distance:</span> {stop.distanceFromPrev} km</p>
+                  )}
+                </div>
+              </Popup>
+            </Marker>
+          ))}
+
+        {/* Rep home marker */}
+        {showRoute && repHome && (
+          <Marker position={[repHome.lat, repHome.lng]} icon={homeIcon}>
             <Popup>
-              <div className="text-xs space-y-1">
-                <p className="font-bold text-sm">{store.name}</p>
-                <p><span className="text-gray-500">Channel:</span> {ch?.name || store.channelId}</p>
-                <p><span className="text-gray-500">Rep:</span> {rep?.name || store.repCode}</p>
-                <p><span className="text-gray-500">Sales:</span> {fmt(store.monthlySales)}</p>
-                <p><span className="text-gray-500">ID:</span> {store.placeId}</p>
-              </div>
+              <div className="text-xs font-medium">Rep Home Base</div>
             </Popup>
-          </CircleMarker>
-        );
-      })}
-    </MapContainer>
+          </Marker>
+        )}
+      </MapContainer>
+
+      {/* Route summary overlay */}
+      {routeSummary && (
+        <div className="absolute bottom-4 left-4 bg-white/95 backdrop-blur rounded-lg shadow-lg px-4 py-3 z-[1000] text-xs">
+          <div className="font-semibold text-gray-900 mb-1">Route Summary</div>
+          <div className="text-gray-600 space-y-0.5">
+            <p>{routeSummary.stops} stops</p>
+            <p>{routeSummary.distance} km total</p>
+            <p>{routeSummary.travelHours}h travel time</p>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

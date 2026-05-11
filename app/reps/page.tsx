@@ -10,7 +10,7 @@ export default function RepsPage() {
   const [editData, setEditData] = useState<Partial<Rep>>({});
   const [saving, setSaving] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
-  const [newRep, setNewRep] = useState<Partial<Rep>>({ code: "", name: "", email: "", cell: "", homeAddress: "" });
+  const [newRep, setNewRep] = useState<Partial<Rep>>({ code: "", name: "", email: "", cell: "", homeAddress: "", workingHoursPerDay: 8.5 });
 
   const load = () => {
     fetch("/api/reps")
@@ -54,7 +54,7 @@ export default function RepsPage() {
       body: JSON.stringify(newRep),
     });
     setShowAdd(false);
-    setNewRep({ code: "", name: "", email: "", cell: "", homeAddress: "" });
+    setNewRep({ code: "", name: "", email: "", cell: "", homeAddress: "", workingHoursPerDay: 8.5 });
     setSaving(false);
     load();
   };
@@ -114,6 +114,18 @@ export default function RepsPage() {
                 />
               </div>
             ))}
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Hours/Day</label>
+              <input
+                type="number"
+                step={0.5}
+                min={4}
+                max={12}
+                value={newRep.workingHoursPerDay ?? 8.5}
+                onChange={(e) => setNewRep({ ...newRep, workingHoursPerDay: parseFloat(e.target.value) || 8.5 })}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
+              />
+            </div>
           </div>
           <div className="mt-4 flex gap-2">
             <button
@@ -144,6 +156,7 @@ export default function RepsPage() {
                 <th className="px-6 py-3">Email</th>
                 <th className="px-6 py-3">Cell</th>
                 <th className="px-6 py-3">Home Address</th>
+                <th className="px-6 py-3 text-center">Hours/Day</th>
                 <th className="px-6 py-3 text-right">Actions</th>
               </tr>
             </thead>
@@ -187,6 +200,17 @@ export default function RepsPage() {
                           className="border border-gray-200 rounded px-2 py-1 text-sm w-full focus:outline-none focus:ring-1 focus:ring-clippa-red"
                         />
                       </td>
+                      <td className="px-6 py-3 text-center">
+                        <input
+                          type="number"
+                          step={0.5}
+                          min={4}
+                          max={12}
+                          value={editData.workingHoursPerDay ?? 8.5}
+                          onChange={(e) => setEditData({ ...editData, workingHoursPerDay: parseFloat(e.target.value) || 8.5 })}
+                          className="border border-gray-200 rounded px-2 py-1 text-sm w-16 text-center focus:outline-none focus:ring-1 focus:ring-clippa-red"
+                        />
+                      </td>
                       <td className="px-6 py-3 text-right space-x-2">
                         <button onClick={() => saveEdit(rep.id)} disabled={saving} className="text-green-600 hover:text-green-800 text-xs font-medium">
                           Save
@@ -207,6 +231,7 @@ export default function RepsPage() {
                       <td className="px-6 py-3 text-gray-600">{rep.email || <span className="text-gray-300 italic">Not set</span>}</td>
                       <td className="px-6 py-3 text-gray-600">{rep.cell || <span className="text-gray-300 italic">Not set</span>}</td>
                       <td className="px-6 py-3 text-gray-600 max-w-[200px] truncate">{rep.homeAddress || <span className="text-gray-300 italic">Not set</span>}</td>
+                      <td className="px-6 py-3 text-center text-gray-600">{rep.workingHoursPerDay ?? 8.5}</td>
                       <td className="px-6 py-3 text-right space-x-2">
                         <button onClick={() => startEdit(rep)} className="text-clippa-red hover:text-red-800 text-xs font-medium">
                           Edit

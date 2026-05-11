@@ -1,5 +1,5 @@
 import { put, list, del } from "@vercel/blob";
-import { Channel, Rep, Store, User, Team } from "./types";
+import { Channel, Rep, Store, User, Team, RoutePlanDocument } from "./types";
 import fs from "fs";
 import path from "path";
 
@@ -100,4 +100,14 @@ export async function getTeams(): Promise<Team[]> {
 
 export async function saveTeams(teams: Team[]): Promise<void> {
   await writeJSON("teams", teams);
+}
+
+// ---------- Routes ----------
+
+export async function getRoutes(): Promise<RoutePlanDocument | null> {
+  return readJSON<RoutePlanDocument | null>("routes", null);
+}
+
+export async function saveRoutes(doc: RoutePlanDocument | null): Promise<void> {
+  await writeJSON("routes", doc);
 }
