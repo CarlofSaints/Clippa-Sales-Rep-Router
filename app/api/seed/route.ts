@@ -61,35 +61,34 @@ export async function POST() {
     }));
     await saveReps(reps);
 
-    // 4. Super admins + team manager (only if no users exist)
-    const existingUsers = await getUsers();
-    if (existingUsers.length === 0) {
-      const defaultPw = await bcrypt.hash("clippa2026", 10);
-      const users: User[] = [
-        {
-          id: crypto.randomUUID(),
-          name: "Carl Dos Santos",
-          email: "carl@outerjoin.co.za",
-          password: defaultPw,
-          role: "superAdmin",
-        },
-        {
-          id: crypto.randomUUID(),
-          name: "Ago Vieira",
-          email: "ago@clippasales.com",
-          password: defaultPw,
-          role: "superAdmin",
-        },
-        {
-          id: crypto.randomUUID(),
-          name: "Roliezer Boseme",
-          email: "rolie@clippasales.com",
-          password: defaultPw,
-          role: "teamManager",
-        },
-      ];
-      await saveUsers(users);
-    }
+    // 4. Super admins + team manager — always recreate
+    const defaultPw = await bcrypt.hash("clippa2026", 10);
+    const users: User[] = [
+      {
+        id: crypto.randomUUID(),
+        name: "Carl Dos Santos",
+        email: "carl@outerjoin.co.za",
+        password: defaultPw,
+        role: "superAdmin",
+      },
+      {
+        id: crypto.randomUUID(),
+        name: "Ago Vieira",
+        email: "ago@clippasales.com",
+        password: defaultPw,
+        role: "superAdmin",
+      },
+      {
+        id: crypto.randomUUID(),
+        name: "Roliezer Boseme",
+        email: "rolie@clippasales.com",
+        password: defaultPw,
+        role: "teamManager",
+      },
+    ];
+    await saveUsers(users);
+    // verify write
+    const savedUsers = await getUsers();
 
     // 5. Stores — read from the bundled Excel
     let storeCount = 0;
@@ -139,7 +138,7 @@ export async function POST() {
         reps: reps.length,
         stores: storeCount,
         teams: 1,
-        users: "created if empty",
+        users: savedUsers.length,
       },
     });
   } catch (err) {
