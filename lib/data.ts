@@ -13,7 +13,8 @@ async function readJSON<T>(key: string, fallback: T): Promise<T> {
     try {
       const { blobs } = await list({ prefix: `${key}.json` });
       if (blobs.length === 0) return fallback;
-      const res = await fetch(blobs[0].url);
+      // downloadUrl works for both public and private blobs (signed URL)
+      const res = await fetch(blobs[0].downloadUrl);
       return (await res.json()) as T;
     } catch {
       return fallback;
