@@ -1,31 +1,62 @@
 import { NextResponse } from "next/server";
-import { getUsers } from "@/lib/data";
+import { list } from "@vercel/blob";
 import bcrypt from "bcryptjs";
 
 export async function GET() {
   try {
-    const users = await getUsers();
-    const testPassword = "clippa2026";
+    // List ALL blobs in the store
+    const { blobs } = await list();
+    const blobInfo = blobs.map((b) => ({
+      pathname: b.pathname,
+      size: b.size,
+      url: b.url?.substring(0, 60) + "...",
+      hasDownloadUrl: !!b.downloadUrl,
+    }));
 
-    const results = await Promise.all(
-      users.map(async (u) => {
-        const match = await bcrypt.compare(testPassword, u.password);
-        return {
-          name: u.name,
-          email: u.email,
-          role: u.role,
-          passwordHashLength: u.password?.length ?? 0,
-          passwordStartsWith: u.password?.substring(0, 7) ?? "EMPTY",
-          matchesClippa2026: match,
-        };
-      })
-    );
+    // Try reading users.json specifically
+    const usersBlobs = blobs.filter((b) => b.pathname === "users.json");
+    let usersData = null;
+    let readError = null;
+
+    if (usersBlobs.length > 0) {
+      const blob = usersBlobs[0];
+      try {
+        // Try downloadUrl first
+        if (blob.downloadUrl) {
+          const res = await fetch(blob.downloadUrl);
+          const text = await res.text();
+          usersData = { source: "downloadUrl", status: res.status, length: text.length, preview: text.substring(0, 200) };
+        }
+      } catch (e) {
+        readError = { downloadUrl: String(e) };
+      }
+
+      if (!usersData) {
+        try {
+          // Try url
+          const res = await fetch(blob.url);
+          const text = await res.text();
+          usersData = { source: "url", status: res.status, length: text.length, preview: text.substring(0, 200) };
+        } catch (e) {
+          readError = { ...readError, url: String(e) };
+        }
+      }
+    }
+
+    // Test bcrypt
+    const testHash = await bcrypt.hash("clippa2026", 10);
+    const testMatch = await bcrypt.compare("clippa2026", testHash);
 
     return NextResponse.json({
-      userCount: users.length,
-      users: results,
+      blobToken: !!process.env.BLOB_READ_WRITE_TOKEN,
+      totalBlobs: blobs.length,
+      blobs: blobInfo,
+      usersBlob: usersBlobs.length > 0 ? "found" : "NOT FOUND",
+      usersData,
+      readError,
+      bcryptWorks: testMatch,
     });
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    return NextResponse.json({ error: String(err), stack: (err as Error).stack }, { status: 500 });
   }
 }
