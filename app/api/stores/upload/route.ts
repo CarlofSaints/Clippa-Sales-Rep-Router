@@ -26,10 +26,15 @@ export async function POST(request: NextRequest) {
     let newCount = 0;
     let updatedCount = 0;
 
-    // Helper: try multiple header names, return first match
+    // Helper: try multiple header names, return first match (trimmed key lookup)
     const col = (row: Record<string, string | number>, ...keys: string[]) => {
+      // Build a trimmed-key lookup so " VALUE " matches "VALUE"
+      const trimmedEntries = Object.entries(row).map(([k, v]) => [k.trim(), v] as const);
       for (const k of keys) {
-        if (row[k] !== undefined && row[k] !== "") return String(row[k]).trim();
+        const entry = trimmedEntries.find(([tk]) => tk === k);
+        if (entry !== undefined && entry[1] !== undefined && entry[1] !== "") {
+          return String(entry[1]).trim();
+        }
       }
       return "";
     };
