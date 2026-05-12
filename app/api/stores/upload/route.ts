@@ -17,20 +17,33 @@ export async function POST(request: NextRequest) {
     // Load existing data
     const existingChannels = await getChannels();
     const existingReps = await getReps();
+    const existingStores = await getStores();
     const channelMap = new Map(existingChannels.map((c) => [c.name, c]));
     const repMap = new Map(existingReps.map((r) => [r.code, r]));
 
-    const stores: Store[] = [];
+    // Index existing stores by placeId for merge
+    const storeMap = new Map(existingStores.map((s) => [s.placeId, s]));
+    let newCount = 0;
+    let updatedCount = 0;
+
+    // Helper: try multiple header names, return first match
+    const col = (row: Record<string, string | number>, ...keys: string[]) => {
+      for (const k of keys) {
+        if (row[k] !== undefined && row[k] !== "") return String(row[k]).trim();
+      }
+      return "";
+    };
 
     for (const row of rows) {
-      const placeId = String(row["PLACE ID"] || "").trim();
-      const repCode = String(row["REPRESENTATIVE ID"] || "").trim();
-      const channelName = String(row["CHANNEL"] || "").trim();
-      const storeName = String(row["PLACE NAME"] || "").trim();
-      const repName = String(row["REPRESENTATIVE NAME"] || "").trim();
-      const lat = String(row["GPS LATITUDE"] || "").trim();
-      const lng = String(row["GPS LONGITUDE"] || "").trim();
-      const sales = Number(row["MONTHLY AVERAGE"] || 0);
+      const placeId = col(row, "PLACE ID", "STORE ID", "Store ID");
+      const repCode = col(row, "REPRESENTATIVE ID", "REP CODE", "Rep Code");
+      const channelName = col(row, "CHANNEL", "Channel");
+      const storeName = col(row, "PLACE NAME", "STORE NAME", "Store Name");
+      const repName = col(row, "REPRESENTATIVE NAME", "REP NAME", "Rep Name");
+      const lat = col(row, "GPS LATITUDE", "Gps latitude", "Gps Latitude", "GPS_LATITUDE");
+      const lng = col(row, "GPS LONGITUDE", "Gps longitude", "Gps Longitude", "GPS_LONGITUDE");
+      const rawSales = col(row, "MONTHLY AVERAGE", "VALUE", "Value");
+      const sales = Number(rawSales.replace(/[^0-9.\-]/g, "") || 0);
 
       if (!placeId || !storeName) continue;
 
@@ -63,29 +76,45 @@ export async function POST(request: NextRequest) {
 
       const channelId = channelMap.get(channelName)?.id || "";
 
-      stores.push({
-        id: placeId,
-        placeId,
-        name: storeName,
-        channelId,
-        repCode,
-        gpsLat: lat,
-        gpsLng: lng,
-        monthlySales: sales,
-        frequency: "monthly",
-        duration: 30,
-        dayOfWeek: "",
-        weekNumber: "",
-      });
+      if (storeMap.has(placeId)) {
+        // Update existing store
+        const existing = storeMap.get(placeId)!;
+        existing.name = storeName;
+        existing.channelId = channelId;
+        existing.repCode = repCode;
+        existing.gpsLat = lat;
+        existing.gpsLng = lng;
+        existing.monthlySales = sales;
+        updatedCount++;
+      } else {
+        // Add new store
+        storeMap.set(placeId, {
+          id: placeId,
+          placeId,
+          name: storeName,
+          channelId,
+          repCode,
+          gpsLat: lat,
+          gpsLng: lng,
+          monthlySales: sales,
+          frequency: "monthly",
+          duration: 30,
+          dayOfWeek: "",
+          weekNumber: "",
+        });
+        newCount++;
+      }
     }
 
     await saveChannels(Array.from(channelMap.values()));
     await saveReps(Array.from(repMap.values()));
-    await saveStores(stores);
+    await saveStores(Array.from(storeMap.values()));
 
     return NextResponse.json({
       ok: true,
-      imported: stores.length,
+      added: newCount,
+      updated: updatedCount,
+      total: storeMap.size,
       channels: channelMap.size,
       reps: repMap.size,
     });
