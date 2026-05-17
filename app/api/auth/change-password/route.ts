@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUsers, saveUsers } from "@/lib/data";
+import { getUsers, saveUsers, getReps, getTeams } from "@/lib/data";
 import { encodeSession } from "@/lib/auth";
+import { SessionPayload } from "@/lib/types";
 import bcrypt from "bcryptjs";
 
 export async function POST(request: NextRequest) {
@@ -19,17 +20,29 @@ export async function POST(request: NextRequest) {
     await saveUsers(users);
 
     // Re-issue session cookie without forcePasswordChange
-    const session = {
+    const session: SessionPayload = {
       userId: users[idx].id,
       email: users[idx].email,
       name: users[idx].name,
       role: users[idx].role,
       forcePasswordChange: false,
     };
+
+    // Enrich session with repCode / teamId based on role
+    if (session.role === "rep") {
+      const reps = await getReps();
+      const rep = reps.find((r) => r.email.toLowerCase() === session.email.toLowerCase());
+      if (rep) session.repCode = rep.code;
+    } else if (session.role === "teamManager") {
+      const teams = await getTeams();
+      const team = teams.find((t) => t.managerEmail.toLowerCase() === session.email.toLowerCase());
+      if (team) session.teamId = team.id;
+    }
+
     const token = encodeSession(session);
     const response = NextResponse.json({ ok: true });
     response.cookies.set("clippa_session", token, {
-      httpOnly: true,
+      httpOnly: false,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",

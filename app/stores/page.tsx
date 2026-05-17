@@ -116,7 +116,7 @@ export default function StoresPage() {
       const res = await fetch("/api/stores/upload", { method: "POST", body: fd });
       const data = await res.json();
       if (res.ok) {
-        setUploadMsg(`Imported ${data.imported} stores, ${data.channels} channels, ${data.reps} reps`);
+        setUploadMsg(`${data.added ?? data.imported ?? 0} new stores, ${data.updated ?? 0} updated — ${data.total ?? data.imported ?? 0} total stores, ${data.channels} channels, ${data.reps} reps`);
         load();
       } else {
         setUploadMsg(data.error || "Upload failed");

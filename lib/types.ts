@@ -138,6 +138,8 @@ export interface SessionPayload {
   name: string;
   role: UserRole;
   forcePasswordChange?: boolean;
+  repCode?: string;  // for rep users — matched by email at login
+  teamId?: string;   // for teamManager users — matched by managerEmail at login
 }
 
 // ---------- Route Plan Types ----------

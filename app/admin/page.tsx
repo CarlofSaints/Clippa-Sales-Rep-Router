@@ -48,6 +48,13 @@ export default function AdminPage() {
   const [msgType, setMsgType] = useState<"info" | "success" | "error">("info");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
+  // Set Password state (Super Admin only)
+  const [setPwUser, setSetPwUser] = useState<UserData | null>(null);
+  const [setPwValue, setSetPwValue] = useState("");
+  const [setPwConfirm, setSetPwConfirm] = useState("");
+  const [setPwForce, setSetPwForce] = useState(false);
+  const [setPwSaving, setSetPwSaving] = useState(false);
+
   // Role Permissions state
   const { session } = useSession();
   const isSuperAdmin = session?.role === "superAdmin";
@@ -207,6 +214,8 @@ export default function AdminPage() {
         showMsg(data.error || "Failed to send welcome email", "error");
       } else if (data.sent) {
         showMsg(`Welcome email sent to ${user.email}`, "success");
+      } else if (data.message) {
+        showMsg(`${data.message} Temp PW: ${data.tempPassword}`, "error");
       } else {
         showMsg(`Temp password for ${user.email}: ${data.tempPassword} (no email service configured — share manually)`, "info");
       }
@@ -215,6 +224,54 @@ export default function AdminPage() {
       showMsg("Network error sending welcome email", "error");
     }
     setActionLoading(null);
+  };
+
+  const openSetPw = (user: UserData) => {
+    setSetPwUser(user);
+    setSetPwValue("");
+    setSetPwConfirm("");
+    setSetPwForce(false);
+  };
+
+  const closeSetPw = () => {
+    setSetPwUser(null);
+    setSetPwValue("");
+    setSetPwConfirm("");
+    setSetPwForce(false);
+  };
+
+  const submitSetPw = async () => {
+    if (!setPwUser) return;
+    if (setPwValue.length < 6) {
+      showMsg("Password must be at least 6 characters", "error");
+      return;
+    }
+    if (setPwValue !== setPwConfirm) {
+      showMsg("Passwords do not match", "error");
+      return;
+    }
+    setSetPwSaving(true);
+    try {
+      const payload: Record<string, unknown> = { id: setPwUser.id, password: setPwValue };
+      if (setPwForce) payload.forcePasswordChange = true;
+      const res = await fetch("/api/users", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        showMsg(`Password updated for ${setPwUser.name}`, "success");
+        closeSetPw();
+        load();
+      } else {
+        const data = await res.json();
+        showMsg(data.error || "Failed to set password", "error");
+      }
+    } catch {
+      showMsg("Network error setting password", "error");
+    } finally {
+      setSetPwSaving(false);
+    }
   };
 
   if (loading) {
@@ -247,6 +304,66 @@ export default function AdminPage() {
           "bg-blue-50 text-blue-700"
         }`}>
           {msg}
+        </div>
+      )}
+
+      {/* Set Password Modal */}
+      {setPwUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6 w-full max-w-md mx-4">
+            <h3 className="font-semibold text-gray-900 mb-1">Set Password</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Setting password for <span className="font-medium text-gray-700">{setPwUser.name}</span> ({setPwUser.email})
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">New Password</label>
+                <input
+                  type="password"
+                  value={setPwValue}
+                  onChange={(e) => setSetPwValue(e.target.value)}
+                  placeholder="Min 6 characters"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Confirm Password</label>
+                <input
+                  type="password"
+                  value={setPwConfirm}
+                  onChange={(e) => setSetPwConfirm(e.target.value)}
+                  placeholder="Re-enter password"
+                  onKeyDown={(e) => e.key === "Enter" && submitSetPw()}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
+                />
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={setPwForce}
+                  onChange={(e) => setSetPwForce(e.target.checked)}
+                  className="rounded border-gray-300 text-clippa-red focus:ring-clippa-red"
+                />
+                <span className="text-sm text-gray-600">Force user to change password on next login</span>
+              </label>
+            </div>
+            <div className="mt-5 flex gap-2 justify-end">
+              <button
+                onClick={closeSetPw}
+                className="text-gray-500 px-4 py-2 rounded-lg text-sm hover:bg-gray-100"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitSetPw}
+                disabled={setPwSaving || setPwValue.length < 6 || setPwValue !== setPwConfirm}
+                className="bg-clippa-red text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+              >
+                {setPwSaving ? "Saving..." : "Set Password"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -403,6 +520,15 @@ export default function AdminPage() {
                               </svg>
                             )}
                           </button>
+                          {isSuperAdmin && (
+                            <button
+                              onClick={() => openSetPw(user)}
+                              title="Set password for this user"
+                              className="text-emerald-600 hover:text-emerald-800 text-xs font-medium px-2 py-1 rounded hover:bg-emerald-50"
+                            >
+                              Set PW
+                            </button>
+                          )}
                           <button
                             onClick={() => { setEditing(user.id); setEditData({ name: user.name, email: user.email, role: user.role }); }}
                             className="text-clippa-red hover:text-red-800 text-xs font-medium px-2 py-1 rounded hover:bg-red-50"

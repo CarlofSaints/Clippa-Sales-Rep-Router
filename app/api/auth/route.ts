@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validateCredentials, encodeSession } from "@/lib/auth";
+import { getReps, getTeams } from "@/lib/data";
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,10 +14,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
 
+    // Enrich session with repCode / teamId based on role
+    if (session.role === "rep") {
+      const reps = await getReps();
+      const rep = reps.find((r) => r.email.toLowerCase() === session.email.toLowerCase());
+      if (rep) session.repCode = rep.code;
+    } else if (session.role === "teamManager") {
+      const teams = await getTeams();
+      const team = teams.find((t) => t.managerEmail.toLowerCase() === session.email.toLowerCase());
+      if (team) session.teamId = team.id;
+    }
+
     const token = encodeSession(session);
     const response = NextResponse.json({ ok: true, user: session });
     response.cookies.set("clippa_session", token, {
-      httpOnly: true,
+      httpOnly: false,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
@@ -31,7 +43,7 @@ export async function POST(request: NextRequest) {
 export async function DELETE() {
   const response = NextResponse.json({ ok: true });
   response.cookies.set("clippa_session", "", {
-    httpOnly: true,
+    httpOnly: false,
     path: "/",
     maxAge: 0,
   });

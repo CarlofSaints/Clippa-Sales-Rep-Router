@@ -32,9 +32,19 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const reps = await getReps();
+
+    // Prevent duplicate rep codes
+    const code = (body.code || "").trim();
+    if (!code) {
+      return NextResponse.json({ error: "Rep code is required" }, { status: 400 });
+    }
+    if (reps.some((r) => r.code.toLowerCase() === code.toLowerCase())) {
+      return NextResponse.json({ error: `Rep code "${code}" already exists` }, { status: 409 });
+    }
+
     const newRep: Rep = {
       id: crypto.randomUUID(),
-      code: body.code || "",
+      code,
       name: body.name || "",
       email: body.email || "",
       cell: body.cell || "",

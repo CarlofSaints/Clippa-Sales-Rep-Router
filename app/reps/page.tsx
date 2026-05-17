@@ -11,6 +11,7 @@ export default function RepsPage() {
   const [saving, setSaving] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [newRep, setNewRep] = useState<Partial<Rep>>({ code: "", name: "", email: "", cell: "", homeAddress: "", workingHoursPerDay: 8.5 });
+  const [error, setError] = useState("");
 
   const load = () => {
     fetch("/api/reps")
@@ -48,11 +49,18 @@ export default function RepsPage() {
 
   const addRep = async () => {
     setSaving(true);
-    await fetch("/api/reps", {
+    setError("");
+    const res = await fetch("/api/reps", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(newRep),
     });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error || "Failed to add rep");
+      setSaving(false);
+      return;
+    }
     setShowAdd(false);
     setNewRep({ code: "", name: "", email: "", cell: "", homeAddress: "", workingHoursPerDay: 8.5 });
     setSaving(false);
@@ -127,6 +135,9 @@ export default function RepsPage() {
               />
             </div>
           </div>
+          {error && (
+            <div className="mt-3 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">{error}</div>
+          )}
           <div className="mt-4 flex gap-2">
             <button
               onClick={addRep}
@@ -136,7 +147,7 @@ export default function RepsPage() {
               {saving ? "Saving..." : "Save Rep"}
             </button>
             <button
-              onClick={() => setShowAdd(false)}
+              onClick={() => { setShowAdd(false); setError(""); }}
               className="text-gray-500 px-4 py-2 rounded-lg text-sm hover:bg-gray-100"
             >
               Cancel

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Team, Rep } from "@/lib/types";
 
 export default function TeamsPage() {
@@ -12,7 +12,12 @@ export default function TeamsPage() {
   const [editing, setEditing] = useState<string | null>(null);
   const [editData, setEditData] = useState<Partial<Team>>({});
   const [saving, setSaving] = useState(false);
-  const [assigningRep, setAssigningRep] = useState<string | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
+  const [draggingRepId, setDraggingRepId] = useState<string | null>(null);
+  const [dropping, setDropping] = useState(false);
+
+  // Counter-based drag enter/leave tracking per drop zone (handles child elements)
+  const dragCounters = useRef<Map<string, number>>(new Map());
 
   const load = () => {
     Promise.all([
@@ -68,7 +73,6 @@ export default function TeamsPage() {
 
   const deleteTeam = async (id: string) => {
     if (!confirm("Delete this team? Reps will become unassigned.")) return;
-    // Unassign reps first
     const teamReps = repsByTeam.get(id) || [];
     for (const rep of teamReps) {
       await fetch("/api/reps", {
@@ -85,16 +89,6 @@ export default function TeamsPage() {
     load();
   };
 
-  const assignRep = async (repId: string, teamId: string) => {
-    await fetch("/api/reps", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: repId, teamId }),
-    });
-    setAssigningRep(null);
-    load();
-  };
-
   const removeRepFromTeam = async (repId: string) => {
     await fetch("/api/reps", {
       method: "PUT",
@@ -103,6 +97,105 @@ export default function TeamsPage() {
     });
     load();
   };
+
+  // ── Drag & Drop ──
+  // Uses counter-based enter/leave to handle child elements reliably.
+  // Optimistic UI update on drop so the rep moves instantly.
+
+  const handleDragStart = (e: React.DragEvent, repId: string) => {
+    e.dataTransfer.setData("application/x-rep-id", repId);
+    e.dataTransfer.effectAllowed = "move";
+    // Delay so the dragged ghost renders before we dim the source
+    requestAnimationFrame(() => setDraggingRepId(repId));
+  };
+
+  const handleDragEnd = () => {
+    setDraggingRepId(null);
+    setDragOverTarget(null);
+    dragCounters.current.clear();
+  };
+
+  const handleDragEnter = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    const count = (dragCounters.current.get(targetId) || 0) + 1;
+    dragCounters.current.set(targetId, count);
+    if (count === 1) setDragOverTarget(targetId);
+  };
+
+  const handleDragLeave = (_e: React.DragEvent, targetId: string) => {
+    const count = (dragCounters.current.get(targetId) || 1) - 1;
+    dragCounters.current.set(targetId, count);
+    if (count <= 0) {
+      dragCounters.current.set(targetId, 0);
+      setDragOverTarget((prev) => (prev === targetId ? null : prev));
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetTeamId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Reset drag visuals
+    dragCounters.current.clear();
+    setDragOverTarget(null);
+    setDraggingRepId(null);
+
+    if (dropping) return; // prevent double drops
+
+    const repId = e.dataTransfer.getData("application/x-rep-id");
+    if (!repId) return;
+
+    const rep = reps.find((r) => r.id === repId);
+    if (!rep) return;
+
+    const newTeamId = targetTeamId === "unassigned" ? "" : targetTeamId;
+    const currentTeamId = rep.teamId || "";
+
+    if (currentTeamId === newTeamId) return; // no-op
+
+    // Optimistic update: move the rep in local state immediately
+    setReps((prev) =>
+      prev.map((r) => (r.id === repId ? { ...r, teamId: newTeamId } : r))
+    );
+
+    // Persist to server
+    setDropping(true);
+    try {
+      const res = await fetch("/api/reps", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: repId, teamId: newTeamId }),
+      });
+      if (!res.ok) {
+        // Revert on failure
+        load();
+      }
+    } catch {
+      load(); // revert
+    } finally {
+      setDropping(false);
+    }
+  };
+
+  // ── Drop zone wrapper props ──
+  const dropZoneProps = (targetId: string) => ({
+    onDragEnter: (e: React.DragEvent<HTMLDivElement>) => handleDragEnter(e, targetId),
+    onDragLeave: (e: React.DragEvent<HTMLDivElement>) => handleDragLeave(e, targetId),
+    onDragOver: handleDragOver,
+    onDrop: (e: React.DragEvent<HTMLDivElement>) => handleDrop(e, targetId),
+  });
+
+  // ── Draggable rep props ──
+  const draggableProps = (repId: string) => ({
+    draggable: !dropping,
+    onDragStart: (e: React.DragEvent<HTMLDivElement>) => handleDragStart(e, repId),
+    onDragEnd: handleDragEnd,
+  });
 
   if (loading) {
     return (
@@ -126,6 +219,11 @@ export default function TeamsPage() {
           + New Team
         </button>
       </div>
+
+      {/* Drag hint */}
+      {unassignedReps.length > 0 && (
+        <p className="text-xs text-gray-400">Drag reps into a team card to assign them.</p>
+      )}
 
       {/* Add Team Form */}
       {showAdd && (
@@ -159,14 +257,23 @@ export default function TeamsPage() {
         </div>
       )}
 
-      {/* Team Cards */}
+      {/* Team Cards — Drop Zones */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {teams.map((team) => {
           const teamReps = repsByTeam.get(team.id) || [];
           const isEditing = editing === team.id;
+          const isDropTarget = dragOverTarget === team.id;
 
           return (
-            <div key={team.id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <div
+              key={team.id}
+              {...dropZoneProps(team.id)}
+              className={`bg-white rounded-xl shadow-sm border-2 overflow-hidden transition-all duration-150 ${
+                isDropTarget
+                  ? "border-clippa-red bg-red-50/30 shadow-md scale-[1.01]"
+                  : "border-gray-100"
+              }`}
+            >
               <div className="bg-gray-50 px-6 py-4 border-b border-gray-100 flex items-center justify-between">
                 {isEditing ? (
                   <div className="flex-1 grid grid-cols-2 gap-2 mr-4">
@@ -209,26 +316,35 @@ export default function TeamsPage() {
               )}
 
               {/* Reps list */}
-              <div className="px-6 py-3">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-medium text-gray-500 uppercase">
-                    Reps ({teamReps.length})
-                  </span>
-                  <button
-                    onClick={() => setAssigningRep(team.id)}
-                    className="text-xs text-clippa-red hover:text-red-800 font-medium"
-                  >
-                    + Assign Rep
-                  </button>
-                </div>
+              <div className="px-6 py-3 min-h-[60px]">
+                <span className="text-xs font-medium text-gray-500 uppercase mb-2 block">
+                  Reps ({teamReps.length})
+                </span>
 
-                {teamReps.length === 0 ? (
-                  <p className="text-xs text-gray-400 italic py-2">No reps assigned</p>
-                ) : (
+                {teamReps.length === 0 && (
+                  <div className={`border-2 border-dashed rounded-lg py-4 text-center text-xs font-medium transition-colors ${
+                    isDropTarget
+                      ? "border-clippa-red/40 text-clippa-red bg-red-50/50"
+                      : "border-gray-200 text-gray-400"
+                  }`}>
+                    {isDropTarget ? "Drop here to assign" : "Drag reps here"}
+                  </div>
+                )}
+
+                {teamReps.length > 0 && (
                   <div className="space-y-1">
                     {teamReps.map((rep) => (
-                      <div key={rep.id} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
-                        <div className="flex items-center gap-2">
+                      <div
+                        key={rep.id}
+                        {...draggableProps(rep.id)}
+                        className={`flex items-center justify-between py-1.5 px-2 rounded-md border border-transparent hover:border-gray-200 transition-opacity select-none ${
+                          dropping ? "" : "cursor-grab active:cursor-grabbing"
+                        } ${draggingRepId === rep.id ? "opacity-20" : ""}`}
+                      >
+                        <div className="flex items-center gap-2 pointer-events-none">
+                          <svg className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M7 2a2 2 0 10.001 4.001A2 2 0 007 2zm6 0a2 2 0 10.001 4.001A2 2 0 0013 2zM7 8a2 2 0 10.001 4.001A2 2 0 007 8zm6 0a2 2 0 10.001 4.001A2 2 0 0013 8zM7 14a2 2 0 10.001 4.001A2 2 0 007 14zm6 0a2 2 0 10.001 4.001A2 2 0 0013 14z" />
+                          </svg>
                           <span className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-600">{rep.code}</span>
                           <span className="text-sm text-gray-900">{rep.name}</span>
                         </div>
@@ -240,29 +356,13 @@ export default function TeamsPage() {
                         </button>
                       </div>
                     ))}
-                  </div>
-                )}
 
-                {/* Assign rep dropdown */}
-                {assigningRep === team.id && (
-                  <div className="mt-2 border border-gray-200 rounded-lg p-2 bg-gray-50">
-                    <p className="text-xs text-gray-500 mb-1">Select a rep to assign:</p>
-                    {unassignedReps.length === 0 ? (
-                      <p className="text-xs text-gray-400 italic">All reps are assigned</p>
-                    ) : (
-                      <div className="space-y-1">
-                        {unassignedReps.map((rep) => (
-                          <button
-                            key={rep.id}
-                            onClick={() => assignRep(rep.id, team.id)}
-                            className="w-full text-left px-2 py-1 rounded hover:bg-white text-sm text-gray-700"
-                          >
-                            {rep.name} ({rep.code})
-                          </button>
-                        ))}
+                    {/* Drop indicator when dragging over a team that has reps */}
+                    {isDropTarget && (
+                      <div className="border-2 border-dashed border-clippa-red/40 rounded-lg py-2 text-center text-xs text-clippa-red font-medium mt-1">
+                        Drop here to assign
                       </div>
                     )}
-                    <button onClick={() => setAssigningRep(null)} className="text-xs text-gray-400 mt-2">Cancel</button>
                   </div>
                 )}
               </div>
@@ -271,20 +371,55 @@ export default function TeamsPage() {
         })}
       </div>
 
-      {/* Unassigned Reps */}
-      {unassignedReps.length > 0 && (
-        <div className="bg-amber-50 rounded-xl border border-amber-200 p-6">
-          <h3 className="font-semibold text-amber-800 mb-3">Unassigned Reps ({unassignedReps.length})</h3>
-          <div className="grid grid-cols-3 gap-2">
+      {/* Unassigned Reps — also a drop target */}
+      <div
+        {...dropZoneProps("unassigned")}
+        className={`rounded-xl border-2 p-6 transition-all duration-150 ${
+          dragOverTarget === "unassigned"
+            ? "border-amber-400 bg-amber-50 shadow-md"
+            : unassignedReps.length > 0
+              ? "border-amber-200 bg-amber-50"
+              : "border-dashed border-gray-200 bg-gray-50"
+        }`}
+      >
+        <h3 className={`font-semibold mb-3 ${unassignedReps.length > 0 ? "text-amber-800" : "text-gray-400"}`}>
+          Unassigned Reps ({unassignedReps.length})
+        </h3>
+
+        {unassignedReps.length === 0 && !draggingRepId && (
+          <p className="text-xs text-gray-400 italic">All reps are assigned to teams</p>
+        )}
+
+        {unassignedReps.length === 0 && draggingRepId && (
+          <div className={`border-2 border-dashed rounded-lg py-4 text-center text-xs font-medium transition-colors ${
+            dragOverTarget === "unassigned"
+              ? "border-amber-400 text-amber-600 bg-amber-100/50"
+              : "border-amber-300/50 text-amber-500"
+          }`}>
+            Drop here to unassign from team
+          </div>
+        )}
+
+        {unassignedReps.length > 0 && (
+          <div className="flex flex-wrap gap-2">
             {unassignedReps.map((rep) => (
-              <div key={rep.id} className="flex items-center gap-2 bg-white rounded-lg px-3 py-2 border border-amber-100">
-                <span className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-600">{rep.code}</span>
-                <span className="text-sm text-gray-900">{rep.name}</span>
+              <div
+                key={rep.id}
+                {...draggableProps(rep.id)}
+                className={`flex items-center gap-2 bg-white rounded-lg px-3 py-2 border border-amber-100 shadow-sm hover:shadow transition-all select-none ${
+                  dropping ? "" : "cursor-grab active:cursor-grabbing"
+                } ${draggingRepId === rep.id ? "opacity-20 scale-95" : ""}`}
+              >
+                <svg className="w-3.5 h-3.5 text-gray-300 flex-shrink-0 pointer-events-none" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M7 2a2 2 0 10.001 4.001A2 2 0 007 2zm6 0a2 2 0 10.001 4.001A2 2 0 0013 2zM7 8a2 2 0 10.001 4.001A2 2 0 007 8zm6 0a2 2 0 10.001 4.001A2 2 0 0013 8zM7 14a2 2 0 10.001 4.001A2 2 0 007 14zm6 0a2 2 0 10.001 4.001A2 2 0 0013 14z" />
+                </svg>
+                <span className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-600 pointer-events-none">{rep.code}</span>
+                <span className="text-sm text-gray-900 pointer-events-none">{rep.name}</span>
               </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

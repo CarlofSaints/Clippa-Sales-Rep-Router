@@ -12,9 +12,10 @@ interface Props {
   channelMap: Map<string, Channel>;
   repColors: Record<string, string>;
   routeStops?: RouteStop[];
-  routePolyline?: string;
+  routeLines?: [number, number][][]; // per-day polyline positions
   repHome?: { lat: number; lng: number } | null;
   showRoute?: boolean;
+  singleDay?: boolean; // true when viewing exactly one day (show sequence numbers)
 }
 
 /** Decode Google's encoded polyline format */
@@ -99,9 +100,10 @@ export default function MapView({
   channelMap,
   repColors,
   routeStops,
-  routePolyline,
+  routeLines,
   repHome,
   showRoute,
+  singleDay,
 }: Props) {
   const center: [number, number] = [-26.2, 28.05];
   const zoom = 10;
@@ -109,28 +111,8 @@ export default function MapView({
   const fmt = (n: number) =>
     "R " + n.toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  // Build polyline positions
-  const polylinePositions = useMemo((): [number, number][] => {
-    if (!showRoute || !routeStops || routeStops.length === 0) return [];
-
-    // If we have a Google-encoded polyline, decode it
-    if (routePolyline) {
-      return decodePolyline(routePolyline);
-    }
-
-    // Otherwise build straight lines: home → stops → home
-    const positions: [number, number][] = [];
-    if (repHome) {
-      positions.push([repHome.lat, repHome.lng]);
-    }
-    for (const stop of routeStops) {
-      positions.push([stop.lat, stop.lng]);
-    }
-    if (repHome) {
-      positions.push([repHome.lat, repHome.lng]);
-    }
-    return positions;
-  }, [showRoute, routeStops, routePolyline, repHome]);
+  // Per-day polyline colors (cycle through for multi-day views)
+  const lineColors = ["#DC2626", "#2563EB", "#16A34A", "#D97706", "#7C3AED", "#0891B2", "#DB2777", "#65A30D"];
 
   // Route summary stats
   const routeSummary = useMemo(() => {
@@ -188,26 +170,29 @@ export default function MapView({
           );
         })}
 
-        {/* Route polyline */}
-        {showRoute && polylinePositions.length > 1 && (
-          <Polyline
-            positions={polylinePositions}
-            pathOptions={{
-              color: "#DC2626",
-              weight: 3,
-              opacity: 0.7,
-              dashArray: routePolyline ? undefined : "8, 6",
-            }}
-          />
+        {/* Route polylines — one per day */}
+        {showRoute && routeLines?.map((positions, i) =>
+          positions.length > 1 ? (
+            <Polyline
+              key={`route-line-${i}`}
+              positions={positions}
+              pathOptions={{
+                color: lineColors[i % lineColors.length],
+                weight: 3,
+                opacity: singleDay ? 0.7 : 0.5,
+                dashArray: "8, 6",
+              }}
+            />
+          ) : null
         )}
 
-        {/* Route numbered stop markers */}
+        {/* Route stop markers */}
         {showRoute &&
           routeStops?.map((stop) => (
             <Marker
-              key={`route-${stop.storeId}`}
+              key={`route-${stop.storeId}-${stop.sequence}`}
               position={[stop.lat, stop.lng]}
-              icon={numberedIcon(stop.sequence)}
+              icon={singleDay ? numberedIcon(stop.sequence) : numberedIcon(stop.sequence)}
             >
               <Popup>
                 <div className="text-xs space-y-1">

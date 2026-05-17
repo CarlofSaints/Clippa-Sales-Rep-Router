@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { useSession } from "@/components/SessionProvider";
 import {
   Rep,
+  Team,
   RoutePlanDocument,
   RepRoutePlan,
   RouteDayPlan,
@@ -14,24 +16,34 @@ const WEEKS: WeekLabel[] = ["Wk1", "Wk2", "Wk3", "Wk4"];
 const DAYS: DayLabel[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
 export default function RoutesPage() {
+  const { session } = useSession();
   const [routes, setRoutes] = useState<RoutePlanDocument | null>(null);
   const [reps, setReps] = useState<Rep[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [selectedTeam, setSelectedTeam] = useState("");
   const [selectedRep, setSelectedRep] = useState("");
+  const [includeTimes, setIncludeTimes] = useState(true);
   const [selectedCell, setSelectedCell] = useState<{
     week: WeekLabel;
     day: DayLabel;
   } | null>(null);
   const [error, setError] = useState("");
 
+  const isAdmin = session?.role === "superAdmin" || session?.role === "admin";
+  const isTeamManager = session?.role === "teamManager";
+  const isRep = session?.role === "rep";
+
   const load = () => {
     Promise.all([
       fetch("/api/routes").then((r) => r.json()),
       fetch("/api/reps").then((r) => r.json()),
-    ]).then(([rt, rp]) => {
+      fetch("/api/teams").then((r) => r.json()),
+    ]).then(([rt, rp, tm]) => {
       setRoutes(rt);
       setReps(rp);
+      setTeams(tm);
       setLoading(false);
     });
   };
@@ -39,6 +51,32 @@ export default function RoutesPage() {
   useEffect(() => {
     load();
   }, []);
+
+  // Auto-select rep for rep users
+  useEffect(() => {
+    if (isRep && session?.repCode && reps.length > 0) {
+      setSelectedRep(session.repCode);
+    }
+  }, [isRep, session?.repCode, reps]);
+
+  // Scoped reps: filter by role, then by selected team
+  const filteredReps = useMemo(() => {
+    let scoped = reps;
+
+    // Role-based scoping
+    if (isRep && session?.repCode) {
+      scoped = reps.filter((r) => r.code === session.repCode);
+    } else if (isTeamManager && session?.teamId) {
+      scoped = reps.filter((r) => r.teamId === session.teamId);
+    }
+
+    // Team filter (admin only — teamManagers already scoped)
+    if (selectedTeam && isAdmin) {
+      scoped = scoped.filter((r) => r.teamId === selectedTeam);
+    }
+
+    return scoped;
+  }, [reps, isRep, isTeamManager, isAdmin, session?.repCode, session?.teamId, selectedTeam]);
 
   const generateRoutes = async () => {
     setGenerating(true);
@@ -68,6 +106,18 @@ export default function RoutesPage() {
     if (!confirm("Delete all generated routes?")) return;
     await fetch("/api/routes", { method: "DELETE" });
     setRoutes(null);
+  };
+
+  const exportToExcel = () => {
+    const params = new URLSearchParams();
+    // Determine which teamId to export
+    if (isTeamManager && session?.teamId) {
+      params.set("teamId", session.teamId);
+    } else if (selectedTeam) {
+      params.set("teamId", selectedTeam);
+    }
+    if (includeTimes) params.set("includeTimes", "1");
+    window.location.href = `/api/routes/export?${params.toString()}`;
   };
 
   // Get current rep's plan
@@ -122,7 +172,7 @@ export default function RoutesPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {routes && (
+          {isAdmin && routes && (
             <button
               onClick={clearRoutes}
               className="text-gray-400 hover:text-red-600 text-sm"
@@ -130,16 +180,18 @@ export default function RoutesPage() {
               Clear All
             </button>
           )}
-          <button
-            onClick={generateRoutes}
-            disabled={generating}
-            className="bg-clippa-red text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50 transition-colors flex items-center gap-2"
-          >
-            {generating && (
-              <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
-            )}
-            {generating ? "Generating..." : "Generate Routes"}
-          </button>
+          {isAdmin && (
+            <button
+              onClick={generateRoutes}
+              disabled={generating}
+              className="bg-clippa-red text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50 transition-colors flex items-center gap-2"
+            >
+              {generating && (
+                <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+              )}
+              {generating ? "Generating..." : "Generate Routes"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -149,25 +201,74 @@ export default function RoutesPage() {
         </div>
       )}
 
-      {/* Rep filter */}
-      <div className="flex items-center gap-4 mb-6">
-        <select
-          value={selectedRep}
-          onChange={(e) => {
-            setSelectedRep(e.target.value);
-            setSelectedCell(null);
-          }}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
-        >
-          <option value="">Select Rep</option>
-          {reps.map((r) => (
-            <option key={r.code} value={r.code}>
-              {r.name} ({r.code})
-            </option>
-          ))}
-        </select>
+      {/* Filters row */}
+      <div className="flex items-center gap-4 mb-6 flex-wrap">
+        {/* Team Leader filter — visible to admins */}
+        {isAdmin && (
+          <select
+            value={selectedTeam}
+            onChange={(e) => {
+              setSelectedTeam(e.target.value);
+              setSelectedRep("");
+              setSelectedCell(null);
+            }}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
+          >
+            <option value="">All Team Leaders</option>
+            {teams.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.managerName || "Unassigned"} — {t.name}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {/* Rep dropdown — hidden for rep users (auto-selected) */}
+        {!isRep && (
+          <select
+            value={selectedRep}
+            onChange={(e) => {
+              setSelectedRep(e.target.value);
+              setSelectedCell(null);
+            }}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
+          >
+            <option value="">Select Rep</option>
+            {filteredReps.map((r) => (
+              <option key={r.code} value={r.code}>
+                {r.name} ({r.code})
+              </option>
+            ))}
+          </select>
+        )}
+
+        {/* Include Times checkbox */}
+        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={includeTimes}
+            onChange={(e) => setIncludeTimes(e.target.checked)}
+            className="rounded border-gray-300 text-clippa-red focus:ring-clippa-red"
+          />
+          Include Times
+        </label>
+
+        {/* Export to Excel button */}
+        {routes && (
+          <button
+            onClick={exportToExcel}
+            className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition-colors flex items-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            Export to Excel
+          </button>
+        )}
+
+        {/* Stats */}
         {currentPlan && (
-          <span className="text-sm text-gray-500">
+          <span className="text-sm text-gray-500 ml-auto">
             {currentPlan.stats.totalStores} stores assigned |{" "}
             {currentPlan.days.reduce((s, d) => s + d.stops.length, 0)} visits
             scheduled
@@ -308,7 +409,7 @@ export default function RoutesPage() {
               </div>
             )}
 
-            {selectedDayPlan.stops.map((stop, idx) => (
+            {selectedDayPlan.stops.map((stop) => (
               <div
                 key={stop.storeId}
                 className="flex items-center gap-3 bg-gray-50 rounded-lg px-4 py-2.5"

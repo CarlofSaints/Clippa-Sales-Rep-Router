@@ -35,19 +35,31 @@ Regards,
 Clippa Sales Team
       `.trim();
 
-      await fetch("https://api.resend.com/emails", {
+      const emailRes = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${resendKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          from: process.env.RESEND_FROM || "noreply@clippasales.com",
+          from: process.env.RESEND_FROM || "Clippa <onboarding@resend.dev>",
           to: user.email,
           subject: "Welcome to Clippa Sales Rep Router",
           text: emailBody,
         }),
       });
+
+      if (!emailRes.ok) {
+        const errData = await emailRes.json().catch(() => ({}));
+        console.error("Resend API error:", emailRes.status, errData);
+        return NextResponse.json({
+          ok: true,
+          sent: false,
+          tempPassword,
+          email: user.email,
+          message: `Email failed (${emailRes.status}): ${errData?.message || errData?.error || "Unknown error"}. Share credentials manually.`,
+        });
+      }
 
       return NextResponse.json({ ok: true, sent: true, tempPassword });
     }
