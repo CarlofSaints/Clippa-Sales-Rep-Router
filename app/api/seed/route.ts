@@ -119,7 +119,7 @@ export async function POST() {
               repCode: String(row["REPRESENTATIVE ID"] || "").trim(),
               gpsLat: String(row["GPS LATITUDE"] || "").trim(),
               gpsLng: String(row["GPS LONGITUDE"] || "").trim(),
-              monthlySales: Number(row["MONTHLY AVERAGE"] || 0),
+              monthlySales: parseFloat(String(row["MONTHLY AVERAGE"] ?? 0).replace(/[^0-9.\-]/g, "")) || 0,
               frequency: "monthly" as const,
               duration: 30,
               dayOfWeek: "",

@@ -75,7 +75,13 @@ export async function saveReps(reps: Rep[]): Promise<void> {
 // ---------- Stores ----------
 
 export async function getStores(): Promise<Store[]> {
-  return readJSON<Store[]>("stores", []);
+  const stores = await readJSON<Store[]>("stores", []);
+  // Sanitize: ensure numeric fields are never null/NaN (guards against bad Excel imports)
+  for (const s of stores) {
+    if (s.monthlySales == null || isNaN(s.monthlySales)) s.monthlySales = 0;
+    if (s.duration == null || isNaN(s.duration)) s.duration = 30;
+  }
+  return stores;
 }
 
 export async function saveStores(stores: Store[]): Promise<void> {
