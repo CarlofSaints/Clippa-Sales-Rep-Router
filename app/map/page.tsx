@@ -33,17 +33,17 @@ function MapPageInner() {
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/stores").then((r) => r.json()),
-      fetch("/api/reps").then((r) => r.json()),
-      fetch("/api/channels").then((r) => r.json()),
-      fetch("/api/teams").then((r) => r.json()),
-      fetch("/api/routes").then((r) => r.json()),
+      fetch("/api/stores").then((r) => r.json()).catch(() => []),
+      fetch("/api/reps").then((r) => r.json()).catch(() => []),
+      fetch("/api/channels").then((r) => r.json()).catch(() => []),
+      fetch("/api/teams").then((r) => r.json()).catch(() => []),
+      fetch("/api/routes").then((r) => r.json()).catch(() => null),
     ]).then(([st, rp, ch, tm, rt]) => {
-      setStores(st);
-      setReps(rp);
-      setChannels(ch);
-      setTeams(tm);
-      setRoutes(rt);
+      setStores(Array.isArray(st) ? st : []);
+      setReps(Array.isArray(rp) ? rp : []);
+      setChannels(Array.isArray(ch) ? ch : []);
+      setTeams(Array.isArray(tm) ? tm : []);
+      setRoutes(rt && typeof rt === "object" && "repPlans" in rt ? rt : null);
       setLoading(false);
     });
   }, []);

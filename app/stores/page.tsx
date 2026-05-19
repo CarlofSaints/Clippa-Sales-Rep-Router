@@ -22,13 +22,13 @@ export default function StoresPage() {
 
   const load = () => {
     Promise.all([
-      fetch("/api/stores").then((r) => r.json()),
-      fetch("/api/channels").then((r) => r.json()),
-      fetch("/api/reps").then((r) => r.json()),
+      fetch("/api/stores").then((r) => r.json()).catch(() => []),
+      fetch("/api/channels").then((r) => r.json()).catch(() => []),
+      fetch("/api/reps").then((r) => r.json()).catch(() => []),
     ]).then(([st, ch, rp]) => {
-      setStores(st);
-      setChannels(ch);
-      setReps(rp);
+      setStores(Array.isArray(st) ? st : []);
+      setChannels(Array.isArray(ch) ? ch : []);
+      setReps(Array.isArray(rp) ? rp : []);
       setLoading(false);
     });
   };

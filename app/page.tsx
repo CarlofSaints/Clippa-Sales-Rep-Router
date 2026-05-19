@@ -79,15 +79,15 @@ export default function DashboardPage() {
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/channels").then((r) => r.json()),
-      fetch("/api/reps").then((r) => r.json()),
-      fetch("/api/stores").then((r) => r.json()),
-      fetch("/api/teams").then((r) => r.json()),
+      fetch("/api/channels").then((r) => r.json()).catch(() => []),
+      fetch("/api/reps").then((r) => r.json()).catch(() => []),
+      fetch("/api/stores").then((r) => r.json()).catch(() => []),
+      fetch("/api/teams").then((r) => r.json()).catch(() => []),
     ]).then(([ch, rp, st, tm]) => {
-      setChannels(ch);
-      setReps(rp);
-      setStores(st);
-      setTeams(tm);
+      setChannels(Array.isArray(ch) ? ch : []);
+      setReps(Array.isArray(rp) ? rp : []);
+      setStores(Array.isArray(st) ? st : []);
+      setTeams(Array.isArray(tm) ? tm : []);
       setLoading(false);
     });
   }, []);
