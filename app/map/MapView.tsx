@@ -109,7 +109,7 @@ export default function MapView({
   const zoom = 10;
 
   const fmt = (n: number) =>
-    "R " + n.toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    "R " + (n ?? 0).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   // Per-day polyline colors (cycle through for multi-day views)
   const lineColors = ["#DC2626", "#2563EB", "#16A34A", "#D97706", "#7C3AED", "#0891B2", "#DB2777", "#65A30D"];

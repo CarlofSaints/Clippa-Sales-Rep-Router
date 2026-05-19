@@ -92,14 +92,14 @@ export default function DashboardPage() {
     });
   }, []);
 
-  const totalRevenue = useMemo(() => stores.reduce((s, st) => s + st.monthlySales, 0), [stores]);
+  const totalRevenue = useMemo(() => stores.reduce((s, st) => s + (st.monthlySales ?? 0), 0), [stores]);
 
   const teamStats = useMemo(() => {
     return teams.map((team) => {
       const teamReps = reps.filter((r) => r.teamId === team.id);
       const teamRepCodes = new Set(teamReps.map((r) => r.code));
       const teamStores = stores.filter((s) => teamRepCodes.has(s.repCode));
-      const revenue = teamStores.reduce((s, st) => s + st.monthlySales, 0);
+      const revenue = teamStores.reduce((s, st) => s + (st.monthlySales ?? 0), 0);
       const channelIds = new Set(teamStores.map((s) => s.channelId));
       return {
         ...team,
@@ -115,7 +115,7 @@ export default function DashboardPage() {
   const channelStats = useMemo(() => {
     return channels.map((ch) => {
       const chStores = stores.filter((s) => s.channelId === ch.id);
-      const revenue = chStores.reduce((s, st) => s + st.monthlySales, 0);
+      const revenue = chStores.reduce((s, st) => s + (st.monthlySales ?? 0), 0);
       const repCodes = new Set(chStores.map((s) => s.repCode));
       return {
         ...ch,
@@ -130,7 +130,7 @@ export default function DashboardPage() {
   const repStats = useMemo(() => {
     return reps.map((rep) => {
       const repStores = stores.filter((s) => s.repCode === rep.code);
-      const revenue = repStores.reduce((s, st) => s + st.monthlySales, 0);
+      const revenue = repStores.reduce((s, st) => s + (st.monthlySales ?? 0), 0);
       return {
         ...rep,
         storeCount: repStores.length,
@@ -145,7 +145,7 @@ export default function DashboardPage() {
   const repSort = useSortable(repStats, "revenue");
 
   const fmt = (n: number) =>
-    "R " + n.toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    "R " + (n ?? 0).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   if (loading) {
     return (

@@ -37,7 +37,7 @@ export default function StoresPage() {
 
   // Rankings
   const rankings = useMemo(() => {
-    const sorted = [...stores].sort((a, b) => b.monthlySales - a.monthlySales);
+    const sorted = [...stores].sort((a, b) => (b.monthlySales ?? 0) - (a.monthlySales ?? 0));
     const overallRank = new Map<string, number>();
     sorted.forEach((s, i) => overallRank.set(s.id, i + 1));
 
@@ -49,7 +49,7 @@ export default function StoresPage() {
       byRep.set(s.repCode, arr);
     });
     byRep.forEach((arr) => {
-      arr.sort((a, b) => b.monthlySales - a.monthlySales);
+      arr.sort((a, b) => (b.monthlySales ?? 0) - (a.monthlySales ?? 0));
       arr.forEach((s, i) => repRank.set(s.id, i + 1));
     });
 
@@ -61,7 +61,7 @@ export default function StoresPage() {
       byCh.set(s.channelId, arr);
     });
     byCh.forEach((arr) => {
-      arr.sort((a, b) => b.monthlySales - a.monthlySales);
+      arr.sort((a, b) => (b.monthlySales ?? 0) - (a.monthlySales ?? 0));
       arr.forEach((s, i) => channelRank.set(s.id, i + 1));
     });
 
@@ -129,7 +129,7 @@ export default function StoresPage() {
   };
 
   const fmt = (n: number) =>
-    "R " + n.toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    "R " + (n ?? 0).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   if (loading) {
     return (
