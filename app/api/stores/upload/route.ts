@@ -51,7 +51,8 @@ export async function POST(request: NextRequest) {
       const lng = col(row, "GPS LONGITUDE", "Gps longitude", "Gps Longitude", "GPS_LONGITUDE");
       const rawSales = col(row, "MONTHLY AVERAGE", "VALUE", "Value");
       const sales = Number(rawSales.replace(/[^0-9.\-]/g, "") || 0);
-      const zoneName = col(row, "ZONE", "Zone", "AREA", "Area");
+      const zoneName = col(row, "ZONE", "Zone");
+      const region = col(row, "REGION", "Region", "PROVINCE", "Province", "AREA", "Area");
 
       if (!placeId || !storeName) continue;
 
@@ -95,6 +96,7 @@ export async function POST(request: NextRequest) {
         existing.gpsLng = lng;
         existing.monthlySales = sales;
         if (zoneId) existing.zoneId = zoneId;
+        if (region) existing.region = region;
         updatedCount++;
       } else {
         // Add new store
@@ -112,6 +114,7 @@ export async function POST(request: NextRequest) {
           dayOfWeek: "",
           weekNumber: "",
           ...(zoneId ? { zoneId } : {}),
+          ...(region ? { region } : {}),
         });
         newCount++;
       }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 
 interface Zone {
   id: string;
@@ -14,6 +14,7 @@ interface Store {
   placeId: string;
   channelId: string;
   zoneId?: string;
+  region?: string;
 }
 
 interface Rep {
@@ -45,15 +46,17 @@ export default function ZonesPage() {
   const [editData, setEditData] = useState({ name: "", description: "" });
 
   // Store zone assignments — local copy for batch save
-  const [storeZones, setStoreZones] = useState<Record<string, string>>({}); // storeId → zoneId
-  const [repZones, setRepZones] = useState<Record<string, Set<string>>>({}); // repId → Set<zoneId>
+  const [storeZones, setStoreZones] = useState<Record<string, string>>({});
+  const [repZones, setRepZones] = useState<Record<string, Set<string>>>({});
   const [dirty, setDirty] = useState(false);
 
   // Collapse state for zone sections
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
-  // Search
+  // Search + filters
   const [search, setSearch] = useState("");
+  const [filterChannel, setFilterChannel] = useState("");
+  const [filterRegion, setFilterRegion] = useState("");
 
   const showMsg = (text: string, type: "success" | "error" = "success") => {
     setMsg(text);
@@ -78,7 +81,6 @@ export default function ZonesPage() {
       setReps(rData);
       setChannels(chData);
 
-      // Build local state
       const sz: Record<string, string> = {};
       for (const s of sData) {
         if (s.zoneId) sz[s.id] = s.zoneId;
@@ -103,6 +105,15 @@ export default function ZonesPage() {
   }, [load]);
 
   const channelMap = new Map(channels.map((c) => [c.id, c.name]));
+
+  // Derive unique regions from store data
+  const regions = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of stores) {
+      if (s.region?.trim()) set.add(s.region.trim());
+    }
+    return Array.from(set).sort();
+  }, [stores]);
 
   const addZone = async () => {
     if (!newZone.name.trim()) {
@@ -205,7 +216,6 @@ export default function ZonesPage() {
   const saveAssignments = async () => {
     setSaving(true);
     try {
-      // Save store zone assignments
       const storeUpdates = stores
         .filter((s) => {
           const current = s.zoneId || "";
@@ -220,7 +230,6 @@ export default function ZonesPage() {
           })
         );
 
-      // Save rep zone assignments
       const repUpdates = reps
         .filter((r) => {
           const current = new Set(r.assignedZones || []);
@@ -251,26 +260,97 @@ export default function ZonesPage() {
     }
   };
 
+  // Filtering + search
+  const applyFilters = useCallback(
+    (list: Store[]) => {
+      let result = list;
+
+      if (filterChannel) {
+        result = result.filter((s) => s.channelId === filterChannel);
+      }
+
+      if (filterRegion) {
+        result = result.filter(
+          (s) => (s.region || "").toLowerCase() === filterRegion.toLowerCase()
+        );
+      }
+
+      if (search) {
+        const q = search.toLowerCase();
+        result = result.filter(
+          (s) =>
+            s.name.toLowerCase().includes(q) ||
+            s.placeId.toLowerCase().includes(q) ||
+            (channelMap.get(s.channelId) || "").toLowerCase().includes(q) ||
+            (s.region || "").toLowerCase().includes(q)
+        );
+      }
+
+      return result;
+    },
+    [filterChannel, filterRegion, search, channelMap]
+  );
+
   // Group stores by zone
   const storesByZone = (zoneId: string) =>
     stores.filter((s) => (storeZones[s.id] || "") === zoneId);
 
   const unassignedStores = stores.filter((s) => !storeZones[s.id]);
 
-  const filteredStores = (list: Store[]) => {
-    if (!search) return list;
-    const q = search.toLowerCase();
-    return list.filter(
-      (s) =>
-        s.name.toLowerCase().includes(q) ||
-        s.placeId.toLowerCase().includes(q) ||
-        (channelMap.get(s.channelId) || "").toLowerCase().includes(q)
-    );
-  };
-
   const toggleCollapse = (id: string) => {
     setCollapsed((prev) => ({ ...prev, [id]: !prev[id] }));
   };
+
+  const hasFilters = !!search || !!filterChannel || !!filterRegion;
+
+  // Shared store table component
+  const StoreTable = ({ rows, showZoneDropdown }: { rows: Store[]; showZoneDropdown: boolean }) => (
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+          <th className="px-6 py-2 text-left">Store</th>
+          <th className="px-4 py-2 text-left">Place ID</th>
+          <th className="px-4 py-2 text-left">Channel</th>
+          <th className="px-4 py-2 text-left">Region</th>
+          <th className="px-4 py-2 text-left">Zone</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-gray-100">
+        {rows.map((s) => (
+          <tr key={s.id} className="hover:bg-gray-50">
+            <td className="px-6 py-2 font-medium text-gray-900">{s.name}</td>
+            <td className="px-4 py-2 text-gray-500">{s.placeId}</td>
+            <td className="px-4 py-2">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+                {channelMap.get(s.channelId) || "—"}
+              </span>
+            </td>
+            <td className="px-4 py-2 text-gray-500">{s.region || "—"}</td>
+            <td className="px-4 py-2">
+              {showZoneDropdown ? (
+                <select
+                  value={storeZones[s.id] || ""}
+                  onChange={(e) => setStoreZone(s.id, e.target.value)}
+                  className="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-clippa-red"
+                >
+                  <option value="">Unassigned</option>
+                  {zones.map((z) => (
+                    <option key={z.id} value={z.id}>
+                      {z.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-xs text-gray-400">
+                  {zones.find((z) => z.id === (storeZones[s.id] || ""))?.name || "—"}
+                </span>
+              )}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
 
   if (loading) {
     return (
@@ -341,9 +421,7 @@ export default function ZonesPage() {
               </label>
               <input
                 value={newZone.name}
-                onChange={(e) =>
-                  setNewZone({ ...newZone, name: e.target.value })
-                }
+                onChange={(e) => setNewZone({ ...newZone, name: e.target.value })}
                 placeholder="e.g. Gauteng North"
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
               />
@@ -354,9 +432,7 @@ export default function ZonesPage() {
               </label>
               <input
                 value={newZone.description}
-                onChange={(e) =>
-                  setNewZone({ ...newZone, description: e.target.value })
-                }
+                onChange={(e) => setNewZone({ ...newZone, description: e.target.value })}
                 placeholder="Optional description"
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
               />
@@ -380,14 +456,50 @@ export default function ZonesPage() {
         </div>
       )}
 
-      {/* Search */}
-      <div>
+      {/* Search + Filters */}
+      <div className="flex flex-wrap items-center gap-3">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search stores..."
-          className="w-full max-w-sm border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
+          className="w-full max-w-xs border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
         />
+        <select
+          value={filterChannel}
+          onChange={(e) => setFilterChannel(e.target.value)}
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
+        >
+          <option value="">All Channels</option>
+          {channels.map((ch) => (
+            <option key={ch.id} value={ch.id}>
+              {ch.name}
+            </option>
+          ))}
+        </select>
+        <select
+          value={filterRegion}
+          onChange={(e) => setFilterRegion(e.target.value)}
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
+        >
+          <option value="">All Regions</option>
+          {regions.map((r) => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+        </select>
+        {hasFilters && (
+          <button
+            onClick={() => {
+              setSearch("");
+              setFilterChannel("");
+              setFilterRegion("");
+            }}
+            className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100"
+          >
+            Clear filters
+          </button>
+        )}
       </div>
 
       {/* Rep-Zone Assignment Matrix */}
@@ -417,9 +529,7 @@ export default function ZonesPage() {
                   return (
                     <tr key={rep.id} className="hover:bg-gray-50">
                       <td className="px-6 py-3">
-                        <div className="font-medium text-gray-900">
-                          {rep.name}
-                        </div>
+                        <div className="font-medium text-gray-900">{rep.name}</div>
                         <div className="text-xs text-gray-400">{rep.code}</div>
                       </td>
                       {zones.map((z) => {
@@ -431,32 +541,12 @@ export default function ZonesPage() {
                               className="inline-flex items-center justify-center w-7 h-7 rounded-md transition-colors cursor-pointer hover:bg-gray-100"
                             >
                               {has ? (
-                                <svg
-                                  className="w-5 h-5 text-green-500"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M5 13l4 4L19 7"
-                                  />
+                                <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                                 </svg>
                               ) : (
-                                <svg
-                                  className="w-5 h-5 text-gray-300"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M6 18L18 6M6 6l12 12"
-                                  />
+                                <svg className="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                 </svg>
                               )}
                             </button>
@@ -474,7 +564,8 @@ export default function ZonesPage() {
 
       {/* Zone Sections — stores grouped by zone */}
       {zones.map((zone) => {
-        const zoneStores = filteredStores(storesByZone(zone.id));
+        const zoneStores = applyFilters(storesByZone(zone.id));
+        const totalInZone = storesByZone(zone.id).length;
         const isEditing = editing === zone.id;
         const isCollapsed = collapsed[zone.id];
 
@@ -495,31 +586,19 @@ export default function ZonesPage() {
                     stroke="currentColor"
                     viewBox="0 0 24 24"
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M9 5l7 7-7 7"
-                    />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
                 </button>
                 {isEditing ? (
                   <div className="flex items-center gap-2">
                     <input
                       value={editData.name}
-                      onChange={(e) =>
-                        setEditData({ ...editData, name: e.target.value })
-                      }
+                      onChange={(e) => setEditData({ ...editData, name: e.target.value })}
                       className="border border-gray-200 rounded px-2 py-1 text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-clippa-red"
                     />
                     <input
                       value={editData.description}
-                      onChange={(e) =>
-                        setEditData({
-                          ...editData,
-                          description: e.target.value,
-                        })
-                      }
+                      onChange={(e) => setEditData({ ...editData, description: e.target.value })}
                       placeholder="Description"
                       className="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
                     />
@@ -542,7 +621,9 @@ export default function ZonesPage() {
                     <h3 className="font-semibold text-gray-900">
                       {zone.name}
                       <span className="ml-2 text-xs font-normal text-gray-400">
-                        {storesByZone(zone.id).length} stores
+                        {hasFilters
+                          ? `${zoneStores.length} of ${totalInZone} stores`
+                          : `${totalInZone} stores`}
                       </span>
                     </h3>
                     {zone.description && (
@@ -556,10 +637,7 @@ export default function ZonesPage() {
                   <button
                     onClick={() => {
                       setEditing(zone.id);
-                      setEditData({
-                        name: zone.name,
-                        description: zone.description,
-                      });
+                      setEditData({ name: zone.name, description: zone.description });
                     }}
                     className="text-clippa-red hover:text-red-800 text-xs font-medium px-2 py-1 rounded hover:bg-red-50"
                   >
@@ -579,50 +657,12 @@ export default function ZonesPage() {
               <div className="overflow-x-auto">
                 {zoneStores.length === 0 ? (
                   <p className="px-6 py-4 text-sm text-gray-400">
-                    No stores assigned to this zone
+                    {hasFilters
+                      ? "No stores match current filters"
+                      : "No stores assigned to this zone"}
                   </p>
                 ) : (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-                        <th className="px-6 py-2 text-left">Store</th>
-                        <th className="px-4 py-2 text-left">Place ID</th>
-                        <th className="px-4 py-2 text-left">Channel</th>
-                        <th className="px-4 py-2 text-left">Zone</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {zoneStores.map((s) => (
-                        <tr key={s.id} className="hover:bg-gray-50">
-                          <td className="px-6 py-2 font-medium text-gray-900">
-                            {s.name}
-                          </td>
-                          <td className="px-4 py-2 text-gray-500">
-                            {s.placeId}
-                          </td>
-                          <td className="px-4 py-2 text-gray-500">
-                            {channelMap.get(s.channelId) || "—"}
-                          </td>
-                          <td className="px-4 py-2">
-                            <select
-                              value={storeZones[s.id] || ""}
-                              onChange={(e) =>
-                                setStoreZone(s.id, e.target.value)
-                              }
-                              className="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-clippa-red"
-                            >
-                              <option value="">Unassigned</option>
-                              {zones.map((z) => (
-                                <option key={z.id} value={z.id}>
-                                  {z.name}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <StoreTable rows={zoneStores} showZoneDropdown={true} />
                 )}
               </div>
             )}
@@ -632,8 +672,8 @@ export default function ZonesPage() {
 
       {/* Unassigned Stores */}
       {(() => {
-        const unassigned = filteredStores(unassignedStores);
-        if (unassigned.length === 0 && zones.length > 0) return null;
+        const unassigned = applyFilters(unassignedStores);
+        if (unassigned.length === 0 && zones.length > 0 && !hasFilters) return null;
         return (
           <div className="bg-white rounded-xl shadow-sm border border-amber-200">
             <div className="px-6 py-4 border-b border-amber-100 flex items-center gap-2">
@@ -653,7 +693,9 @@ export default function ZonesPage() {
               <h3 className="font-semibold text-amber-700">
                 Unassigned
                 <span className="ml-2 text-xs font-normal text-amber-500">
-                  {unassigned.length} stores
+                  {hasFilters
+                    ? `${unassigned.length} of ${unassignedStores.length} stores`
+                    : `${unassignedStores.length} stores`}
                 </span>
               </h3>
             </div>
@@ -662,50 +704,12 @@ export default function ZonesPage() {
                 <p className="px-6 py-4 text-sm text-gray-400">
                   {zones.length === 0
                     ? "Create zones first, then assign stores"
-                    : "All stores are assigned to zones"}
+                    : hasFilters
+                      ? "No unassigned stores match current filters"
+                      : "All stores are assigned to zones"}
                 </p>
               ) : (
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-                      <th className="px-6 py-2 text-left">Store</th>
-                      <th className="px-4 py-2 text-left">Place ID</th>
-                      <th className="px-4 py-2 text-left">Channel</th>
-                      <th className="px-4 py-2 text-left">Zone</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {unassigned.map((s) => (
-                      <tr key={s.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-2 font-medium text-gray-900">
-                          {s.name}
-                        </td>
-                        <td className="px-4 py-2 text-gray-500">
-                          {s.placeId}
-                        </td>
-                        <td className="px-4 py-2 text-gray-500">
-                          {channelMap.get(s.channelId) || "—"}
-                        </td>
-                        <td className="px-4 py-2">
-                          <select
-                            value=""
-                            onChange={(e) =>
-                              setStoreZone(s.id, e.target.value)
-                            }
-                            className="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-clippa-red"
-                          >
-                            <option value="">Unassigned</option>
-                            {zones.map((z) => (
-                              <option key={z.id} value={z.id}>
-                                {z.name}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <StoreTable rows={unassigned} showZoneDropdown={true} />
               )}
             </div>
           </div>

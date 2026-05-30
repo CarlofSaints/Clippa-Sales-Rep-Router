@@ -69,6 +69,7 @@ export interface Store {
   dayOfWeek: string;
   weekNumber: string;
   zoneId?: string; // for geography/hybrid strategies
+  region?: string; // province / region
 }
 
 export interface Zone {

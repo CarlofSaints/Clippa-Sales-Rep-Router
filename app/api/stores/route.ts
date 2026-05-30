@@ -27,6 +27,7 @@ export async function PUT(request: NextRequest) {
     if (updates.dayOfWeek !== undefined) stores[idx].dayOfWeek = updates.dayOfWeek;
     if (updates.weekNumber !== undefined) stores[idx].weekNumber = updates.weekNumber;
     if (updates.zoneId !== undefined) stores[idx].zoneId = updates.zoneId;
+    if (updates.region !== undefined) stores[idx].region = updates.region;
 
     await saveStores(stores);
     return NextResponse.json(stores[idx]);
