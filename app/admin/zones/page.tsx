@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 
 interface Zone {
   id: string;
@@ -27,6 +27,111 @@ interface Rep {
 interface Channel {
   id: string;
   name: string;
+}
+
+/* ─── Multi-select checkbox dropdown with search ─── */
+function FilterDropdown({
+  label,
+  options,
+  selected,
+  onChange,
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  selected: Set<string>;
+  onChange: (next: Set<string>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const filtered = search
+    ? options.filter((o) => o.label.toLowerCase().includes(search.toLowerCase()))
+    : options;
+
+  const toggle = (val: string) => {
+    const next = new Set(selected);
+    if (next.has(val)) next.delete(val);
+    else next.add(val);
+    onChange(next);
+  };
+
+  const activeCount = selected.size;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((p) => !p)}
+        className={`flex items-center gap-1.5 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red ${
+          activeCount > 0
+            ? "border-clippa-red bg-red-50 text-clippa-red font-medium"
+            : "border-gray-200 text-gray-700 hover:bg-gray-50"
+        }`}
+      >
+        {label}
+        {activeCount > 0 && (
+          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-clippa-red text-white text-[10px] font-bold">
+            {activeCount}
+          </span>
+        )}
+        <svg className={`w-3.5 h-3.5 transition-transform ${open ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute z-50 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg">
+          <div className="p-2 border-b border-gray-100">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={`Search ${label.toLowerCase()}...`}
+              className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-clippa-red"
+              autoFocus
+            />
+          </div>
+          <div className="max-h-56 overflow-y-auto p-1">
+            {filtered.length === 0 ? (
+              <p className="text-xs text-gray-400 px-2 py-2">No matches</p>
+            ) : (
+              filtered.map((o) => (
+                <label
+                  key={o.value}
+                  className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected.has(o.value)}
+                    onChange={() => toggle(o.value)}
+                    className="accent-clippa-red w-3.5 h-3.5"
+                  />
+                  <span className="truncate">{o.label}</span>
+                </label>
+              ))
+            )}
+          </div>
+          {activeCount > 0 && (
+            <div className="p-2 border-t border-gray-100">
+              <button
+                onClick={() => onChange(new Set())}
+                className="text-xs text-gray-500 hover:text-gray-700"
+              >
+                Clear all
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function ZonesPage() {
@@ -57,10 +162,14 @@ export default function ZonesPage() {
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState("");
 
-  // Search + filters
+  // Region populate state
+  const [populating, setPopulating] = useState(false);
+
+  // Search + multi-select filters
   const [search, setSearch] = useState("");
-  const [filterChannel, setFilterChannel] = useState("");
-  const [filterRegion, setFilterRegion] = useState("");
+  const [filterChannels, setFilterChannels] = useState<Set<string>>(new Set());
+  const [filterRegions, setFilterRegions] = useState<Set<string>>(new Set());
+  const [filterZones, setFilterZones] = useState<Set<string>>(new Set());
 
   const showMsg = (text: string, type: "success" | "error" = "success") => {
     setMsg(text);
@@ -91,6 +200,30 @@ export default function ZonesPage() {
       showMsg("Import failed", "error");
     } finally {
       setImporting(false);
+    }
+  };
+
+  const handlePopulateRegions = async () => {
+    if (!confirm("This will call the Google Maps API for each store without a region. Continue?")) return;
+    setPopulating(true);
+    try {
+      const res = await fetch("/api/zones/populate-regions", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        showMsg(data.error || "Failed to populate regions", "error");
+        return;
+      }
+      const parts: string[] = [];
+      if (data.populated) parts.push(`${data.populated} regions populated`);
+      if (data.alreadyHad) parts.push(`${data.alreadyHad} already had regions`);
+      if (data.noGps) parts.push(`${data.noGps} stores have no GPS`);
+      if (data.failed) parts.push(`${data.failed} failed`);
+      showMsg(parts.join(", "));
+      load();
+    } catch {
+      showMsg("Failed to populate regions", "error");
+    } finally {
+      setPopulating(false);
     }
   };
 
@@ -135,6 +268,7 @@ export default function ZonesPage() {
   }, [load]);
 
   const channelMap = new Map(channels.map((c) => [c.id, c.name]));
+  const zoneMap = new Map(zones.map((z) => [z.id, z.name]));
 
   // Derive unique regions from store data
   const regions = useMemo(() => {
@@ -144,6 +278,23 @@ export default function ZonesPage() {
     }
     return Array.from(set).sort();
   }, [stores]);
+
+  // Filter option lists
+  const channelOptions = useMemo(
+    () => channels.map((c) => ({ value: c.id, label: c.name })),
+    [channels]
+  );
+  const regionOptions = useMemo(
+    () => regions.map((r) => ({ value: r, label: r })),
+    [regions]
+  );
+  const zoneOptions = useMemo(
+    () => [
+      { value: "__unassigned__", label: "Unassigned" },
+      ...zones.map((z) => ({ value: z.id, label: z.name })),
+    ],
+    [zones]
+  );
 
   const addZone = async () => {
     if (!newZone.name.trim()) {
@@ -295,14 +446,23 @@ export default function ZonesPage() {
     (list: Store[]) => {
       let result = list;
 
-      if (filterChannel) {
-        result = result.filter((s) => s.channelId === filterChannel);
+      if (filterChannels.size > 0) {
+        result = result.filter((s) => filterChannels.has(s.channelId));
       }
 
-      if (filterRegion) {
-        result = result.filter(
-          (s) => (s.region || "").toLowerCase() === filterRegion.toLowerCase()
+      if (filterRegions.size > 0) {
+        result = result.filter((s) =>
+          filterRegions.has((s.region || "").trim())
         );
+      }
+
+      if (filterZones.size > 0) {
+        result = result.filter((s) => {
+          const sz = storeZones[s.id] || "";
+          if (!sz && filterZones.has("__unassigned__")) return true;
+          if (sz && filterZones.has(sz)) return true;
+          return false;
+        });
       }
 
       if (search) {
@@ -312,13 +472,14 @@ export default function ZonesPage() {
             s.name.toLowerCase().includes(q) ||
             s.placeId.toLowerCase().includes(q) ||
             (channelMap.get(s.channelId) || "").toLowerCase().includes(q) ||
-            (s.region || "").toLowerCase().includes(q)
+            (s.region || "").toLowerCase().includes(q) ||
+            (zoneMap.get(storeZones[s.id] || "") || "").toLowerCase().includes(q)
         );
       }
 
       return result;
     },
-    [filterChannel, filterRegion, search, channelMap]
+    [filterChannels, filterRegions, filterZones, search, channelMap, zoneMap, storeZones]
   );
 
   // Group stores by zone
@@ -331,7 +492,14 @@ export default function ZonesPage() {
     setCollapsed((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const hasFilters = !!search || !!filterChannel || !!filterRegion;
+  const hasFilters = !!search || filterChannels.size > 0 || filterRegions.size > 0 || filterZones.size > 0;
+
+  const clearAllFilters = () => {
+    setSearch("");
+    setFilterChannels(new Set());
+    setFilterRegions(new Set());
+    setFilterZones(new Set());
+  };
 
   // Shared store table component
   const StoreTable = ({ rows, showZoneDropdown }: { rows: Store[]; showZoneDropdown: boolean }) => (
@@ -352,10 +520,10 @@ export default function ZonesPage() {
             <td className="px-4 py-2 text-gray-500">{s.placeId}</td>
             <td className="px-4 py-2">
               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
-                {channelMap.get(s.channelId) || "—"}
+                {channelMap.get(s.channelId) || "\u2014"}
               </span>
             </td>
-            <td className="px-4 py-2 text-gray-500">{s.region || "—"}</td>
+            <td className="px-4 py-2 text-gray-500">{s.region || "\u2014"}</td>
             <td className="px-4 py-2">
               {showZoneDropdown ? (
                 <select
@@ -372,7 +540,7 @@ export default function ZonesPage() {
                 </select>
               ) : (
                 <span className="text-xs text-gray-400">
-                  {zones.find((z) => z.id === (storeZones[s.id] || ""))?.name || "—"}
+                  {zones.find((z) => z.id === (storeZones[s.id] || ""))?.name || "\u2014"}
                 </span>
               )}
             </td>
@@ -400,7 +568,7 @@ export default function ZonesPage() {
             Manage geographic zones and assign stores &amp; reps
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap justify-end">
           {dirty && (
             <>
               <button
@@ -418,6 +586,13 @@ export default function ZonesPage() {
               </button>
             </>
           )}
+          <button
+            onClick={handlePopulateRegions}
+            disabled={populating}
+            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+          >
+            {populating ? "Populating..." : "Populate Regions from GPS"}
+          </button>
           <a
             href="/api/zones/export"
             className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50"
@@ -522,37 +697,27 @@ export default function ZonesPage() {
           placeholder="Search stores..."
           className="w-full max-w-xs border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
         />
-        <select
-          value={filterChannel}
-          onChange={(e) => setFilterChannel(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
-        >
-          <option value="">All Channels</option>
-          {channels.map((ch) => (
-            <option key={ch.id} value={ch.id}>
-              {ch.name}
-            </option>
-          ))}
-        </select>
-        <select
-          value={filterRegion}
-          onChange={(e) => setFilterRegion(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
-        >
-          <option value="">All Regions</option>
-          {regions.map((r) => (
-            <option key={r} value={r}>
-              {r}
-            </option>
-          ))}
-        </select>
+        <FilterDropdown
+          label="Channels"
+          options={channelOptions}
+          selected={filterChannels}
+          onChange={setFilterChannels}
+        />
+        <FilterDropdown
+          label="Regions"
+          options={regionOptions}
+          selected={filterRegions}
+          onChange={setFilterRegions}
+        />
+        <FilterDropdown
+          label="Zones"
+          options={zoneOptions}
+          selected={filterZones}
+          onChange={setFilterZones}
+        />
         {hasFilters && (
           <button
-            onClick={() => {
-              setSearch("");
-              setFilterChannel("");
-              setFilterRegion("");
-            }}
+            onClick={clearAllFilters}
             className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100"
           >
             Clear filters

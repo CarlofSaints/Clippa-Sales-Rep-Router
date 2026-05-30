@@ -108,6 +108,40 @@ export function decodePolyline(encoded: string): [number, number][] {
   return points;
 }
 
+/**
+ * Reverse-geocode a lat/lng to get the administrative area (province/region).
+ * Returns the `administrative_area_level_1` short name, or null.
+ */
+export async function reverseGeocodeRegion(
+  lat: number,
+  lng: number
+): Promise<string | null> {
+  if (!hasGoogleMapsKey()) return null;
+
+  await delay(100); // rate limit
+
+  const url =
+    `https://maps.googleapis.com/maps/api/geocode/json` +
+    `?latlng=${lat},${lng}` +
+    `&result_type=administrative_area_level_1` +
+    `&key=${API_KEY()}`;
+
+  const res = await fetch(url);
+  if (!res.ok) return null;
+
+  const data = await res.json();
+  if (data.status !== "OK" || !data.results?.length) return null;
+
+  for (const result of data.results) {
+    for (const comp of result.address_components || []) {
+      if (comp.types?.includes("administrative_area_level_1")) {
+        return comp.long_name as string;
+      }
+    }
+  }
+  return null;
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
