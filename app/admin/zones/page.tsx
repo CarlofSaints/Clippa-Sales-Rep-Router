@@ -53,6 +53,10 @@ export default function ZonesPage() {
   // Collapse state for zone sections
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
+  // Import state
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState("");
+
   // Search + filters
   const [search, setSearch] = useState("");
   const [filterChannel, setFilterChannel] = useState("");
@@ -62,6 +66,32 @@ export default function ZonesPage() {
     setMsg(text);
     setMsgType(type);
     setTimeout(() => setMsg(""), 5000);
+  };
+
+  const handleImport = async (file: File) => {
+    setImporting(true);
+    setImportMsg("");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/zones/import", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) {
+        showMsg(data.error || "Import failed", "error");
+        return;
+      }
+      const parts: string[] = [];
+      if (data.updated) parts.push(`${data.updated} stores updated`);
+      if (data.newZones?.length) parts.push(`${data.newZones.length} new zone${data.newZones.length > 1 ? "s" : ""} created`);
+      if (data.notFound) parts.push(`${data.notFound} Place IDs not found`);
+      setImportMsg(parts.join(", ") || "No changes");
+      showMsg(parts.join(", ") || "No changes");
+      load();
+    } catch {
+      showMsg("Import failed", "error");
+    } finally {
+      setImporting(false);
+    }
   };
 
   const load = useCallback(async () => {
@@ -388,6 +418,27 @@ export default function ZonesPage() {
               </button>
             </>
           )}
+          <a
+            href="/api/zones/export"
+            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50"
+          >
+            Export Excel
+          </a>
+          <label
+            className={`px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 cursor-pointer ${importing ? "opacity-50 pointer-events-none" : ""}`}
+          >
+            {importing ? "Importing..." : "Import Excel"}
+            <input
+              type="file"
+              accept=".xlsx,.xls"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleImport(f);
+                e.target.value = "";
+              }}
+            />
+          </label>
           <button
             onClick={() => setShowAdd(true)}
             className="bg-clippa-red text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-700"
@@ -407,6 +458,13 @@ export default function ZonesPage() {
           }`}
         >
           {msg}
+        </div>
+      )}
+
+      {/* Import result */}
+      {importMsg && !msg && (
+        <div className="p-3 rounded-lg text-sm bg-blue-50 text-blue-700">
+          {importMsg}
         </div>
       )}
 
