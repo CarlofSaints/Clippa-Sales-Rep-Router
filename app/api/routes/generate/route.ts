@@ -1,18 +1,55 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getReps, getStores, saveRoutes } from "@/lib/data";
-import { RoutePlanDocument, RepRoutePlan } from "@/lib/types";
+import { getReps, getStores, saveRoutes, getCallCycleTypes } from "@/lib/data";
+import { RoutePlanDocument, RepRoutePlan, Store, Rep } from "@/lib/types";
 import { generateRepRoute } from "@/lib/route-engine";
 import { hasGoogleMapsKey } from "@/lib/google-maps";
 
 export const maxDuration = 120;
+
+function getStoresForRep(
+  rep: Rep,
+  allStores: Store[],
+  strategy: string | null
+): Store[] {
+  switch (strategy) {
+    case "channel_dedicated":
+      if (!rep.assignedChannels?.length) return [];
+      return allStores.filter((s) => rep.assignedChannels!.includes(s.channelId));
+
+    case "geography":
+      if (!rep.assignedZones?.length) return [];
+      return allStores.filter((s) => s.zoneId && rep.assignedZones!.includes(s.zoneId));
+
+    case "hybrid":
+      if (!rep.assignedChannels?.length || !rep.assignedZones?.length) return [];
+      return allStores.filter(
+        (s) =>
+          rep.assignedChannels!.includes(s.channelId) &&
+          s.zoneId &&
+          rep.assignedZones!.includes(s.zoneId)
+      );
+
+    case "dynamic":
+    default:
+      // Current behaviour: manual repCode assignment
+      return allStores.filter((s) => s.repCode === rep.code);
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
     const repCodes: string[] | undefined = body.repCodes;
 
-    const allReps = await getReps();
-    const allStores = await getStores();
+    const [allReps, allStores, callCycleTypes] = await Promise.all([
+      getReps(),
+      getStores(),
+      getCallCycleTypes(),
+    ]);
+
+    // Determine active strategy
+    const activeType = callCycleTypes.find((t) => t.active);
+    const strategy = activeType?.strategy || null;
 
     // Filter reps if specific codes requested
     const reps = repCodes
@@ -30,8 +67,8 @@ export async function POST(request: NextRequest) {
     const repPlans: RepRoutePlan[] = [];
 
     for (const rep of reps) {
-      // Get stores assigned to this rep
-      const repStores = allStores.filter((s) => s.repCode === rep.code);
+      // Get stores for this rep based on active strategy
+      const repStores = getStoresForRep(rep, allStores, strategy);
       if (repStores.length === 0) {
         repPlans.push({
           repCode: rep.code,

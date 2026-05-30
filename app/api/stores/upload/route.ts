@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStores, saveStores, getChannels, saveChannels, getReps, saveReps } from "@/lib/data";
+import { getStores, saveStores, getChannels, saveChannels, getReps, saveReps, getZones } from "@/lib/data";
 import { Store, Channel, Rep } from "@/lib/types";
 import * as XLSX from "xlsx";
 
@@ -18,6 +18,8 @@ export async function POST(request: NextRequest) {
     const existingChannels = await getChannels();
     const existingReps = await getReps();
     const existingStores = await getStores();
+    const existingZones = await getZones();
+    const zoneMap = new Map(existingZones.map((z) => [z.name.toLowerCase(), z]));
     const channelMap = new Map(existingChannels.map((c) => [c.name, c]));
     const repMap = new Map(existingReps.map((r) => [r.code, r]));
 
@@ -49,6 +51,7 @@ export async function POST(request: NextRequest) {
       const lng = col(row, "GPS LONGITUDE", "Gps longitude", "Gps Longitude", "GPS_LONGITUDE");
       const rawSales = col(row, "MONTHLY AVERAGE", "VALUE", "Value");
       const sales = Number(rawSales.replace(/[^0-9.\-]/g, "") || 0);
+      const zoneName = col(row, "ZONE", "Zone", "AREA", "Area");
 
       if (!placeId || !storeName) continue;
 
@@ -80,6 +83,7 @@ export async function POST(request: NextRequest) {
       }
 
       const channelId = channelMap.get(channelName)?.id || "";
+      const zoneId = zoneName ? (zoneMap.get(zoneName.toLowerCase())?.id || "") : "";
 
       if (storeMap.has(placeId)) {
         // Update existing store
@@ -90,6 +94,7 @@ export async function POST(request: NextRequest) {
         existing.gpsLat = lat;
         existing.gpsLng = lng;
         existing.monthlySales = sales;
+        if (zoneId) existing.zoneId = zoneId;
         updatedCount++;
       } else {
         // Add new store
@@ -106,6 +111,7 @@ export async function POST(request: NextRequest) {
           duration: 30,
           dayOfWeek: "",
           weekNumber: "",
+          ...(zoneId ? { zoneId } : {}),
         });
         newCount++;
       }

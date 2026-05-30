@@ -20,7 +20,18 @@ export async function PUT(request: NextRequest) {
     const idx = reps.findIndex((r) => r.id === id);
     if (idx === -1) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    Object.assign(reps[idx], updates);
+    // Explicitly handle known fields to avoid overwriting with garbage
+    if (updates.code !== undefined) reps[idx].code = updates.code;
+    if (updates.name !== undefined) reps[idx].name = updates.name;
+    if (updates.email !== undefined) reps[idx].email = updates.email;
+    if (updates.cell !== undefined) reps[idx].cell = updates.cell;
+    if (updates.homeAddress !== undefined) reps[idx].homeAddress = updates.homeAddress;
+    if (updates.homeGpsLat !== undefined) reps[idx].homeGpsLat = updates.homeGpsLat;
+    if (updates.homeGpsLng !== undefined) reps[idx].homeGpsLng = updates.homeGpsLng;
+    if (updates.teamId !== undefined) reps[idx].teamId = updates.teamId;
+    if (updates.workingHoursPerDay !== undefined) reps[idx].workingHoursPerDay = updates.workingHoursPerDay;
+    if (updates.assignedChannels !== undefined) reps[idx].assignedChannels = updates.assignedChannels;
+    if (updates.assignedZones !== undefined) reps[idx].assignedZones = updates.assignedZones;
     await saveReps(reps);
     return NextResponse.json(reps[idx]);
   } catch (err) {

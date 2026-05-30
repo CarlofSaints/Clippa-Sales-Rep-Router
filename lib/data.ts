@@ -1,5 +1,5 @@
 import { put, list, del } from "@vercel/blob";
-import { Channel, Rep, Store, User, Team, RoutePlanDocument, RolePermission, ROLE_DEFINITIONS, ALL_PERMISSIONS } from "./types";
+import { Channel, Rep, Store, User, Team, RoutePlanDocument, RolePermission, ROLE_DEFINITIONS, ALL_PERMISSIONS, CallCycleType, DEFAULT_CALL_CYCLE_TYPES, Zone } from "./types";
 import fs from "fs";
 import path from "path";
 
@@ -108,6 +108,16 @@ export async function saveTeams(teams: Team[]): Promise<void> {
   await writeJSON("teams", teams);
 }
 
+// ---------- Zones ----------
+
+export async function getZones(): Promise<Zone[]> {
+  return readJSON<Zone[]>("zones", []);
+}
+
+export async function saveZones(zones: Zone[]): Promise<void> {
+  await writeJSON("zones", zones);
+}
+
 // ---------- Routes ----------
 
 export async function getRoutes(): Promise<RoutePlanDocument | null> {
@@ -116,6 +126,30 @@ export async function getRoutes(): Promise<RoutePlanDocument | null> {
 
 export async function saveRoutes(doc: RoutePlanDocument | null): Promise<void> {
   await writeJSON("routes", doc);
+}
+
+// ---------- Call Cycle Types ----------
+
+export async function getCallCycleTypes(): Promise<CallCycleType[]> {
+  const saved = await readJSON<CallCycleType[] | null>("call-cycle-types", null);
+  if (!saved || saved.length === 0) return DEFAULT_CALL_CYCLE_TYPES;
+  return saved;
+}
+
+export async function saveCallCycleTypes(types: CallCycleType[]): Promise<void> {
+  // Enforce: only one can be active
+  const activeCount = types.filter((t) => t.active).length;
+  if (activeCount > 1) {
+    // keep only the last one marked active
+    let found = false;
+    for (let i = types.length - 1; i >= 0; i--) {
+      if (types[i].active) {
+        if (found) types[i].active = false;
+        found = true;
+      }
+    }
+  }
+  await writeJSON("call-cycle-types", types);
 }
 
 // ---------- Role Permissions ----------

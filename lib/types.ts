@@ -41,6 +41,8 @@ export interface Rep {
   homeGpsLng: string;
   teamId: string;
   workingHoursPerDay?: number; // default 8.5
+  assignedChannels?: string[]; // channel IDs for channel_dedicated/hybrid strategies
+  assignedZones?: string[]; // zone IDs for geography/hybrid strategies
 }
 
 export interface Team {
@@ -66,6 +68,13 @@ export interface Store {
   duration: number; // minutes
   dayOfWeek: string;
   weekNumber: string;
+  zoneId?: string; // for geography/hybrid strategies
+}
+
+export interface Zone {
+  id: string;
+  name: string;
+  description: string;
 }
 
 export type UserRole = "superAdmin" | "admin" | "teamManager" | "rep" | "viewer";
@@ -141,6 +150,49 @@ export interface SessionPayload {
   repCode?: string;  // for rep users — matched by email at login
   teamId?: string;   // for teamManager users — matched by managerEmail at login
 }
+
+// ---------- Call Cycle Types ----------
+
+export type CallCycleStrategy = "channel_dedicated" | "geography" | "hybrid" | "dynamic";
+
+export interface CallCycleType {
+  id: string;
+  name: string;
+  strategy: CallCycleStrategy;
+  description: string;
+  active: boolean; // only one can be active at a time
+}
+
+export const DEFAULT_CALL_CYCLE_TYPES: CallCycleType[] = [
+  {
+    id: "cct-channel",
+    name: "Channel Dedicated",
+    strategy: "channel_dedicated",
+    description: "Reps are assigned specific channels and only call on stores within those channels in their region.",
+    active: false,
+  },
+  {
+    id: "cct-geography",
+    name: "Geography",
+    strategy: "geography",
+    description: "Reps are assigned geographic areas and call on any channel within their area, limited by daily store capacity.",
+    active: false,
+  },
+  {
+    id: "cct-hybrid",
+    name: "Hybrid",
+    strategy: "hybrid",
+    description: "Combination of channel and geography — reps have channel preferences but are clustered by area.",
+    active: false,
+  },
+  {
+    id: "cct-dynamic",
+    name: "Dynamic",
+    strategy: "dynamic",
+    description: "System optimises store assignments based on rep capacity, proximity, and channel coverage targets.",
+    active: false,
+  },
+];
 
 // ---------- Route Plan Types ----------
 
