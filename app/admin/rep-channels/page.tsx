@@ -169,15 +169,15 @@ export default function RepChannelsPage() {
 
       {/* Matrix */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100">
-        <div className="overflow-x-auto">
+        <div className="overflow-auto max-h-[calc(100vh-260px)]">
           <table className="w-full text-sm">
-            <thead>
+            <thead className="sticky top-0 z-20">
               <tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-                <th className="px-6 py-3 text-left sticky left-0 bg-gray-50 z-10">
+                <th className="px-6 py-3 text-left sticky left-0 bg-gray-50 z-30">
                   Rep
                 </th>
                 {channels.map((ch) => (
-                  <th key={ch.id} className="px-4 py-3 text-center min-w-[100px]">
+                  <th key={ch.id} className="px-4 py-3 text-center min-w-[100px] bg-gray-50">
                     {ch.name}
                   </th>
                 ))}
