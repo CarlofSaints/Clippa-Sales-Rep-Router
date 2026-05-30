@@ -242,6 +242,8 @@ export interface RoutePlanDocument {
   id: string;
   generatedAt: string; // ISO datetime
   generatedBy: string;
+  callCycleTypeId?: string;   // which call cycle type generated this
+  callCycleTypeName?: string; // human-readable name for display
   repPlans: RepRoutePlan[];
   config: {
     useGoogleMaps: boolean;

@@ -128,6 +128,43 @@ export async function saveRoutes(doc: RoutePlanDocument | null): Promise<void> {
   await writeJSON("routes", doc);
 }
 
+// Per-strategy route storage
+export async function getRoutesForType(typeId: string): Promise<RoutePlanDocument | null> {
+  return readJSON<RoutePlanDocument | null>(`routes-${typeId}`, null);
+}
+
+export async function saveRoutesForType(typeId: string, doc: RoutePlanDocument | null): Promise<void> {
+  await writeJSON(`routes-${typeId}`, doc);
+}
+
+export async function listSavedRouteTypes(): Promise<string[]> {
+  if (useBlob) {
+    try {
+      const { blobs } = await list({ prefix: "routes-" });
+      return blobs
+        .map((b) => {
+          const match = b.pathname.match(/^routes-(.+)\.json$/);
+          return match ? match[1] : null;
+        })
+        .filter((id): id is string => id !== null);
+    } catch {
+      return [];
+    }
+  }
+  // local file fallback
+  try {
+    const files = fs.readdirSync(DATA_DIR);
+    return files
+      .map((f) => {
+        const match = f.match(/^routes-(.+)\.json$/);
+        return match ? match[1] : null;
+      })
+      .filter((id): id is string => id !== null);
+  } catch {
+    return [];
+  }
+}
+
 // ---------- Call Cycle Types ----------
 
 export async function getCallCycleTypes(): Promise<CallCycleType[]> {

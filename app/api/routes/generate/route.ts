@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getReps, getStores, saveRoutes, getCallCycleTypes } from "@/lib/data";
+import { getReps, getStores, saveRoutes, saveRoutesForType, getCallCycleTypes } from "@/lib/data";
 import { RoutePlanDocument, RepRoutePlan, Store, Rep } from "@/lib/types";
 import { generateRepRoute } from "@/lib/route-engine";
 import { hasGoogleMapsKey } from "@/lib/google-maps";
@@ -90,6 +90,8 @@ export async function POST(request: NextRequest) {
       id: crypto.randomUUID(),
       generatedAt: new Date().toISOString(),
       generatedBy: "admin",
+      callCycleTypeId: activeType?.id,
+      callCycleTypeName: activeType?.name,
       repPlans,
       config: {
         useGoogleMaps: hasGoogleMapsKey(),
@@ -97,6 +99,10 @@ export async function POST(request: NextRequest) {
       },
     };
 
+    // Save per-type (if active type exists) + latest snapshot
+    if (activeType) {
+      await saveRoutesForType(activeType.id, doc);
+    }
     await saveRoutes(doc);
 
     return NextResponse.json(doc);

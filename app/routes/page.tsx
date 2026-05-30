@@ -10,7 +10,17 @@ import {
   RouteDayPlan,
   WeekLabel,
   DayLabel,
+  CallCycleStrategy,
 } from "@/lib/types";
+
+interface RouteTypeInfo {
+  id: string;
+  name: string;
+  strategy: CallCycleStrategy;
+  active: boolean;
+  hasRoutes: boolean;
+  generatedAt: string | null;
+}
 
 const WEEKS: WeekLabel[] = ["Wk1", "Wk2", "Wk3", "Wk4"];
 const DAYS: DayLabel[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
@@ -30,6 +40,8 @@ export default function RoutesPage() {
     day: DayLabel;
   } | null>(null);
   const [error, setError] = useState("");
+  const [routeTypes, setRouteTypes] = useState<RouteTypeInfo[]>([]);
+  const [selectedTypeId, setSelectedTypeId] = useState("");
 
   const isAdmin = session?.role === "superAdmin" || session?.role === "admin";
   const isTeamManager = session?.role === "teamManager";
@@ -40,10 +52,24 @@ export default function RoutesPage() {
       fetch("/api/routes").then((r) => r.json()),
       fetch("/api/reps").then((r) => r.json()),
       fetch("/api/teams").then((r) => r.json()),
-    ]).then(([rt, rp, tm]) => {
+      fetch("/api/routes/types").then((r) => r.json()).catch(() => []),
+    ]).then(([rt, rp, tm, types]) => {
       setRoutes(rt);
       setReps(rp);
       setTeams(tm);
+
+      const typesArr: RouteTypeInfo[] = Array.isArray(types) ? types : [];
+      setRouteTypes(typesArr);
+
+      // Auto-select the most recently generated type
+      const withRoutes = typesArr.filter((t) => t.hasRoutes);
+      if (withRoutes.length > 0) {
+        const sorted = [...withRoutes].sort((a, b) =>
+          (b.generatedAt ?? "").localeCompare(a.generatedAt ?? "")
+        );
+        setSelectedTypeId(sorted[0].id);
+      }
+
       setLoading(false);
     });
   };
@@ -51,6 +77,18 @@ export default function RoutesPage() {
   useEffect(() => {
     load();
   }, []);
+
+  // Reload routes when selected type changes
+  useEffect(() => {
+    if (!selectedTypeId) return;
+    fetch(`/api/routes?typeId=${selectedTypeId}`)
+      .then((r) => r.json())
+      .catch(() => null)
+      .then((rt) => {
+        setRoutes(rt && typeof rt === "object" && "repPlans" in rt ? rt : null);
+        setSelectedCell(null);
+      });
+  }, [selectedTypeId]);
 
   // Auto-select rep for rep users
   useEffect(() => {
@@ -95,6 +133,10 @@ export default function RoutesPage() {
       }
       const doc = await res.json();
       setRoutes(doc);
+      if (doc.callCycleTypeId) setSelectedTypeId(doc.callCycleTypeId);
+      // Refresh types list
+      fetch("/api/routes/types").then((r) => r.json()).catch(() => [])
+        .then((types) => setRouteTypes(Array.isArray(types) ? types : []));
     } catch (err) {
       setError(String(err));
     } finally {
@@ -167,7 +209,15 @@ export default function RoutesPage() {
           <h1 className="text-xl font-bold text-gray-900">Routes</h1>
           <p className="text-sm text-gray-500">
             {routes
-              ? `Generated ${new Date(routes.generatedAt).toLocaleString("en-ZA")}${routes.config.useGoogleMaps ? " (Google Maps optimized)" : " (Haversine fallback)"}`
+              ? <>
+                  Generated {new Date(routes.generatedAt).toLocaleString("en-ZA")}
+                  {routes.config.useGoogleMaps ? " (Google Maps optimized)" : " (Haversine fallback)"}
+                  {routes.callCycleTypeName && (
+                    <span className="ml-2 inline-block bg-gray-100 text-gray-600 text-xs font-medium px-2 py-0.5 rounded">
+                      {routes.callCycleTypeName}
+                    </span>
+                  )}
+                </>
               : "No routes generated yet"}
           </p>
         </div>
@@ -203,6 +253,28 @@ export default function RoutesPage() {
 
       {/* Filters row */}
       <div className="flex items-center gap-4 mb-6 flex-wrap">
+        {/* Call cycle type dropdown */}
+        {routeTypes.filter((t) => t.hasRoutes).length > 0 && (
+          <select
+            value={selectedTypeId}
+            onChange={(e) => {
+              setSelectedTypeId(e.target.value);
+              setSelectedRep("");
+              setSelectedCell(null);
+            }}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
+          >
+            <option value="">Latest Routes</option>
+            {routeTypes
+              .filter((t) => t.hasRoutes)
+              .map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+          </select>
+        )}
+
         {/* Team Leader filter — visible to admins */}
         {isAdmin && (
           <select

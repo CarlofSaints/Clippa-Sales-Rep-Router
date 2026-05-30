@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getRoutes, saveRoutes } from "@/lib/data";
+import { getRoutes, getRoutesForType, saveRoutes } from "@/lib/data";
 import { RoutePlanDocument } from "@/lib/types";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const routes = await getRoutes();
+    const typeId = request.nextUrl.searchParams.get("typeId");
+    const routes = typeId
+      ? await getRoutesForType(typeId)
+      : await getRoutes();
     return NextResponse.json(routes);
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });

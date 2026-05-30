@@ -4,11 +4,20 @@ import { Suspense, useState, useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useSession } from "@/components/SessionProvider";
-import { Store, Rep, Channel, Team, RoutePlanDocument, RouteDayPlan, WeekLabel } from "@/lib/types";
+import { Store, Rep, Channel, Team, RoutePlanDocument, RouteDayPlan, WeekLabel, CallCycleStrategy } from "@/lib/types";
 
 const MapView = dynamic(() => import("./MapView"), { ssr: false });
 
 const WEEKS: WeekLabel[] = ["Wk1", "Wk2", "Wk3", "Wk4"];
+
+interface RouteTypeInfo {
+  id: string;
+  name: string;
+  strategy: CallCycleStrategy;
+  active: boolean;
+  hasRoutes: boolean;
+  generatedAt: string | null;
+}
 
 function MapPageInner() {
   const searchParams = useSearchParams();
@@ -20,6 +29,8 @@ function MapPageInner() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [routes, setRoutes] = useState<RoutePlanDocument | null>(null);
   const [loading, setLoading] = useState(true);
+  const [routeTypes, setRouteTypes] = useState<RouteTypeInfo[]>([]);
+  const [selectedTypeId, setSelectedTypeId] = useState("");
 
   const isAdmin = session?.role === "superAdmin" || session?.role === "admin";
   const isTeamManager = session?.role === "teamManager";
@@ -38,15 +49,40 @@ function MapPageInner() {
       fetch("/api/channels").then((r) => r.json()).catch(() => []),
       fetch("/api/teams").then((r) => r.json()).catch(() => []),
       fetch("/api/routes").then((r) => r.json()).catch(() => null),
-    ]).then(([st, rp, ch, tm, rt]) => {
+      fetch("/api/routes/types").then((r) => r.json()).catch(() => []),
+    ]).then(([st, rp, ch, tm, rt, types]) => {
       setStores(Array.isArray(st) ? st : []);
       setReps(Array.isArray(rp) ? rp : []);
       setChannels(Array.isArray(ch) ? ch : []);
       setTeams(Array.isArray(tm) ? tm : []);
       setRoutes(rt && typeof rt === "object" && "repPlans" in rt ? rt : null);
+
+      const typesArr: RouteTypeInfo[] = Array.isArray(types) ? types : [];
+      setRouteTypes(typesArr);
+
+      // Auto-select the most recently generated type that has routes
+      const withRoutes = typesArr.filter((t) => t.hasRoutes);
+      if (withRoutes.length > 0) {
+        const sorted = [...withRoutes].sort((a, b) =>
+          (b.generatedAt ?? "").localeCompare(a.generatedAt ?? "")
+        );
+        setSelectedTypeId(sorted[0].id);
+      }
+
       setLoading(false);
     });
   }, []);
+
+  // Reload routes when selected type changes
+  useEffect(() => {
+    if (!selectedTypeId) return;
+    fetch(`/api/routes?typeId=${selectedTypeId}`)
+      .then((r) => r.json())
+      .catch(() => null)
+      .then((rt) => {
+        setRoutes(rt && typeof rt === "object" && "repPlans" in rt ? rt : null);
+      });
+  }, [selectedTypeId]);
 
   // Auto-set filterRep for rep users
   useEffect(() => {
@@ -150,6 +186,24 @@ function MapPageInner() {
       {/* Filters bar */}
       <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-4 flex-shrink-0">
         <h1 className="text-lg font-bold text-gray-900 mr-4">Route Map</h1>
+
+        {/* Call cycle type dropdown — only show if there are types with routes */}
+        {routeTypes.filter((t) => t.hasRoutes).length > 0 && (
+          <select
+            value={selectedTypeId}
+            onChange={(e) => setSelectedTypeId(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
+          >
+            <option value="">Latest Routes</option>
+            {routeTypes
+              .filter((t) => t.hasRoutes)
+              .map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+          </select>
+        )}
 
         {/* Rep dropdown — hidden for rep users (auto-selected) */}
         {!isRep && (
