@@ -616,13 +616,13 @@ export default function AdminPage() {
             </div>
           )}
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
           <table className="w-full text-sm">
-            <thead>
+            <thead className="sticky top-0 z-10">
               <tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-                <th className="px-6 py-3 text-left">Permission</th>
+                <th className="px-6 py-3 text-left sticky left-0 bg-gray-50 z-20">Permission</th>
                 {rolePerms.map((rd) => (
-                  <th key={rd.role} className="px-4 py-3 text-center">
+                  <th key={rd.role} className="px-4 py-3 text-center bg-gray-50">
                     <div className="flex items-center justify-center gap-1.5">
                       <span className={`w-2 h-2 rounded-full ${ROLE_DOTS[rd.role]}`} />
                       <span>{rd.label}</span>
@@ -639,7 +639,7 @@ export default function AdminPage() {
             <tbody className="divide-y divide-gray-100">
               {ALL_PERMISSIONS.map((perm) => (
                 <tr key={perm.key} className="hover:bg-gray-50">
-                  <td className="px-6 py-3 text-gray-700 font-medium">{perm.label}</td>
+                  <td className="px-6 py-3 text-gray-700 font-medium sticky left-0 bg-white z-[5]">{perm.label}</td>
                   {rolePerms.map((rd) => {
                     const has = rd.permissions.includes(perm.key);
                     const locked = rd.role === "superAdmin";
