@@ -1,11 +1,13 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getStores, saveStores } from "@/lib/data";
 import { requireSession } from "@/lib/auth";
 import { hasGoogleMapsKey, reverseGeocodeRegion } from "@/lib/google-maps";
 
-export const maxDuration = 120;
+export const maxDuration = 60;
 
-export async function POST() {
+const BATCH_SIZE = 40;
+
+export async function POST(request: NextRequest) {
   try {
     await requireSession();
 
@@ -18,8 +20,26 @@ export async function POST() {
 
     const stores = await getStores();
 
-    // Filter to stores that need province AND have GPS coordinates
-    const needsProvince = stores.filter(
+    // Optional channel filter
+    const channelsParam = request.nextUrl.searchParams.get("channels");
+    const channelFilter = channelsParam
+      ? new Set(channelsParam.split(",").map((c) => c.trim()).filter(Boolean))
+      : null;
+
+    const scoped = channelFilter
+      ? stores.filter((s) => channelFilter.has(s.channelId))
+      : stores;
+
+    const total = scoped.length;
+    const alreadyHad = scoped.filter((s) => s.province?.trim()).length;
+    const noGps = scoped.filter(
+      (s) =>
+        !s.province?.trim() &&
+        (!s.gpsLat || !s.gpsLng || isNaN(parseFloat(s.gpsLat)) || isNaN(parseFloat(s.gpsLng)))
+    ).length;
+
+    // Stores that need province AND have GPS
+    const needsProvince = scoped.filter(
       (s) =>
         !s.province?.trim() &&
         s.gpsLat &&
@@ -28,10 +48,25 @@ export async function POST() {
         !isNaN(parseFloat(s.gpsLng))
     );
 
+    if (needsProvince.length === 0) {
+      return NextResponse.json({
+        ok: true,
+        populated: 0,
+        failed: 0,
+        alreadyHad,
+        noGps,
+        remaining: 0,
+        total,
+        done: true,
+      });
+    }
+
+    // Process only a batch
+    const batch = needsProvince.slice(0, BATCH_SIZE);
     let populated = 0;
     let failed = 0;
 
-    for (const store of needsProvince) {
+    for (const store of batch) {
       try {
         const province = await reverseGeocodeRegion(
           parseFloat(store.gpsLat),
@@ -52,18 +87,17 @@ export async function POST() {
       await saveStores(stores);
     }
 
-    const alreadyHad = stores.filter((s) => s.province?.trim()).length - populated;
-    const noGps = stores.filter(
-      (s) => !s.province?.trim() && (!s.gpsLat || !s.gpsLng || isNaN(parseFloat(s.gpsLat)) || isNaN(parseFloat(s.gpsLng)))
-    ).length;
+    const remaining = needsProvince.length - batch.length;
 
     return NextResponse.json({
       ok: true,
       populated,
       failed,
-      alreadyHad,
+      alreadyHad: alreadyHad + populated,
       noGps,
-      total: stores.length,
+      remaining,
+      total,
+      done: remaining === 0,
     });
   } catch (err) {
     if (String(err).includes("Unauthorized")) {

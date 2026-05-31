@@ -205,29 +205,49 @@ export default function ZonesPage() {
     }
   };
 
+  const [populateProgress, setPopulateProgress] = useState("");
+
   const handlePopulateRegions = async () => {
-    if (!confirm("This will call the Google Maps API for each store without a region. Continue?")) return;
+    const channelNames = Array.from(filterChannels).map((id) => channelMap.get(id) || id).join(", ");
+    const scope = filterChannels.size > 0 ? `stores in ${channelNames}` : "all stores";
+    if (!confirm(`This will call the Google Maps API for ${scope} without a province. Processes 40 per batch. Continue?`)) return;
     setPopulating(true);
+    setPopulateProgress("");
+    let totalPopulated = 0;
+    let totalFailed = 0;
+    let done = false;
+
+    const channelParam = filterChannels.size > 0 ? `?channels=${Array.from(filterChannels).join(",")}` : "";
+
     try {
-      const res = await fetch("/api/zones/populate-regions", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) {
-        showMsg(data.error || "Failed to populate regions", "error");
-        return;
+      while (!done) {
+        const res = await fetch(`/api/zones/populate-regions${channelParam}`, { method: "POST" });
+        const data = await res.json();
+        if (!res.ok) {
+          showMsg(data.error || "Failed to populate provinces", "error");
+          return;
+        }
+        totalPopulated += data.populated || 0;
+        totalFailed += data.failed || 0;
+        done = data.done;
+
+        if (!done) {
+          setPopulateProgress(`${totalPopulated} provinces populated so far, ${data.remaining} remaining...`);
+        }
       }
+
       const parts: string[] = [];
-      if (data.populated) parts.push(`${data.populated} regions populated`);
-      if (data.alreadyHad) parts.push(`${data.alreadyHad} already had regions`);
-      if (data.noGps) parts.push(`${data.noGps} stores have no GPS`);
-      if (data.failed) parts.push(`${data.failed} failed`);
-      if (parts.length === 0) parts.push("No stores to process");
-      const allNoGps = data.noGps > 0 && !data.populated && !data.alreadyHad;
-      showMsg(parts.join(", "), allNoGps ? "error" : "success");
+      if (totalPopulated) parts.push(`${totalPopulated} provinces populated`);
+      if (totalFailed) parts.push(`${totalFailed} failed`);
+      if (parts.length === 0) parts.push("No stores needed provinces");
+      showMsg(parts.join(", "));
+      setPopulateProgress("");
       load();
     } catch {
-      showMsg("Failed to populate regions", "error");
+      showMsg("Failed to populate provinces", "error");
     } finally {
       setPopulating(false);
+      setPopulateProgress("");
     }
   };
 
@@ -659,6 +679,14 @@ export default function ZonesPage() {
           }`}
         >
           {msg}
+        </div>
+      )}
+
+      {/* Province populate progress */}
+      {populateProgress && (
+        <div className="p-3 rounded-lg text-sm bg-blue-50 text-blue-700 flex items-center gap-2">
+          <div className="animate-spin w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full" />
+          {populateProgress}
         </div>
       )}
 
