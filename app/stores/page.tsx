@@ -1,10 +1,115 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { Store, Channel, Rep, FREQUENCY_OPTIONS, FrequencyType, getFrequencyLabel } from "@/lib/types";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { Store, Channel, Rep, FREQUENCY_OPTIONS, FrequencyType, getFrequencyLabel, SA_PROVINCES } from "@/lib/types";
 
 const DAYS = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 const WEEKS = ["", "Wk1", "Wk2", "Wk3", "Wk4", "Wk5"];
+
+/* ─── Multi-select checkbox dropdown with search ─── */
+function FilterDropdown({
+  label,
+  options,
+  selected,
+  onChange,
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  selected: Set<string>;
+  onChange: (next: Set<string>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const filtered = search
+    ? options.filter((o) => o.label.toLowerCase().includes(search.toLowerCase()))
+    : options;
+
+  const toggle = (val: string) => {
+    const next = new Set(selected);
+    if (next.has(val)) next.delete(val);
+    else next.add(val);
+    onChange(next);
+  };
+
+  const activeCount = selected.size;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((p) => !p)}
+        className={`flex items-center gap-1.5 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red ${
+          activeCount > 0
+            ? "border-clippa-red bg-red-50 text-clippa-red font-medium"
+            : "border-gray-200 text-gray-700 hover:bg-gray-50"
+        }`}
+      >
+        {label}
+        {activeCount > 0 && (
+          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-clippa-red text-white text-[10px] font-bold">
+            {activeCount}
+          </span>
+        )}
+        <svg className={`w-3.5 h-3.5 transition-transform ${open ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute z-50 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg">
+          <div className="p-2 border-b border-gray-100">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={`Search ${label.toLowerCase()}...`}
+              className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-clippa-red"
+              autoFocus
+            />
+          </div>
+          <div className="max-h-56 overflow-y-auto p-1">
+            {filtered.length === 0 ? (
+              <p className="text-xs text-gray-400 px-2 py-2">No matches</p>
+            ) : (
+              filtered.map((o) => (
+                <label
+                  key={o.value}
+                  className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected.has(o.value)}
+                    onChange={() => toggle(o.value)}
+                    className="accent-clippa-red w-3.5 h-3.5"
+                  />
+                  <span className="truncate">{o.label}</span>
+                </label>
+              ))
+            )}
+          </div>
+          {activeCount > 0 && (
+            <div className="p-2 border-t border-gray-100">
+              <button
+                onClick={() => onChange(new Set())}
+                className="text-xs text-gray-500 hover:text-gray-700"
+              >
+                Clear all
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function StoresPage() {
   const [stores, setStores] = useState<Store[]>([]);
@@ -12,8 +117,10 @@ export default function StoresPage() {
   const [reps, setReps] = useState<Rep[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [filterRep, setFilterRep] = useState("");
-  const [filterChannel, setFilterChannel] = useState("");
+  const [filterChannels, setFilterChannels] = useState<Set<string>>(new Set());
+  const [filterReps, setFilterReps] = useState<Set<string>>(new Set());
+  const [filterProvinces, setFilterProvinces] = useState<Set<string>>(new Set());
+  const [filterFrequencies, setFilterFrequencies] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<string | null>(null);
   const [editData, setEditData] = useState<Partial<Store>>({});
   const [saving, setSaving] = useState(false);
@@ -71,14 +178,54 @@ export default function StoresPage() {
   const channelMap = useMemo(() => new Map(channels.map((c) => [c.id, c])), [channels]);
   const repMap = useMemo(() => new Map(reps.map((r) => [r.code, r])), [reps]);
 
+  // Filter options
+  const channelOptions = useMemo(
+    () => channels.map((c) => ({ value: c.id, label: c.name })),
+    [channels]
+  );
+  const repOptions = useMemo(
+    () => reps.map((r) => ({ value: r.code, label: `${r.name} (${r.code})` })),
+    [reps]
+  );
+  const provinceOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of stores) {
+      if (s.province?.trim()) set.add(s.province.trim());
+    }
+    return [
+      { value: "__none__", label: "No Province" },
+      ...Array.from(set).sort().map((p) => ({ value: p, label: p })),
+    ];
+  }, [stores]);
+  const frequencyOptions = useMemo(
+    () => FREQUENCY_OPTIONS.map((f) => ({ value: f.value, label: f.label })),
+    []
+  );
+
   const filtered = useMemo(() => {
     return stores.filter((s) => {
       if (search && !s.name.toLowerCase().includes(search.toLowerCase()) && !s.placeId.toLowerCase().includes(search.toLowerCase())) return false;
-      if (filterRep && s.repCode !== filterRep) return false;
-      if (filterChannel && s.channelId !== filterChannel) return false;
+      if (filterChannels.size > 0 && !filterChannels.has(s.channelId)) return false;
+      if (filterReps.size > 0 && !filterReps.has(s.repCode)) return false;
+      if (filterProvinces.size > 0) {
+        const prov = s.province?.trim() || "";
+        if (!prov && !filterProvinces.has("__none__")) return false;
+        if (prov && !filterProvinces.has(prov)) return false;
+      }
+      if (filterFrequencies.size > 0 && !filterFrequencies.has(s.frequency)) return false;
       return true;
     });
-  }, [stores, search, filterRep, filterChannel]);
+  }, [stores, search, filterChannels, filterReps, filterProvinces, filterFrequencies]);
+
+  const hasFilters = !!search || filterChannels.size > 0 || filterReps.size > 0 || filterProvinces.size > 0 || filterFrequencies.size > 0;
+
+  const clearAllFilters = () => {
+    setSearch("");
+    setFilterChannels(new Set());
+    setFilterReps(new Set());
+    setFilterProvinces(new Set());
+    setFilterFrequencies(new Set());
+  };
 
   const startEdit = (store: Store) => {
     setEditing(store.id);
@@ -89,6 +236,8 @@ export default function StoresPage() {
       duration: store.duration,
       dayOfWeek: store.dayOfWeek,
       weekNumber: store.weekNumber,
+      province: store.province || "",
+      region: store.region || "",
     });
   };
 
@@ -161,37 +310,45 @@ export default function StoresPage() {
       )}
 
       {/* Filters */}
-      <div className="flex gap-3 mb-4">
+      <div className="flex flex-wrap gap-3 mb-4 items-center">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search store name or ID..."
           className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:ring-1 focus:ring-clippa-red"
         />
-        <select
-          value={filterRep}
-          onChange={(e) => setFilterRep(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
-        >
-          <option value="">All Reps</option>
-          {reps.map((r) => (
-            <option key={r.code} value={r.code}>
-              {r.name} ({r.code})
-            </option>
-          ))}
-        </select>
-        <select
-          value={filterChannel}
-          onChange={(e) => setFilterChannel(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
-        >
-          <option value="">All Channels</option>
-          {channels.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
+        <FilterDropdown
+          label="Channels"
+          options={channelOptions}
+          selected={filterChannels}
+          onChange={setFilterChannels}
+        />
+        <FilterDropdown
+          label="Reps"
+          options={repOptions}
+          selected={filterReps}
+          onChange={setFilterReps}
+        />
+        <FilterDropdown
+          label="Provinces"
+          options={provinceOptions}
+          selected={filterProvinces}
+          onChange={setFilterProvinces}
+        />
+        <FilterDropdown
+          label="Frequency"
+          options={frequencyOptions}
+          selected={filterFrequencies}
+          onChange={setFilterFrequencies}
+        />
+        {hasFilters && (
+          <button
+            onClick={clearAllFilters}
+            className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100"
+          >
+            Clear filters
+          </button>
+        )}
       </div>
 
       {/* Table */}
@@ -204,6 +361,7 @@ export default function StoresPage() {
                 <th className="px-3 py-2">Store Name</th>
                 <th className="px-3 py-2">Channel</th>
                 <th className="px-3 py-2">Province</th>
+                <th className="px-3 py-2">Region</th>
                 <th className="px-3 py-2">Rep</th>
                 <th className="px-3 py-2 text-right">Monthly Sales</th>
                 <th className="px-3 py-2 text-center">Rank Overall</th>
@@ -241,7 +399,27 @@ export default function StoresPage() {
                             ))}
                           </select>
                         </td>
-                        <td className="px-3 py-2 text-gray-500">{store.province || "—"}</td>
+                        <td className="px-3 py-2">
+                          <select
+                            value={editData.province || ""}
+                            onChange={(e) => setEditData({ ...editData, province: e.target.value })}
+                            className="border border-gray-200 rounded px-1 py-0.5 text-xs w-full"
+                          >
+                            <option value="">—</option>
+                            {SA_PROVINCES.map((p) => (
+                              <option key={p} value={p}>{p}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="text"
+                            value={editData.region || ""}
+                            onChange={(e) => setEditData({ ...editData, region: e.target.value })}
+                            placeholder="Region"
+                            className="border border-gray-200 rounded px-1 py-0.5 text-xs w-full"
+                          />
+                        </td>
                         <td className="px-3 py-2">
                           <select
                             value={editData.repCode || ""}
@@ -283,7 +461,7 @@ export default function StoresPage() {
                             className="border border-gray-200 rounded px-1 py-0.5 text-xs w-full"
                           >
                             {DAYS.map((d) => (
-                              <option key={d} value={d}>{d || "—"}</option>
+                              <option key={d} value={d}>{d || "\u2014"}</option>
                             ))}
                           </select>
                         </td>
@@ -294,7 +472,7 @@ export default function StoresPage() {
                             className="border border-gray-200 rounded px-1 py-0.5 text-xs w-full"
                           >
                             {WEEKS.map((w) => (
-                              <option key={w} value={w}>{w || "—"}</option>
+                              <option key={w} value={w}>{w || "\u2014"}</option>
                             ))}
                           </select>
                         </td>
@@ -310,7 +488,8 @@ export default function StoresPage() {
                     ) : (
                       <>
                         <td className="px-3 py-2 text-gray-600">{ch?.name || store.channelId}</td>
-                        <td className="px-3 py-2 text-gray-500">{store.province || "—"}</td>
+                        <td className="px-3 py-2 text-gray-500">{store.province || "\u2014"}</td>
+                        <td className="px-3 py-2 text-gray-500">{store.region || "\u2014"}</td>
                         <td className="px-3 py-2 text-gray-600">{rep?.name || store.repCode}</td>
                         <td className="px-3 py-2 text-right text-gray-600">{fmt(store.monthlySales)}</td>
                         <td className="px-3 py-2 text-center">
@@ -330,8 +509,8 @@ export default function StoresPage() {
                         </td>
                         <td className="px-3 py-2 text-gray-600">{getFrequencyLabel(store.frequency)}</td>
                         <td className="px-3 py-2 text-right text-gray-600">{store.duration}m</td>
-                        <td className="px-3 py-2 text-gray-500">{store.dayOfWeek || "—"}</td>
-                        <td className="px-3 py-2 text-gray-500">{store.weekNumber || "—"}</td>
+                        <td className="px-3 py-2 text-gray-500">{store.dayOfWeek || "\u2014"}</td>
+                        <td className="px-3 py-2 text-gray-500">{store.weekNumber || "\u2014"}</td>
                         <td className="px-3 py-2 text-right">
                           <button onClick={() => startEdit(store)} className="text-clippa-red hover:text-red-800 font-medium">
                             Edit

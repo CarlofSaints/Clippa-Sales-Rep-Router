@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { SA_PROVINCES } from "@/lib/types";
 
 interface Zone {
   id: string;
@@ -328,7 +329,10 @@ export default function ZonesPage() {
     [regions]
   );
   const provinceOptions = useMemo(
-    () => provinces.map((p) => ({ value: p, label: p })),
+    () => [
+      { value: "__none__", label: "No Province" },
+      ...provinces.map((p) => ({ value: p, label: p })),
+    ],
     [provinces]
   );
   const zoneOptions = useMemo(
@@ -500,9 +504,12 @@ export default function ZonesPage() {
       }
 
       if (filterProvinces.size > 0) {
-        result = result.filter((s) =>
-          filterProvinces.has((s.province || "").trim())
-        );
+        result = result.filter((s) => {
+          const prov = (s.province || "").trim();
+          if (!prov && filterProvinces.has("__none__")) return true;
+          if (prov && filterProvinces.has(prov)) return true;
+          return false;
+        });
       }
 
       if (filterZones.size > 0) {
@@ -552,6 +559,16 @@ export default function ZonesPage() {
     setFilterZones(new Set());
   };
 
+  // Inline province/region edit — save individually
+  const saveStoreField = async (storeId: string, field: string, value: string) => {
+    await fetch("/api/stores", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: storeId, [field]: value }),
+    });
+    load();
+  };
+
   // Shared store table component
   const StoreTable = ({ rows, showZoneDropdown }: { rows: Store[]; showZoneDropdown: boolean }) => (
     <table className="w-full text-sm">
@@ -575,8 +592,31 @@ export default function ZonesPage() {
                 {channelMap.get(s.channelId) || "\u2014"}
               </span>
             </td>
-            <td className="px-4 py-2 text-gray-500">{s.region || "\u2014"}</td>
-            <td className="px-4 py-2 text-gray-500">{s.province || "\u2014"}</td>
+            <td className="px-4 py-2">
+              <input
+                type="text"
+                defaultValue={s.region || ""}
+                onBlur={(e) => {
+                  if (e.target.value !== (s.region || "")) {
+                    saveStoreField(s.id, "region", e.target.value);
+                  }
+                }}
+                className="border border-gray-200 rounded px-2 py-1 text-xs w-28 focus:outline-none focus:ring-1 focus:ring-clippa-red"
+                placeholder="Region"
+              />
+            </td>
+            <td className="px-4 py-2">
+              <select
+                defaultValue={s.province || ""}
+                onChange={(e) => saveStoreField(s.id, "province", e.target.value)}
+                className="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-clippa-red"
+              >
+                <option value="">—</option>
+                {SA_PROVINCES.map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+            </td>
             <td className="px-4 py-2">
               {showZoneDropdown ? (
                 <select
