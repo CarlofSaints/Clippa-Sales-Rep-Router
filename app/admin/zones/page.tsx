@@ -218,7 +218,9 @@ export default function ZonesPage() {
       if (data.alreadyHad) parts.push(`${data.alreadyHad} already had regions`);
       if (data.noGps) parts.push(`${data.noGps} stores have no GPS`);
       if (data.failed) parts.push(`${data.failed} failed`);
-      showMsg(parts.join(", "));
+      if (parts.length === 0) parts.push("No stores to process");
+      const allNoGps = data.noGps > 0 && !data.populated && !data.alreadyHad;
+      showMsg(parts.join(", "), allNoGps ? "error" : "success");
       load();
     } catch {
       showMsg("Failed to populate regions", "error");
