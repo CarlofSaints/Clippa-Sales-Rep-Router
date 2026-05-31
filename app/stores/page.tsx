@@ -120,22 +120,26 @@ export default function StoresPage() {
   const [filterChannels, setFilterChannels] = useState<Set<string>>(new Set());
   const [filterReps, setFilterReps] = useState<Set<string>>(new Set());
   const [filterProvinces, setFilterProvinces] = useState<Set<string>>(new Set());
+  const [filterRegions, setFilterRegions] = useState<Set<string>>(new Set());
   const [filterFrequencies, setFilterFrequencies] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<string | null>(null);
   const [editData, setEditData] = useState<Partial<Store>>({});
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState("");
+  const [regionList, setRegionList] = useState<{ id: string; name: string }[]>([]);
 
   const load = () => {
     Promise.all([
       fetch("/api/stores").then((r) => r.json()).catch(() => []),
       fetch("/api/channels").then((r) => r.json()).catch(() => []),
       fetch("/api/reps").then((r) => r.json()).catch(() => []),
-    ]).then(([st, ch, rp]) => {
+      fetch("/api/regions").then((r) => r.json()).catch(() => []),
+    ]).then(([st, ch, rp, reg]) => {
       setStores(Array.isArray(st) ? st : []);
       setChannels(Array.isArray(ch) ? ch : []);
       setReps(Array.isArray(rp) ? rp : []);
+      setRegionList(Array.isArray(reg) ? reg : []);
       setLoading(false);
     });
   };
@@ -197,6 +201,16 @@ export default function StoresPage() {
       ...Array.from(set).sort().map((p) => ({ value: p, label: p })),
     ];
   }, [stores]);
+  const regionFilterOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of stores) {
+      if (s.region?.trim()) set.add(s.region.trim());
+    }
+    return [
+      { value: "__none__", label: "No Region" },
+      ...Array.from(set).sort().map((r) => ({ value: r, label: r })),
+    ];
+  }, [stores]);
   const frequencyOptions = useMemo(
     () => FREQUENCY_OPTIONS.map((f) => ({ value: f.value, label: f.label })),
     []
@@ -212,18 +226,24 @@ export default function StoresPage() {
         if (!prov && !filterProvinces.has("__none__")) return false;
         if (prov && !filterProvinces.has(prov)) return false;
       }
+      if (filterRegions.size > 0) {
+        const reg = s.region?.trim() || "";
+        if (!reg && !filterRegions.has("__none__")) return false;
+        if (reg && !filterRegions.has(reg)) return false;
+      }
       if (filterFrequencies.size > 0 && !filterFrequencies.has(s.frequency)) return false;
       return true;
     });
-  }, [stores, search, filterChannels, filterReps, filterProvinces, filterFrequencies]);
+  }, [stores, search, filterChannels, filterReps, filterProvinces, filterRegions, filterFrequencies]);
 
-  const hasFilters = !!search || filterChannels.size > 0 || filterReps.size > 0 || filterProvinces.size > 0 || filterFrequencies.size > 0;
+  const hasFilters = !!search || filterChannels.size > 0 || filterReps.size > 0 || filterProvinces.size > 0 || filterRegions.size > 0 || filterFrequencies.size > 0;
 
   const clearAllFilters = () => {
     setSearch("");
     setFilterChannels(new Set());
     setFilterReps(new Set());
     setFilterProvinces(new Set());
+    setFilterRegions(new Set());
     setFilterFrequencies(new Set());
   };
 
@@ -336,6 +356,12 @@ export default function StoresPage() {
           onChange={setFilterProvinces}
         />
         <FilterDropdown
+          label="Regions"
+          options={regionFilterOptions}
+          selected={filterRegions}
+          onChange={setFilterRegions}
+        />
+        <FilterDropdown
           label="Frequency"
           options={frequencyOptions}
           selected={filterFrequencies}
@@ -412,13 +438,16 @@ export default function StoresPage() {
                           </select>
                         </td>
                         <td className="px-3 py-2">
-                          <input
-                            type="text"
+                          <select
                             value={editData.region || ""}
                             onChange={(e) => setEditData({ ...editData, region: e.target.value })}
-                            placeholder="Region"
                             className="border border-gray-200 rounded px-1 py-0.5 text-xs w-full"
-                          />
+                          >
+                            <option value="">—</option>
+                            {regionList.map((r) => (
+                              <option key={r.id} value={r.name}>{r.name}</option>
+                            ))}
+                          </select>
                         </td>
                         <td className="px-3 py-2">
                           <select

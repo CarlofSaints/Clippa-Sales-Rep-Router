@@ -91,6 +91,11 @@ export interface Zone {
   description: string;
 }
 
+export interface Region {
+  id: string;
+  name: string;
+}
+
 export type UserRole = "superAdmin" | "admin" | "teamManager" | "rep" | "viewer";
 
 export interface User {

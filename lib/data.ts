@@ -1,5 +1,5 @@
 import { put, list, del } from "@vercel/blob";
-import { Channel, Rep, Store, User, Team, RoutePlanDocument, RolePermission, ROLE_DEFINITIONS, ALL_PERMISSIONS, CallCycleType, DEFAULT_CALL_CYCLE_TYPES, Zone } from "./types";
+import { Channel, Rep, Store, User, Team, RoutePlanDocument, RolePermission, ROLE_DEFINITIONS, ALL_PERMISSIONS, CallCycleType, DEFAULT_CALL_CYCLE_TYPES, Zone, Region } from "./types";
 import fs from "fs";
 import path from "path";
 
@@ -116,6 +116,16 @@ export async function getZones(): Promise<Zone[]> {
 
 export async function saveZones(zones: Zone[]): Promise<void> {
   await writeJSON("zones", zones);
+}
+
+// ---------- Regions ----------
+
+export async function getRegions(): Promise<Region[]> {
+  return readJSON<Region[]>("regions", []);
+}
+
+export async function saveRegions(regions: Region[]): Promise<void> {
+  await writeJSON("regions", regions);
 }
 
 // ---------- Routes ----------

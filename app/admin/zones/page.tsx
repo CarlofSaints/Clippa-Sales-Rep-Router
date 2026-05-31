@@ -19,6 +19,11 @@ interface Store {
   province?: string;
 }
 
+interface RegionItem {
+  id: string;
+  name: string;
+}
+
 interface Rep {
   id: string;
   code: string;
@@ -141,6 +146,7 @@ export default function ZonesPage() {
   const [stores, setStores] = useState<Store[]>([]);
   const [reps, setReps] = useState<Rep[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [regionList, setRegionList] = useState<RegionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
@@ -156,6 +162,12 @@ export default function ZonesPage() {
   const [storeZones, setStoreZones] = useState<Record<string, string>>({});
   const [repZones, setRepZones] = useState<Record<string, Set<string>>>({});
   const [dirty, setDirty] = useState(false);
+
+  // Local province/region edits — batched save
+  const [storeProvinces, setStoreProvinces] = useState<Record<string, string>>({});
+  const [storeRegions, setStoreRegions] = useState<Record<string, string>>({});
+  const [provRegionDirty, setProvRegionDirty] = useState(false);
+  const [savingProvRegion, setSavingProvRegion] = useState(false);
 
   // Collapse state for zone sections
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -261,26 +273,40 @@ export default function ZonesPage() {
 
   const load = useCallback(async () => {
     try {
-      const [zRes, sRes, rRes, chRes] = await Promise.all([
+      const [zRes, sRes, rRes, chRes, regRes] = await Promise.all([
         fetch("/api/zones"),
         fetch("/api/stores"),
         fetch("/api/reps"),
         fetch("/api/channels"),
+        fetch("/api/regions"),
       ]);
       const zData: Zone[] = await zRes.json();
       const sData: Store[] = await sRes.json();
       const rData: Rep[] = await rRes.json();
       const chData: Channel[] = await chRes.json();
+      const regData: RegionItem[] = await regRes.json();
       setZones(zData);
       setStores(sData);
       setReps(rData);
       setChannels(chData);
+      setRegionList(Array.isArray(regData) ? regData : []);
 
       const sz: Record<string, string> = {};
       for (const s of sData) {
         if (s.zoneId) sz[s.id] = s.zoneId;
       }
       setStoreZones(sz);
+
+      // Initialize province/region local state from store data
+      const sp: Record<string, string> = {};
+      const sr: Record<string, string> = {};
+      for (const s of sData) {
+        sp[s.id] = s.province || "";
+        sr[s.id] = s.region || "";
+      }
+      setStoreProvinces(sp);
+      setStoreRegions(sr);
+      setProvRegionDirty(false);
 
       const rz: Record<string, Set<string>> = {};
       for (const r of rData) {
@@ -559,14 +585,48 @@ export default function ZonesPage() {
     setFilterZones(new Set());
   };
 
-  // Inline province/region edit — save individually
-  const saveStoreField = async (storeId: string, field: string, value: string) => {
-    await fetch("/api/stores", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: storeId, [field]: value }),
-    });
-    load();
+  // Local province/region setters — no API call until Save
+  const setLocalProvince = (storeId: string, value: string) => {
+    setStoreProvinces((prev) => ({ ...prev, [storeId]: value }));
+    setProvRegionDirty(true);
+  };
+
+  const setLocalRegion = (storeId: string, value: string) => {
+    setStoreRegions((prev) => ({ ...prev, [storeId]: value }));
+    setProvRegionDirty(true);
+  };
+
+  const saveProvincesAndRegions = async () => {
+    setSavingProvRegion(true);
+    try {
+      const updates: Promise<Response>[] = [];
+      for (const s of stores) {
+        const newProv = storeProvinces[s.id] ?? "";
+        const newReg = storeRegions[s.id] ?? "";
+        const changed =
+          newProv !== (s.province || "") || newReg !== (s.region || "");
+        if (changed) {
+          updates.push(
+            fetch("/api/stores", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: s.id, province: newProv, region: newReg }),
+            })
+          );
+        }
+      }
+      if (updates.length === 0) {
+        showMsg("No changes to save");
+      } else {
+        await Promise.all(updates);
+        showMsg(`${updates.length} store${updates.length > 1 ? "s" : ""} updated`);
+        load();
+      }
+    } catch {
+      showMsg("Failed to save changes", "error");
+    } finally {
+      setSavingProvRegion(false);
+    }
   };
 
   // Shared store table component
@@ -593,22 +653,21 @@ export default function ZonesPage() {
               </span>
             </td>
             <td className="px-4 py-2">
-              <input
-                type="text"
-                defaultValue={s.region || ""}
-                onBlur={(e) => {
-                  if (e.target.value !== (s.region || "")) {
-                    saveStoreField(s.id, "region", e.target.value);
-                  }
-                }}
-                className="border border-gray-200 rounded px-2 py-1 text-xs w-28 focus:outline-none focus:ring-1 focus:ring-clippa-red"
-                placeholder="Region"
-              />
+              <select
+                value={storeRegions[s.id] ?? s.region ?? ""}
+                onChange={(e) => setLocalRegion(s.id, e.target.value)}
+                className="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-clippa-red"
+              >
+                <option value="">—</option>
+                {regionList.map((r) => (
+                  <option key={r.id} value={r.name}>{r.name}</option>
+                ))}
+              </select>
             </td>
             <td className="px-4 py-2">
               <select
-                defaultValue={s.province || ""}
-                onChange={(e) => saveStoreField(s.id, "province", e.target.value)}
+                value={storeProvinces[s.id] ?? s.province ?? ""}
+                onChange={(e) => setLocalProvince(s.id, e.target.value)}
                 className="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-clippa-red"
               >
                 <option value="">—</option>
@@ -662,6 +721,23 @@ export default function ZonesPage() {
           </p>
         </div>
         <div className="flex gap-2 flex-wrap justify-end">
+          {provRegionDirty && (
+            <>
+              <button
+                onClick={load}
+                className="px-3 py-1.5 border border-gray-300 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-50"
+              >
+                Discard Changes
+              </button>
+              <button
+                onClick={saveProvincesAndRegions}
+                disabled={savingProvRegion}
+                className="px-4 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 disabled:opacity-50"
+              >
+                {savingProvRegion ? "Saving..." : "Save Province/Region Changes"}
+              </button>
+            </>
+          )}
           {dirty && (
             <>
               <button
