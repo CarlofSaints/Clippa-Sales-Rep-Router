@@ -15,6 +15,7 @@ interface Store {
   channelId: string;
   zoneId?: string;
   region?: string;
+  province?: string;
 }
 
 interface Rep {
@@ -170,6 +171,7 @@ export default function ZonesPage() {
   const [filterChannels, setFilterChannels] = useState<Set<string>>(new Set());
   const [filterRegions, setFilterRegions] = useState<Set<string>>(new Set());
   const [filterZones, setFilterZones] = useState<Set<string>>(new Set());
+  const [filterProvinces, setFilterProvinces] = useState<Set<string>>(new Set());
 
   const showMsg = (text: string, type: "success" | "error" = "success") => {
     setMsg(text);
@@ -272,11 +274,19 @@ export default function ZonesPage() {
   const channelMap = new Map(channels.map((c) => [c.id, c.name]));
   const zoneMap = new Map(zones.map((z) => [z.id, z.name]));
 
-  // Derive unique regions from store data
+  // Derive unique regions and provinces from store data
   const regions = useMemo(() => {
     const set = new Set<string>();
     for (const s of stores) {
       if (s.region?.trim()) set.add(s.region.trim());
+    }
+    return Array.from(set).sort();
+  }, [stores]);
+
+  const provinces = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of stores) {
+      if (s.province?.trim()) set.add(s.province.trim());
     }
     return Array.from(set).sort();
   }, [stores]);
@@ -289,6 +299,10 @@ export default function ZonesPage() {
   const regionOptions = useMemo(
     () => regions.map((r) => ({ value: r, label: r })),
     [regions]
+  );
+  const provinceOptions = useMemo(
+    () => provinces.map((p) => ({ value: p, label: p })),
+    [provinces]
   );
   const zoneOptions = useMemo(
     () => [
@@ -458,6 +472,12 @@ export default function ZonesPage() {
         );
       }
 
+      if (filterProvinces.size > 0) {
+        result = result.filter((s) =>
+          filterProvinces.has((s.province || "").trim())
+        );
+      }
+
       if (filterZones.size > 0) {
         result = result.filter((s) => {
           const sz = storeZones[s.id] || "";
@@ -475,13 +495,14 @@ export default function ZonesPage() {
             s.placeId.toLowerCase().includes(q) ||
             (channelMap.get(s.channelId) || "").toLowerCase().includes(q) ||
             (s.region || "").toLowerCase().includes(q) ||
+            (s.province || "").toLowerCase().includes(q) ||
             (zoneMap.get(storeZones[s.id] || "") || "").toLowerCase().includes(q)
         );
       }
 
       return result;
     },
-    [filterChannels, filterRegions, filterZones, search, channelMap, zoneMap, storeZones]
+    [filterChannels, filterRegions, filterProvinces, filterZones, search, channelMap, zoneMap, storeZones]
   );
 
   // Group stores by zone
@@ -494,12 +515,13 @@ export default function ZonesPage() {
     setCollapsed((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const hasFilters = !!search || filterChannels.size > 0 || filterRegions.size > 0 || filterZones.size > 0;
+  const hasFilters = !!search || filterChannels.size > 0 || filterRegions.size > 0 || filterProvinces.size > 0 || filterZones.size > 0;
 
   const clearAllFilters = () => {
     setSearch("");
     setFilterChannels(new Set());
     setFilterRegions(new Set());
+    setFilterProvinces(new Set());
     setFilterZones(new Set());
   };
 
@@ -512,6 +534,7 @@ export default function ZonesPage() {
           <th className="px-4 py-2 text-left">Place ID</th>
           <th className="px-4 py-2 text-left">Channel</th>
           <th className="px-4 py-2 text-left">Region</th>
+          <th className="px-4 py-2 text-left">Province</th>
           <th className="px-4 py-2 text-left">Zone</th>
         </tr>
       </thead>
@@ -526,6 +549,7 @@ export default function ZonesPage() {
               </span>
             </td>
             <td className="px-4 py-2 text-gray-500">{s.region || "\u2014"}</td>
+            <td className="px-4 py-2 text-gray-500">{s.province || "\u2014"}</td>
             <td className="px-4 py-2">
               {showZoneDropdown ? (
                 <select
@@ -593,7 +617,7 @@ export default function ZonesPage() {
             disabled={populating}
             className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
           >
-            {populating ? "Populating..." : "Populate Regions from GPS"}
+            {populating ? "Populating..." : "Populate Provinces from GPS"}
           </button>
           <a
             href="/api/zones/export"
@@ -710,6 +734,12 @@ export default function ZonesPage() {
           options={regionOptions}
           selected={filterRegions}
           onChange={setFilterRegions}
+        />
+        <FilterDropdown
+          label="Provinces"
+          options={provinceOptions}
+          selected={filterProvinces}
+          onChange={setFilterProvinces}
         />
         <FilterDropdown
           label="Zones"

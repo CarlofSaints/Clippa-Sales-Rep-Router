@@ -18,7 +18,7 @@ export async function GET() {
 
     // Header row
     const rows: (string | number)[][] = [
-      ["Store Name", "Place ID", "Channel", "Region", "Zone"],
+      ["Store Name", "Place ID", "Channel", "Region", "Province", "Zone"],
     ];
 
     // Sort stores by name for readability
@@ -30,6 +30,7 @@ export async function GET() {
         s.placeId,
         channelMap.get(s.channelId) || "",
         s.region || "",
+        s.province || "",
         s.zoneId ? zoneMap.get(s.zoneId) || "" : "",
       ]);
     }
@@ -43,6 +44,7 @@ export async function GET() {
       { wch: 15 }, // Place ID
       { wch: 20 }, // Channel
       { wch: 20 }, // Region
+      { wch: 20 }, // Province
       { wch: 25 }, // Zone
     ];
 

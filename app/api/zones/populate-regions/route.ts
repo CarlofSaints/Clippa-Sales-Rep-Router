@@ -18,10 +18,10 @@ export async function POST() {
 
     const stores = await getStores();
 
-    // Filter to stores that need region AND have GPS coordinates
-    const needsRegion = stores.filter(
+    // Filter to stores that need province AND have GPS coordinates
+    const needsProvince = stores.filter(
       (s) =>
-        !s.region?.trim() &&
+        !s.province?.trim() &&
         s.gpsLat &&
         s.gpsLng &&
         !isNaN(parseFloat(s.gpsLat)) &&
@@ -31,14 +31,14 @@ export async function POST() {
     let populated = 0;
     let failed = 0;
 
-    for (const store of needsRegion) {
+    for (const store of needsProvince) {
       try {
-        const region = await reverseGeocodeRegion(
+        const province = await reverseGeocodeRegion(
           parseFloat(store.gpsLat),
           parseFloat(store.gpsLng)
         );
-        if (region) {
-          store.region = region;
+        if (province) {
+          store.province = province;
           populated++;
         } else {
           failed++;
@@ -52,9 +52,9 @@ export async function POST() {
       await saveStores(stores);
     }
 
-    const alreadyHad = stores.filter((s) => s.region?.trim()).length - populated;
+    const alreadyHad = stores.filter((s) => s.province?.trim()).length - populated;
     const noGps = stores.filter(
-      (s) => !s.region?.trim() && (!s.gpsLat || !s.gpsLng || isNaN(parseFloat(s.gpsLat)) || isNaN(parseFloat(s.gpsLng)))
+      (s) => !s.province?.trim() && (!s.gpsLat || !s.gpsLng || isNaN(parseFloat(s.gpsLat)) || isNaN(parseFloat(s.gpsLng)))
     ).length;
 
     return NextResponse.json({
@@ -69,7 +69,7 @@ export async function POST() {
     if (String(err).includes("Unauthorized")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    console.error("Populate regions error:", err);
+    console.error("Populate provinces error:", err);
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }
 }

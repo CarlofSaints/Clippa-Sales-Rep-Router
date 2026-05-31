@@ -203,6 +203,7 @@ export default function StoresPage() {
                 <th className="px-3 py-2">Place ID</th>
                 <th className="px-3 py-2">Store Name</th>
                 <th className="px-3 py-2">Channel</th>
+                <th className="px-3 py-2">Province</th>
                 <th className="px-3 py-2">Rep</th>
                 <th className="px-3 py-2 text-right">Monthly Sales</th>
                 <th className="px-3 py-2 text-center">Rank Overall</th>
@@ -240,6 +241,7 @@ export default function StoresPage() {
                             ))}
                           </select>
                         </td>
+                        <td className="px-3 py-2 text-gray-500">{store.province || "—"}</td>
                         <td className="px-3 py-2">
                           <select
                             value={editData.repCode || ""}
@@ -308,6 +310,7 @@ export default function StoresPage() {
                     ) : (
                       <>
                         <td className="px-3 py-2 text-gray-600">{ch?.name || store.channelId}</td>
+                        <td className="px-3 py-2 text-gray-500">{store.province || "—"}</td>
                         <td className="px-3 py-2 text-gray-600">{rep?.name || store.repCode}</td>
                         <td className="px-3 py-2 text-right text-gray-600">{fmt(store.monthlySales)}</td>
                         <td className="px-3 py-2 text-center">

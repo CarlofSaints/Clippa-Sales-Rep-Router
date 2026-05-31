@@ -69,7 +69,8 @@ export interface Store {
   dayOfWeek: string;
   weekNumber: string;
   zoneId?: string; // for geography/hybrid strategies
-  region?: string; // province / region
+  region?: string; // user-defined region
+  province?: string; // auto-populated from GPS via Google Geocoding
 }
 
 export interface Zone {
