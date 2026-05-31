@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { Channel, Rep, Store, Team } from "@/lib/types";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { Channel, Rep, Store, Team, AdherenceData, AdherenceMetrics } from "@/lib/types";
 
 type SortDir = "asc" | "desc";
 
@@ -52,7 +52,7 @@ function SortHeader({
   const active = sortKey === field;
   return (
     <th
-      className={`px-6 py-3 cursor-pointer select-none hover:bg-gray-100 transition-colors ${
+      className={`px-4 py-3 cursor-pointer select-none hover:bg-gray-100 transition-colors whitespace-nowrap ${
         align === "right" ? "text-right" : "text-left"
       }`}
       onClick={() => onToggle(field)}
@@ -70,12 +70,52 @@ function SortHeader({
   );
 }
 
+function pctBadge(value: number, positive: boolean) {
+  let color = "bg-gray-100 text-gray-600";
+  if (positive) {
+    if (value >= 80) color = "bg-green-100 text-green-700";
+    else if (value >= 40) color = "bg-amber-100 text-amber-700";
+    else color = "bg-red-100 text-red-700";
+  } else {
+    if (value < 10) color = "bg-green-100 text-green-700";
+    else if (value < 50) color = "bg-amber-100 text-amber-700";
+    else color = "bg-red-100 text-red-700";
+  }
+  return (
+    <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${color}`}>
+      {value}%
+    </span>
+  );
+}
+
+function getMonthRange(): { from: string; to: string } {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const lastDay = new Date(y, now.getMonth() + 1, 0).getDate();
+  return { from: `${y}-${m}-01`, to: `${y}-${m}-${String(lastDay).padStart(2, "0")}` };
+}
+
 export default function DashboardPage() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [reps, setReps] = useState<Rep[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
+  const [adherence, setAdherence] = useState<AdherenceData | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const defaultRange = getMonthRange();
+  const [dateFrom, setDateFrom] = useState(defaultRange.from);
+  const [dateTo, setDateTo] = useState(defaultRange.to);
+
+  const fetchAdherence = useCallback((from: string, to: string) => {
+    fetch(`/api/visits/adherence?from=${from}&to=${to}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data && data.totals) setAdherence(data);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     Promise.all([
@@ -90,7 +130,13 @@ export default function DashboardPage() {
       setTeams(Array.isArray(tm) ? tm : []);
       setLoading(false);
     });
+    fetchAdherence(defaultRange.from, defaultRange.to);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handleDateChange = () => {
+    fetchAdherence(dateFrom, dateTo);
+  };
 
   const totalRevenue = useMemo(() => stores.reduce((s, st) => s + (st.monthlySales ?? 0), 0), [stores]);
 
@@ -101,6 +147,7 @@ export default function DashboardPage() {
       const teamStores = stores.filter((s) => teamRepCodes.has(s.repCode));
       const revenue = teamStores.reduce((s, st) => s + (st.monthlySales ?? 0), 0);
       const channelIds = new Set(teamStores.map((s) => s.channelId));
+      const teamAdh = adherence?.byTeam[team.name] as AdherenceMetrics | undefined;
       return {
         ...team,
         repCount: teamReps.length,
@@ -108,37 +155,51 @@ export default function DashboardPage() {
         channelCount: channelIds.size,
         revenue,
         contribution: totalRevenue > 0 ? (revenue / totalRevenue) * 100 : 0,
+        accurateHitRate: teamAdh?.accurateHitRate ?? 0,
+        storesVisitedPct: teamAdh?.storesVisitedPct ?? 0,
+        unscheduledPct: teamAdh?.unscheduledPct ?? 0,
+        missedPct: teamAdh?.missedPct ?? 0,
       };
     });
-  }, [teams, reps, stores, totalRevenue]);
+  }, [teams, reps, stores, totalRevenue, adherence]);
 
   const channelStats = useMemo(() => {
     return channels.map((ch) => {
       const chStores = stores.filter((s) => s.channelId === ch.id);
       const revenue = chStores.reduce((s, st) => s + (st.monthlySales ?? 0), 0);
       const repCodes = new Set(chStores.map((s) => s.repCode));
+      const chAdh = adherence?.byChannel[ch.name] as AdherenceMetrics | undefined;
       return {
         ...ch,
         storeCount: chStores.length,
         revenue,
         repCount: repCodes.size,
         contribution: totalRevenue > 0 ? (revenue / totalRevenue) * 100 : 0,
+        accurateHitRate: chAdh?.accurateHitRate ?? 0,
+        storesVisitedPct: chAdh?.storesVisitedPct ?? 0,
+        unscheduledPct: chAdh?.unscheduledPct ?? 0,
+        missedPct: chAdh?.missedPct ?? 0,
       };
     });
-  }, [channels, stores, totalRevenue]);
+  }, [channels, stores, totalRevenue, adherence]);
 
   const repStats = useMemo(() => {
     return reps.map((rep) => {
       const repStores = stores.filter((s) => s.repCode === rep.code);
       const revenue = repStores.reduce((s, st) => s + (st.monthlySales ?? 0), 0);
+      const repAdh = adherence?.byRep[rep.code];
       return {
         ...rep,
         storeCount: repStores.length,
         revenue,
         contribution: totalRevenue > 0 ? (revenue / totalRevenue) * 100 : 0,
+        accurateHitRate: repAdh?.accurateHitRate ?? 0,
+        storesVisitedPct: repAdh?.storesVisitedPct ?? 0,
+        unscheduledPct: repAdh?.unscheduledPct ?? 0,
+        missedPct: repAdh?.missedPct ?? 0,
       };
     });
-  }, [reps, stores, totalRevenue]);
+  }, [reps, stores, totalRevenue, adherence]);
 
   const teamSort = useSortable(teamStats, "revenue");
   const channelSort = useSortable(channelStats, "revenue");
@@ -154,6 +215,8 @@ export default function DashboardPage() {
       </div>
     );
   }
+
+  const totals = adherence?.totals;
 
   return (
     <div className="p-6 space-y-6">
@@ -221,6 +284,98 @@ export default function DashboardPage() {
         ))}
       </div>
 
+      {/* Call Cycle Adherence Section */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-semibold text-gray-900">Call Cycle Adherence</h2>
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
+            />
+            <span className="text-gray-400 text-sm">to</span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
+            />
+            <button
+              onClick={handleDateChange}
+              className="bg-clippa-red text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-red-700 transition-colors"
+            >
+              Apply
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-4 gap-4">
+          {/* Accurate Hit Rate */}
+          <div className="rounded-lg border border-gray-100 p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+                <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <span className="text-xs text-gray-500 uppercase tracking-wider">Hit Rate</span>
+            </div>
+            <p className="text-2xl font-bold text-gray-900">{totals?.accurateHitRate ?? 0}%</p>
+            <p className="text-[11px] text-gray-400 mt-1">Visits on exact assigned date</p>
+          </div>
+
+          {/* Stores Visited */}
+          <div className="rounded-lg border border-gray-100 p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5" />
+                </svg>
+              </div>
+              <span className="text-xs text-gray-500 uppercase tracking-wider">Stores Visited</span>
+            </div>
+            <p className="text-2xl font-bold text-gray-900">{totals?.storesVisitedPct ?? 0}%</p>
+            <p className="text-[11px] text-gray-400 mt-1">
+              {totals ? `${totals.visitedStores}/${totals.scheduledStores} stores` : "—"}
+            </p>
+          </div>
+
+          {/* Unscheduled */}
+          <div className="rounded-lg border border-gray-100 p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center">
+                <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+              </div>
+              <span className="text-xs text-gray-500 uppercase tracking-wider">Unscheduled</span>
+            </div>
+            <p className="text-2xl font-bold text-gray-900">{totals?.unscheduledPct ?? 0}%</p>
+            <p className="text-[11px] text-gray-400 mt-1">
+              {totals ? `${totals.unscheduledVisits}/${totals.totalVisits} visits` : "—"}
+            </p>
+          </div>
+
+          {/* Missed */}
+          <div className="rounded-lg border border-gray-100 p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center">
+                <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <span className="text-xs text-gray-500 uppercase tracking-wider">Missed</span>
+            </div>
+            <p className="text-2xl font-bold text-gray-900">{totals?.missedPct ?? 0}%</p>
+            <p className="text-[11px] text-gray-400 mt-1">
+              {totals ? `${totals.missedStores}/${totals.scheduledStores} stores` : "—"}
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Teams Grid */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100">
         <div className="px-6 py-4 border-b border-gray-100">
@@ -238,19 +393,23 @@ export default function DashboardPage() {
                 <SortHeader label="Channels" field="channelCount" align="right" {...teamSort} />
                 <SortHeader label="Revenue" field="revenue" align="right" {...teamSort} />
                 <SortHeader label="Contribution" field="contribution" align="right" {...teamSort} />
+                <SortHeader label="Hit Rate" field="accurateHitRate" align="right" {...teamSort} />
+                <SortHeader label="Visited" field="storesVisitedPct" align="right" {...teamSort} />
+                <SortHeader label="Unsched." field="unscheduledPct" align="right" {...teamSort} />
+                <SortHeader label="Missed" field="missedPct" align="right" {...teamSort} />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {teamSort.sorted.map((team) => (
                 <tr key={team.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-3 font-medium text-gray-900">{team.name}</td>
-                  <td className="px-6 py-3 text-gray-600">{team.managerName}</td>
-                  <td className="px-6 py-3 text-gray-500">{team.area}</td>
-                  <td className="px-6 py-3 text-right text-gray-600">{team.repCount}</td>
-                  <td className="px-6 py-3 text-right text-gray-600">{team.storeCount}</td>
-                  <td className="px-6 py-3 text-right text-gray-600">{team.channelCount}</td>
-                  <td className="px-6 py-3 text-right text-gray-600">{fmt(team.revenue)}</td>
-                  <td className="px-6 py-3 text-right">
+                  <td className="px-4 py-3 font-medium text-gray-900">{team.name}</td>
+                  <td className="px-4 py-3 text-gray-600">{team.managerName}</td>
+                  <td className="px-4 py-3 text-gray-500">{team.area}</td>
+                  <td className="px-4 py-3 text-right text-gray-600">{team.repCount}</td>
+                  <td className="px-4 py-3 text-right text-gray-600">{team.storeCount}</td>
+                  <td className="px-4 py-3 text-right text-gray-600">{team.channelCount}</td>
+                  <td className="px-4 py-3 text-right text-gray-600">{fmt(team.revenue)}</td>
+                  <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
                       <div className="w-16 bg-gray-200 rounded-full h-1.5">
                         <div className="bg-orange-500 h-1.5 rounded-full" style={{ width: `${Math.min(team.contribution, 100)}%` }} />
@@ -258,6 +417,10 @@ export default function DashboardPage() {
                       <span className="text-gray-600 w-12 text-right">{team.contribution.toFixed(1)}%</span>
                     </div>
                   </td>
+                  <td className="px-4 py-3 text-right">{pctBadge(team.accurateHitRate, true)}</td>
+                  <td className="px-4 py-3 text-right">{pctBadge(team.storesVisitedPct, true)}</td>
+                  <td className="px-4 py-3 text-right">{pctBadge(team.unscheduledPct, false)}</td>
+                  <td className="px-4 py-3 text-right">{pctBadge(team.missedPct, false)}</td>
                 </tr>
               ))}
             </tbody>
@@ -279,16 +442,20 @@ export default function DashboardPage() {
                 <SortHeader label="Revenue" field="revenue" align="right" {...channelSort} />
                 <SortHeader label="Reps" field="repCount" align="right" {...channelSort} />
                 <SortHeader label="Contribution" field="contribution" align="right" {...channelSort} />
+                <SortHeader label="Hit Rate" field="accurateHitRate" align="right" {...channelSort} />
+                <SortHeader label="Visited" field="storesVisitedPct" align="right" {...channelSort} />
+                <SortHeader label="Unsched." field="unscheduledPct" align="right" {...channelSort} />
+                <SortHeader label="Missed" field="missedPct" align="right" {...channelSort} />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {channelSort.sorted.map((ch) => (
                 <tr key={ch.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-3 font-medium text-gray-900">{ch.name}</td>
-                  <td className="px-6 py-3 text-right text-gray-600">{ch.storeCount}</td>
-                  <td className="px-6 py-3 text-right text-gray-600">{fmt(ch.revenue)}</td>
-                  <td className="px-6 py-3 text-right text-gray-600">{ch.repCount}</td>
-                  <td className="px-6 py-3 text-right">
+                  <td className="px-4 py-3 font-medium text-gray-900">{ch.name}</td>
+                  <td className="px-4 py-3 text-right text-gray-600">{ch.storeCount}</td>
+                  <td className="px-4 py-3 text-right text-gray-600">{fmt(ch.revenue)}</td>
+                  <td className="px-4 py-3 text-right text-gray-600">{ch.repCount}</td>
+                  <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
                       <div className="w-16 bg-gray-200 rounded-full h-1.5">
                         <div className="bg-clippa-red h-1.5 rounded-full" style={{ width: `${Math.min(ch.contribution, 100)}%` }} />
@@ -296,6 +463,10 @@ export default function DashboardPage() {
                       <span className="text-gray-600 w-12 text-right">{ch.contribution.toFixed(1)}%</span>
                     </div>
                   </td>
+                  <td className="px-4 py-3 text-right">{pctBadge(ch.accurateHitRate, true)}</td>
+                  <td className="px-4 py-3 text-right">{pctBadge(ch.storesVisitedPct, true)}</td>
+                  <td className="px-4 py-3 text-right">{pctBadge(ch.unscheduledPct, false)}</td>
+                  <td className="px-4 py-3 text-right">{pctBadge(ch.missedPct, false)}</td>
                 </tr>
               ))}
             </tbody>
@@ -317,16 +488,20 @@ export default function DashboardPage() {
                 <SortHeader label="Stores" field="storeCount" align="right" {...repSort} />
                 <SortHeader label="Revenue" field="revenue" align="right" {...repSort} />
                 <SortHeader label="Contribution" field="contribution" align="right" {...repSort} />
+                <SortHeader label="Hit Rate" field="accurateHitRate" align="right" {...repSort} />
+                <SortHeader label="Visited" field="storesVisitedPct" align="right" {...repSort} />
+                <SortHeader label="Unsched." field="unscheduledPct" align="right" {...repSort} />
+                <SortHeader label="Missed" field="missedPct" align="right" {...repSort} />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {repSort.sorted.map((rep) => (
                 <tr key={rep.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-3 font-medium text-gray-900">{rep.name}</td>
-                  <td className="px-6 py-3 text-gray-500">{rep.code}</td>
-                  <td className="px-6 py-3 text-right text-gray-600">{rep.storeCount}</td>
-                  <td className="px-6 py-3 text-right text-gray-600">{fmt(rep.revenue)}</td>
-                  <td className="px-6 py-3 text-right">
+                  <td className="px-4 py-3 font-medium text-gray-900">{rep.name}</td>
+                  <td className="px-4 py-3 text-gray-500">{rep.code}</td>
+                  <td className="px-4 py-3 text-right text-gray-600">{rep.storeCount}</td>
+                  <td className="px-4 py-3 text-right text-gray-600">{fmt(rep.revenue)}</td>
+                  <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
                       <div className="w-16 bg-gray-200 rounded-full h-1.5">
                         <div className="bg-green-500 h-1.5 rounded-full" style={{ width: `${Math.min(rep.contribution, 100)}%` }} />
@@ -334,6 +509,10 @@ export default function DashboardPage() {
                       <span className="text-gray-600 w-12 text-right">{rep.contribution.toFixed(1)}%</span>
                     </div>
                   </td>
+                  <td className="px-4 py-3 text-right">{pctBadge(rep.accurateHitRate, true)}</td>
+                  <td className="px-4 py-3 text-right">{pctBadge(rep.storesVisitedPct, true)}</td>
+                  <td className="px-4 py-3 text-right">{pctBadge(rep.unscheduledPct, false)}</td>
+                  <td className="px-4 py-3 text-right">{pctBadge(rep.missedPct, false)}</td>
                 </tr>
               ))}
             </tbody>
