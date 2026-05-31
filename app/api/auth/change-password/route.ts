@@ -26,6 +26,8 @@ export async function POST(request: NextRequest) {
       name: users[idx].name,
       role: users[idx].role,
       forcePasswordChange: false,
+      cell: users[idx].cell,
+      profilePicUrl: users[idx].profilePicUrl,
     };
 
     // Enrich session with repCode / teamId based on role

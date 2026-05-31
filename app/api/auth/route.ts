@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validateCredentials, encodeSession } from "@/lib/auth";
-import { getReps, getTeams } from "@/lib/data";
+import { getReps, getTeams, getUsers } from "@/lib/data";
 
 export async function POST(request: NextRequest) {
   try {

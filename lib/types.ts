@@ -105,6 +105,8 @@ export interface User {
   password: string; // hashed
   role: UserRole;
   forcePasswordChange: boolean;
+  cell?: string;
+  profilePicUrl?: string;
 }
 
 export interface RolePermission {
@@ -168,6 +170,8 @@ export interface SessionPayload {
   forcePasswordChange?: boolean;
   repCode?: string;  // for rep users — matched by email at login
   teamId?: string;   // for teamManager users — matched by managerEmail at login
+  cell?: string;
+  profilePicUrl?: string;
 }
 
 // ---------- Call Cycle Types ----------

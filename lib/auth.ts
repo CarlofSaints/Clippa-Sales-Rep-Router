@@ -63,5 +63,7 @@ export async function validateCredentials(
     name: user.name,
     role: user.role,
     forcePasswordChange: user.forcePasswordChange ?? false,
+    cell: user.cell,
+    profilePicUrl: user.profilePicUrl,
   };
 }

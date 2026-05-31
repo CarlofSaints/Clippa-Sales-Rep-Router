@@ -48,3 +48,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }
 }
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const { id } = await request.json();
+    let channels = await getChannels();
+    channels = channels.filter((c) => c.id !== id);
+    await saveChannels(channels);
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+}

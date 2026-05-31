@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { id, name, email, role, password, forcePasswordChange } = body;
+    const { id, name, email, role, password, forcePasswordChange, cell } = body;
 
     const users = await getUsers();
     const idx = users.findIndex((u) => u.id === id);
@@ -60,6 +60,7 @@ export async function PUT(request: NextRequest) {
     if (role) users[idx].role = role as UserRole;
     if (password) users[idx].password = await bcrypt.hash(password, 10);
     if (forcePasswordChange !== undefined) users[idx].forcePasswordChange = forcePasswordChange;
+    if (cell !== undefined) users[idx].cell = cell;
 
     await saveUsers(users);
     const { password: _, ...safe } = users[idx];

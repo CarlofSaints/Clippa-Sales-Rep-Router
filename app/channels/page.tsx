@@ -9,6 +9,11 @@ export default function ChannelsPage() {
   const [editing, setEditing] = useState<string | null>(null);
   const [editData, setEditData] = useState<Partial<Channel>>({});
   const [saving, setSaving] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newFreq, setNewFreq] = useState<FrequencyType>("monthly");
+  const [newDuration, setNewDuration] = useState(30);
+  const [adding, setAdding] = useState(false);
 
   const load = () => {
     fetch("/api/channels")
@@ -44,6 +49,32 @@ export default function ChannelsPage() {
     load();
   };
 
+  const addChannel = async () => {
+    if (!newName.trim()) return;
+    setAdding(true);
+    await fetch("/api/channels", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: newName.trim(), frequency: newFreq, duration: newDuration }),
+    });
+    setNewName("");
+    setNewFreq("monthly");
+    setNewDuration(30);
+    setShowAdd(false);
+    setAdding(false);
+    load();
+  };
+
+  const deleteChannel = async (id: string, name: string) => {
+    if (!confirm(`Delete channel "${name}"? This cannot be undone.`)) return;
+    await fetch("/api/channels", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    load();
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -59,7 +90,71 @@ export default function ChannelsPage() {
           <h1 className="text-xl font-bold text-gray-900">Channels</h1>
           <p className="text-sm text-gray-500">{channels.length} channels configured</p>
         </div>
+        <button
+          onClick={() => setShowAdd(!showAdd)}
+          className="flex items-center gap-2 px-4 py-2 bg-clippa-red text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          Add Channel
+        </button>
       </div>
+
+      {/* Add Channel Form */}
+      {showAdd && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-6">
+          <h3 className="text-sm font-semibold text-gray-700 mb-4">New Channel</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Channel Name</label>
+              <input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="e.g. Pick n Pay"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Default Frequency</label>
+              <select
+                value={newFreq}
+                onChange={(e) => setNewFreq(e.target.value as FrequencyType)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
+              >
+                {FREQUENCY_OPTIONS.map((f) => (
+                  <option key={f.value} value={f.value}>{f.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Duration (min)</label>
+              <input
+                type="number"
+                value={newDuration}
+                onChange={(e) => setNewDuration(Number(e.target.value))}
+                min={5}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
+              />
+            </div>
+          </div>
+          <div className="flex gap-3 mt-4">
+            <button
+              onClick={addChannel}
+              disabled={adding || !newName.trim()}
+              className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+            >
+              {adding ? "Saving..." : "Save Channel"}
+            </button>
+            <button
+              onClick={() => setShowAdd(false)}
+              className="px-4 py-2 text-gray-500 text-sm font-medium hover:text-gray-700"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100">
         <div className="overflow-x-auto">
@@ -133,18 +228,31 @@ export default function ChannelsPage() {
                         </span>
                       </td>
                       <td className="px-6 py-3 text-right text-gray-600">{ch.duration} min</td>
-                      <td className="px-6 py-3 text-right">
+                      <td className="px-6 py-3 text-right space-x-3">
                         <button
                           onClick={() => startEdit(ch)}
                           className="text-clippa-red hover:text-red-800 text-xs font-medium"
                         >
                           Edit
                         </button>
+                        <button
+                          onClick={() => deleteChannel(ch.id, ch.name)}
+                          className="text-gray-400 hover:text-red-600 text-xs font-medium"
+                        >
+                          Delete
+                        </button>
                       </td>
                     </>
                   )}
                 </tr>
               ))}
+              {channels.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-6 py-8 text-center text-gray-400">
+                    No channels configured. Click &quot;Add Channel&quot; to create one.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
