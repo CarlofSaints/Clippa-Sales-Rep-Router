@@ -215,6 +215,8 @@ export default function ZonesPage() {
     setPopulateProgress("");
     let totalPopulated = 0;
     let totalFailed = 0;
+    let lastNoGps = 0;
+    let lastAlreadyHad = 0;
     let done = false;
 
     const channelParam = filterChannels.size > 0 ? `?channels=${Array.from(filterChannels).join(",")}` : "";
@@ -229,6 +231,8 @@ export default function ZonesPage() {
         }
         totalPopulated += data.populated || 0;
         totalFailed += data.failed || 0;
+        lastNoGps = data.noGps || 0;
+        lastAlreadyHad = data.alreadyHad || 0;
         done = data.done;
 
         if (!done) {
@@ -238,9 +242,12 @@ export default function ZonesPage() {
 
       const parts: string[] = [];
       if (totalPopulated) parts.push(`${totalPopulated} provinces populated`);
+      if (lastAlreadyHad) parts.push(`${lastAlreadyHad} already had provinces`);
+      if (lastNoGps) parts.push(`${lastNoGps} stores have no GPS coordinates`);
       if (totalFailed) parts.push(`${totalFailed} failed`);
-      if (parts.length === 0) parts.push("No stores needed provinces");
-      showMsg(parts.join(", "));
+      if (parts.length === 0) parts.push("No stores to process");
+      const hasIssues = lastNoGps > 0 && !totalPopulated;
+      showMsg(parts.join(", "), hasIssues ? "error" : "success");
       setPopulateProgress("");
       load();
     } catch {
