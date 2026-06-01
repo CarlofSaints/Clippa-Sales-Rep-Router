@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUsers, saveUsers } from "@/lib/data";
 import { User, UserRole } from "@/lib/types";
+import { getSession } from "@/lib/auth";
 import bcrypt from "bcryptjs";
+
+const SUPER_ADMIN_FORBIDDEN = { error: "Only Super Admins can add, edit, or remove Super Admin users" };
 
 export async function GET() {
   try {
@@ -15,8 +18,14 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await getSession();
     const body = await request.json();
     const { name, email, password, role } = body;
+
+    // Only superAdmins can create superAdmin users
+    if (role === "superAdmin" && session?.role !== "superAdmin") {
+      return NextResponse.json(SUPER_ADMIN_FORBIDDEN, { status: 403 });
+    }
 
     if (!name || !email || !password) {
       return NextResponse.json({ error: "Name, email and password required" }, { status: 400 });
@@ -48,12 +57,20 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    const session = await getSession();
     const body = await request.json();
     const { id, name, email, role, password, forcePasswordChange, cell } = body;
 
     const users = await getUsers();
     const idx = users.findIndex((u) => u.id === id);
     if (idx === -1) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    const targetUser = users[idx];
+
+    // Only superAdmins can edit superAdmin users or promote someone to superAdmin
+    if ((targetUser.role === "superAdmin" || role === "superAdmin") && session?.role !== "superAdmin") {
+      return NextResponse.json(SUPER_ADMIN_FORBIDDEN, { status: 403 });
+    }
 
     if (name) users[idx].name = name;
     if (email) users[idx].email = email;
@@ -72,10 +89,18 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const session = await getSession();
     const { id } = await request.json();
-    let users = await getUsers();
-    users = users.filter((u) => u.id !== id);
-    await saveUsers(users);
+    const users = await getUsers();
+    const target = users.find((u) => u.id === id);
+
+    // Only superAdmins can delete superAdmin users
+    if (target?.role === "superAdmin" && session?.role !== "superAdmin") {
+      return NextResponse.json(SUPER_ADMIN_FORBIDDEN, { status: 403 });
+    }
+
+    const filtered = users.filter((u) => u.id !== id);
+    await saveUsers(filtered);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });

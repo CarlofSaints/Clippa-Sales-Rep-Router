@@ -121,7 +121,7 @@ export const ROLE_DEFINITIONS: RolePermission[] = [
     role: "superAdmin",
     label: "Super Admin",
     description: "Full unrestricted access",
-    permissions: ["manage_users", "manage_roles", "manage_teams", "manage_reps", "manage_stores", "manage_channels", "manage_routes", "manage_call_cycles", "manage_channel_map", "manage_zones", "manage_regions", "manage_repsly", "view_dashboard", "view_map", "view_routes", "upload_data", "export_data"],
+    permissions: ["manage_super_admins", "manage_users", "manage_roles", "manage_teams", "manage_reps", "manage_stores", "manage_channels", "manage_routes", "manage_call_cycles", "manage_channel_map", "manage_zones", "manage_regions", "manage_repsly", "view_dashboard", "view_map", "view_routes", "upload_data", "export_data"],
   },
   {
     role: "admin",
@@ -150,6 +150,7 @@ export const ROLE_DEFINITIONS: RolePermission[] = [
 ];
 
 export const ALL_PERMISSIONS = [
+  { key: "manage_super_admins", label: "Manage Super Admins" },
   { key: "manage_users", label: "Manage Users" },
   { key: "manage_roles", label: "Manage Roles" },
   { key: "manage_teams", label: "Manage Teams" },
