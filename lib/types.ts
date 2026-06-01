@@ -121,13 +121,13 @@ export const ROLE_DEFINITIONS: RolePermission[] = [
     role: "superAdmin",
     label: "Super Admin",
     description: "Full unrestricted access",
-    permissions: ["manage_users", "manage_roles", "manage_teams", "manage_reps", "manage_stores", "manage_channels", "manage_routes", "manage_call_cycles", "manage_channel_map", "manage_zones", "manage_regions", "view_dashboard", "view_map", "view_routes", "upload_data", "export_data"],
+    permissions: ["manage_users", "manage_roles", "manage_teams", "manage_reps", "manage_stores", "manage_channels", "manage_routes", "manage_call_cycles", "manage_channel_map", "manage_zones", "manage_regions", "manage_repsly", "view_dashboard", "view_map", "view_routes", "upload_data", "export_data"],
   },
   {
     role: "admin",
     label: "Admin",
     description: "Manage reps, stores, channels, and view reports",
-    permissions: ["manage_teams", "manage_reps", "manage_stores", "manage_channels", "manage_routes", "manage_call_cycles", "manage_channel_map", "manage_zones", "manage_regions", "view_dashboard", "view_map", "view_routes", "upload_data", "export_data"],
+    permissions: ["manage_teams", "manage_reps", "manage_stores", "manage_channels", "manage_routes", "manage_call_cycles", "manage_channel_map", "manage_zones", "manage_regions", "manage_repsly", "view_dashboard", "view_map", "view_routes", "upload_data", "export_data"],
   },
   {
     role: "teamManager",
@@ -161,6 +161,7 @@ export const ALL_PERMISSIONS = [
   { key: "manage_channel_map", label: "Manage Channel Map" },
   { key: "manage_zones", label: "Manage Zones" },
   { key: "manage_regions", label: "Manage Regions" },
+  { key: "manage_repsly", label: "Manage Repsly API" },
   { key: "view_dashboard", label: "View Dashboard" },
   { key: "view_map", label: "View Map" },
   { key: "view_routes", label: "View Routes" },
