@@ -278,3 +278,51 @@ export interface RoutePlanDocument {
     defaultStartTime: string; // "HH:mm"
   };
 }
+
+// ---------- Repsly Integration Types ----------
+
+export interface RepslyVisit {
+  visitId: string;
+  date: string; // YYYY-MM-DD
+  repCode: string;
+  repName: string;
+  clientCode: string;
+  clientName: string;
+  dateTimeStart: string; // ISO datetime
+  dateTimeEnd: string; // ISO datetime
+  scheduledVsUnscheduled: "Scheduled" | "Unscheduled" | string;
+  latStart: number;
+  lngStart: number;
+}
+
+export interface RepslyWorkingTime {
+  id: string;
+  date: string; // YYYY-MM-DD
+  repCode: string;
+  repName: string;
+  dayStart: string; // ISO datetime
+  dayEnd: string; // ISO datetime
+  lengthMinutes: number;
+  mileageTotal: number;
+  noOfVisits: number;
+  timeAtClient: number; // minutes
+  timeAtTravel: number; // minutes
+}
+
+export interface RepslySyncConfig {
+  apiKey: string;
+  apiPasscode: string;
+  enabled: boolean;
+  lastClientSync: string | null; // ISO datetime
+  lastVisitSync: string | null;
+  lastWorkingTimeSync: string | null;
+  lastRepSync: string | null;
+}
+
+export interface RepslySyncLogEntry {
+  timestamp: string; // ISO datetime
+  type: "clients" | "visits" | "working_time" | "reps";
+  recordsImported: number;
+  recordsSkipped: number;
+  error?: string;
+}
