@@ -179,6 +179,9 @@ export default function ZonesPage() {
   // Region populate state
   const [populating, setPopulating] = useState(false);
 
+  // Auto-generate zones state
+  const [autoGenerating, setAutoGenerating] = useState(false);
+
   // Search + multi-select filters
   const [search, setSearch] = useState("");
   const [filterChannels, setFilterChannels] = useState<Set<string>>(new Set());
@@ -268,6 +271,30 @@ export default function ZonesPage() {
     } finally {
       setPopulating(false);
       setPopulateProgress("");
+    }
+  };
+
+  const handleAutoGenerate = async () => {
+    if (!confirm("This will create a numbered zone for each rep's unzoned stores and assign the rep to that zone. Continue?")) return;
+    setAutoGenerating(true);
+    try {
+      const res = await fetch("/api/zones/auto-generate", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        showMsg(data.error || "Auto-generate failed", "error");
+        return;
+      }
+      const parts: string[] = [];
+      if (data.zonesCreated) parts.push(`${data.zonesCreated} zones created`);
+      if (data.storesAssigned) parts.push(`${data.storesAssigned} stores assigned`);
+      if (data.repsAssigned) parts.push(`${data.repsAssigned} reps assigned`);
+      if (data.message) parts.push(data.message);
+      showMsg(parts.join(", ") || "Done");
+      load();
+    } catch {
+      showMsg("Auto-generate failed", "error");
+    } finally {
+      setAutoGenerating(false);
     }
   };
 
@@ -755,6 +782,13 @@ export default function ZonesPage() {
               </button>
             </>
           )}
+          <button
+            onClick={handleAutoGenerate}
+            disabled={autoGenerating}
+            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+          >
+            {autoGenerating ? "Generating..." : "Auto-Generate Zones from Reps"}
+          </button>
           <button
             onClick={handlePopulateRegions}
             disabled={populating}
