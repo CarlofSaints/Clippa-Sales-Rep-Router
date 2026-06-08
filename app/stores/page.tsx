@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Store, Channel, Rep, FREQUENCY_OPTIONS, FrequencyType, getFrequencyLabel, SA_PROVINCES } from "@/lib/types";
+import { Store, Channel, Rep, Team, FREQUENCY_OPTIONS, FrequencyType, getFrequencyLabel, SA_PROVINCES } from "@/lib/types";
 
 const DAYS = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 const WEEKS = ["", "Wk1", "Wk2", "Wk3", "Wk4", "Wk5"];
@@ -115,18 +115,18 @@ export default function StoresPage() {
   const [stores, setStores] = useState<Store[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [reps, setReps] = useState<Rep[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filterChannels, setFilterChannels] = useState<Set<string>>(new Set());
   const [filterReps, setFilterReps] = useState<Set<string>>(new Set());
+  const [filterTeamManagers, setFilterTeamManagers] = useState<Set<string>>(new Set());
   const [filterProvinces, setFilterProvinces] = useState<Set<string>>(new Set());
   const [filterRegions, setFilterRegions] = useState<Set<string>>(new Set());
   const [filterFrequencies, setFilterFrequencies] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<string | null>(null);
   const [editData, setEditData] = useState<Partial<Store>>({});
   const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [uploadMsg, setUploadMsg] = useState("");
   const [regionList, setRegionList] = useState<{ id: string; name: string }[]>([]);
 
   const load = () => {
@@ -135,11 +135,13 @@ export default function StoresPage() {
       fetch("/api/channels").then((r) => r.json()).catch(() => []),
       fetch("/api/reps").then((r) => r.json()).catch(() => []),
       fetch("/api/regions").then((r) => r.json()).catch(() => []),
-    ]).then(([st, ch, rp, reg]) => {
+      fetch("/api/teams").then((r) => r.json()).catch(() => []),
+    ]).then(([st, ch, rp, reg, tm]) => {
       setStores(Array.isArray(st) ? st : []);
       setChannels(Array.isArray(ch) ? ch : []);
       setReps(Array.isArray(rp) ? rp : []);
       setRegionList(Array.isArray(reg) ? reg : []);
+      setTeams(Array.isArray(tm) ? tm : []);
       setLoading(false);
     });
   };
@@ -215,12 +217,29 @@ export default function StoresPage() {
     () => FREQUENCY_OPTIONS.map((f) => ({ value: f.value, label: f.label })),
     []
   );
+  const teamManagerOptions = useMemo(() => {
+    const opts: { value: string; label: string }[] = [
+      { value: "__unassigned__", label: "No Team" },
+    ];
+    for (const t of teams) {
+      opts.push({ value: t.id, label: `${t.managerName} (${t.name})` });
+    }
+    return opts;
+  }, [teams]);
+
+  // Map repCode → teamId for filtering
+  const repTeamMap = useMemo(() => new Map(reps.map((r) => [r.code, r.teamId])), [reps]);
 
   const filtered = useMemo(() => {
     return stores.filter((s) => {
       if (search && !s.name.toLowerCase().includes(search.toLowerCase()) && !s.placeId.toLowerCase().includes(search.toLowerCase())) return false;
       if (filterChannels.size > 0 && !filterChannels.has(s.channelId)) return false;
       if (filterReps.size > 0 && !filterReps.has(s.repCode)) return false;
+      if (filterTeamManagers.size > 0) {
+        const teamId = repTeamMap.get(s.repCode) || "";
+        if (!teamId && !filterTeamManagers.has("__unassigned__")) return false;
+        if (teamId && !filterTeamManagers.has(teamId)) return false;
+      }
       if (filterProvinces.size > 0) {
         const prov = s.province?.trim() || "";
         if (!prov && !filterProvinces.has("__none__")) return false;
@@ -234,14 +253,15 @@ export default function StoresPage() {
       if (filterFrequencies.size > 0 && !filterFrequencies.has(s.frequency)) return false;
       return true;
     });
-  }, [stores, search, filterChannels, filterReps, filterProvinces, filterRegions, filterFrequencies]);
+  }, [stores, search, filterChannels, filterReps, filterTeamManagers, filterProvinces, filterRegions, filterFrequencies, repTeamMap]);
 
-  const hasFilters = !!search || filterChannels.size > 0 || filterReps.size > 0 || filterProvinces.size > 0 || filterRegions.size > 0 || filterFrequencies.size > 0;
+  const hasFilters = !!search || filterChannels.size > 0 || filterReps.size > 0 || filterTeamManagers.size > 0 || filterProvinces.size > 0 || filterRegions.size > 0 || filterFrequencies.size > 0;
 
   const clearAllFilters = () => {
     setSearch("");
     setFilterChannels(new Set());
     setFilterReps(new Set());
+    setFilterTeamManagers(new Set());
     setFilterProvinces(new Set());
     setFilterRegions(new Set());
     setFilterFrequencies(new Set());
@@ -274,29 +294,6 @@ export default function StoresPage() {
     load();
   };
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    setUploadMsg("");
-    const fd = new FormData();
-    fd.append("file", file);
-    try {
-      const res = await fetch("/api/stores/upload", { method: "POST", body: fd });
-      const data = await res.json();
-      if (res.ok) {
-        setUploadMsg(`${data.added ?? data.imported ?? 0} new stores, ${data.updated ?? 0} updated — ${data.total ?? data.imported ?? 0} total stores, ${data.channels} channels, ${data.reps} reps`);
-        load();
-      } else {
-        setUploadMsg(data.error || "Upload failed");
-      }
-    } catch {
-      setUploadMsg("Upload error");
-    }
-    setUploading(false);
-    e.target.value = "";
-  };
-
   const fmt = (n: number) =>
     "R " + (n ?? 0).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -317,17 +314,7 @@ export default function StoresPage() {
             {filtered.length} of {stores.length} stores
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <label className="bg-white border border-gray-200 text-sm px-4 py-2 rounded-lg cursor-pointer hover:bg-gray-50">
-            {uploading ? "Uploading..." : "Upload Excel"}
-            <input type="file" accept=".xlsx,.xls" onChange={handleUpload} className="hidden" />
-          </label>
-        </div>
       </div>
-
-      {uploadMsg && (
-        <div className="mb-4 p-3 rounded-lg bg-blue-50 text-blue-700 text-sm">{uploadMsg}</div>
-      )}
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 mb-4 items-center">
@@ -348,6 +335,12 @@ export default function StoresPage() {
           options={repOptions}
           selected={filterReps}
           onChange={setFilterReps}
+        />
+        <FilterDropdown
+          label="Team Manager"
+          options={teamManagerOptions}
+          selected={filterTeamManagers}
+          onChange={setFilterTeamManagers}
         />
         <FilterDropdown
           label="Provinces"

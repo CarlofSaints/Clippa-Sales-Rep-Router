@@ -28,12 +28,12 @@ export async function POST(request: NextRequest) {
     let newCount = 0;
     let updatedCount = 0;
 
-    // Helper: try multiple header names, return first match (trimmed key lookup)
+    // Helper: try multiple header names, return first match (case-insensitive, trimmed)
     const col = (row: Record<string, string | number>, ...keys: string[]) => {
-      // Build a trimmed-key lookup so " VALUE " matches "VALUE"
       const trimmedEntries = Object.entries(row).map(([k, v]) => [k.trim(), v] as const);
       for (const k of keys) {
-        const entry = trimmedEntries.find(([tk]) => tk === k);
+        const kLower = k.toLowerCase();
+        const entry = trimmedEntries.find(([tk]) => tk.toLowerCase() === kLower);
         if (entry !== undefined && entry[1] !== undefined && entry[1] !== "") {
           return String(entry[1]).trim();
         }
@@ -41,20 +41,52 @@ export async function POST(request: NextRequest) {
       return "";
     };
 
-    for (const row of rows) {
-      const placeId = col(row, "PLACE ID", "STORE ID", "Store ID");
-      const repCode = col(row, "REPRESENTATIVE ID", "REP CODE", "Rep Code");
-      const channelName = col(row, "CHANNEL", "Channel");
-      const storeName = col(row, "PLACE NAME", "STORE NAME", "Store Name");
-      const repName = col(row, "REPRESENTATIVE NAME", "REP NAME", "Rep Name");
-      const lat = col(row, "GPS LATITUDE", "Gps latitude", "Gps Latitude", "GPS_LATITUDE");
-      const lng = col(row, "GPS LONGITUDE", "Gps longitude", "Gps Longitude", "GPS_LONGITUDE");
-      const rawSales = col(row, "MONTHLY AVERAGE", "VALUE", "Value");
-      const sales = Number(rawSales.replace(/[^0-9.\-]/g, "") || 0);
-      const zoneName = col(row, "ZONE", "Zone");
-      const region = col(row, "REGION", "Region", "PROVINCE", "Province", "AREA", "Area");
+    // Detect file headers for diagnostics
+    const fileHeaders = rows.length > 0 ? Object.keys(rows[0]).map((h) => h.trim()) : [];
+    let skippedRows = 0;
 
-      if (!placeId || !storeName) continue;
+    // Detect format: Repsly Places export has "ID" + "Name" + "Tags" columns
+    const hasRepslyFormat = fileHeaders.some((h) => h === "ID") &&
+      fileHeaders.some((h) => h === "Name") &&
+      fileHeaders.some((h) => h === "Tags");
+
+    for (const row of rows) {
+      let placeId: string, storeName: string, repCode: string, repName: string;
+      let channelName: string, lat: string, lng: string, region: string;
+      let rawSales: string, zoneName: string;
+
+      if (hasRepslyFormat) {
+        // Repsly Places export format
+        placeId = col(row, "ID");
+        storeName = col(row, "Name");
+        repCode = col(row, "Representative ID");
+        repName = col(row, "Representative name");
+        lat = col(row, "Gps latitude");
+        lng = col(row, "Gps longitude");
+        region = col(row, "State", "Territory");
+        rawSales = "";
+        zoneName = col(row, "Territory");
+        // Channel from Tags: "INDEPENDENT','GAUTENG" → first tag = channel
+        const tags = col(row, "Tags");
+        const tagParts = tags.split(/[',]+/).map((t) => t.trim()).filter(Boolean);
+        channelName = tagParts[0] || "";
+      } else {
+        // Original format
+        placeId = col(row, "PLACE ID", "STORE ID", "Store ID", "Place ID");
+        storeName = col(row, "PLACE NAME", "STORE NAME", "Store Name", "Place Name");
+        repCode = col(row, "REPRESENTATIVE ID", "REP CODE", "Rep Code", "Representative ID");
+        repName = col(row, "REPRESENTATIVE NAME", "REP NAME", "Rep Name", "Representative Name");
+        channelName = col(row, "CHANNEL", "Channel", "CHANNEL NAME", "Channel Name");
+        lat = col(row, "GPS LATITUDE", "Gps latitude", "Gps Latitude", "GPS_LATITUDE", "Latitude");
+        lng = col(row, "GPS LONGITUDE", "Gps longitude", "Gps Longitude", "GPS_LONGITUDE", "Longitude");
+        rawSales = col(row, "MONTHLY AVERAGE", "VALUE", "Value", "Monthly Average", "Sales");
+        zoneName = col(row, "ZONE", "Zone");
+        region = col(row, "REGION", "Region", "PROVINCE", "Province", "AREA", "Area");
+      }
+
+      const sales = Number((rawSales || "").replace(/[^0-9.\-]/g, "") || 0);
+
+      if (!placeId || !storeName) { skippedRows++; continue; }
 
       // Auto-create channel
       if (channelName && !channelMap.has(channelName)) {
@@ -131,6 +163,9 @@ export async function POST(request: NextRequest) {
       total: storeMap.size,
       channels: channelMap.size,
       reps: repMap.size,
+      rowsInFile: rows.length,
+      skippedRows,
+      fileHeaders,
     });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
