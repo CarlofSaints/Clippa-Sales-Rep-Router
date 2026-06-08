@@ -60,17 +60,13 @@ function MapPageInner() {
       const typesArr: RouteTypeInfo[] = Array.isArray(types) ? types : [];
       setRouteTypes(typesArr);
 
-      // Auto-select: prefer most recently generated type, else first type
-      if (typesArr.length > 0) {
-        const withRoutes = typesArr.filter((t) => t.hasRoutes);
-        if (withRoutes.length > 0) {
-          const sorted = [...withRoutes].sort((a, b) =>
-            (b.generatedAt ?? "").localeCompare(a.generatedAt ?? "")
-          );
-          setSelectedTypeId(sorted[0].id);
-        } else {
-          setSelectedTypeId(typesArr[0].id);
-        }
+      // Auto-select the most recently generated type (only if it has routes)
+      const withRoutes = typesArr.filter((t) => t.hasRoutes);
+      if (withRoutes.length > 0) {
+        const sorted = [...withRoutes].sort((a, b) =>
+          (b.generatedAt ?? "").localeCompare(a.generatedAt ?? "")
+        );
+        setSelectedTypeId(sorted[0].id);
       }
 
       setLoading(false);
@@ -195,9 +191,17 @@ function MapPageInner() {
         {routeTypes.length > 0 && (
           <select
             value={selectedTypeId}
-            onChange={(e) => setSelectedTypeId(e.target.value)}
+            onChange={(e) => {
+              const val = e.target.value;
+              setSelectedTypeId(val);
+              if (!val) {
+                fetch("/api/routes").then((r) => r.json()).catch(() => null)
+                  .then((rt) => setRoutes(rt && typeof rt === "object" && "repPlans" in rt ? rt : null));
+              }
+            }}
             className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
           >
+            <option value="">Latest Routes</option>
             {routeTypes.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name}{t.hasRoutes ? " \u2713" : " (no routes)"}
