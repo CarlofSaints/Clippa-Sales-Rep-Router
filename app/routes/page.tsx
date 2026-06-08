@@ -61,13 +61,17 @@ export default function RoutesPage() {
       const typesArr: RouteTypeInfo[] = Array.isArray(types) ? types : [];
       setRouteTypes(typesArr);
 
-      // Auto-select the most recently generated type
-      const withRoutes = typesArr.filter((t) => t.hasRoutes);
-      if (withRoutes.length > 0) {
-        const sorted = [...withRoutes].sort((a, b) =>
-          (b.generatedAt ?? "").localeCompare(a.generatedAt ?? "")
-        );
-        setSelectedTypeId(sorted[0].id);
+      // Auto-select: prefer most recently generated type, else first type
+      if (typesArr.length > 0) {
+        const withRoutes = typesArr.filter((t) => t.hasRoutes);
+        if (withRoutes.length > 0) {
+          const sorted = [...withRoutes].sort((a, b) =>
+            (b.generatedAt ?? "").localeCompare(a.generatedAt ?? "")
+          );
+          setSelectedTypeId(sorted[0].id);
+        } else {
+          setSelectedTypeId(typesArr[0].id);
+        }
       }
 
       setLoading(false);
@@ -120,12 +124,13 @@ export default function RoutesPage() {
     setGenerating(true);
     setError("");
     try {
+      const payload: Record<string, unknown> = {};
+      if (selectedRep) payload.repCodes = [selectedRep];
+      if (selectedTypeId) payload.typeId = selectedTypeId;
       const res = await fetch("/api/routes/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          selectedRep ? { repCodes: [selectedRep] } : {}
-        ),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -253,8 +258,8 @@ export default function RoutesPage() {
 
       {/* Filters row */}
       <div className="flex items-center gap-4 mb-6 flex-wrap">
-        {/* Call cycle type dropdown */}
-        {routeTypes.filter((t) => t.hasRoutes).length > 0 && (
+        {/* Call cycle type dropdown — always visible when types exist */}
+        {routeTypes.length > 0 && (
           <select
             value={selectedTypeId}
             onChange={(e) => {
@@ -264,14 +269,11 @@ export default function RoutesPage() {
             }}
             className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
           >
-            <option value="">Latest Routes</option>
-            {routeTypes
-              .filter((t) => t.hasRoutes)
-              .map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
+            {routeTypes.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}{t.hasRoutes ? " \u2713" : " (no routes)"}
+              </option>
+            ))}
           </select>
         )}
 

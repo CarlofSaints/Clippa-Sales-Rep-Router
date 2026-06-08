@@ -908,6 +908,32 @@ export default function ZonesPage() {
         )}
       </div>
 
+      {/* Stat Cards */}
+      {(() => {
+        const allFiltered = applyFilters(stores);
+        const uniqueRegions = new Set(allFiltered.map((s) => (s.region || "").trim()).filter(Boolean));
+        const uniqueProvinces = new Set(allFiltered.map((s) => (s.province || "").trim()).filter(Boolean));
+        const assigned = allFiltered.filter((s) => !!storeZones[s.id]);
+        const unassigned = allFiltered.filter((s) => !storeZones[s.id]);
+        const cards = [
+          { label: "Stores", value: allFiltered.length, color: "text-gray-900" },
+          { label: "Regions", value: uniqueRegions.size, color: "text-blue-600" },
+          { label: "Provinces", value: uniqueProvinces.size, color: "text-purple-600" },
+          { label: "Assigned Zones", value: assigned.length, color: "text-green-600" },
+          { label: "Unassigned", value: unassigned.length, color: "text-amber-600" },
+        ];
+        return (
+          <div className="grid grid-cols-5 gap-4">
+            {cards.map((c) => (
+              <div key={c.label} className="bg-white rounded-xl shadow-sm border border-gray-100 px-4 py-3">
+                <p className="text-xs text-gray-500 uppercase tracking-wider">{c.label}</p>
+                <p className={`text-2xl font-bold mt-1 ${c.color}`}>{c.value}</p>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* Rep-Zone Assignment Matrix */}
       {zones.length > 0 && reps.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100">

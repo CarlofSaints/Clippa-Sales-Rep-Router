@@ -49,8 +49,11 @@ export async function POST(request: NextRequest) {
       getCallCycleTypes(),
     ]);
 
-    // Determine active strategy
-    const activeType = callCycleTypes.find((t) => t.active);
+    // Determine strategy: prefer explicit typeId from request, fall back to globally active type
+    const resolvedType = body.typeId
+      ? callCycleTypes.find((t) => t.id === body.typeId)
+      : callCycleTypes.find((t) => t.active);
+    const activeType = resolvedType;
     const strategy = activeType?.strategy || null;
 
     // Filter reps if specific codes requested

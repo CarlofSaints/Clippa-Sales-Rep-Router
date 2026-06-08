@@ -60,13 +60,17 @@ function MapPageInner() {
       const typesArr: RouteTypeInfo[] = Array.isArray(types) ? types : [];
       setRouteTypes(typesArr);
 
-      // Auto-select the most recently generated type that has routes
-      const withRoutes = typesArr.filter((t) => t.hasRoutes);
-      if (withRoutes.length > 0) {
-        const sorted = [...withRoutes].sort((a, b) =>
-          (b.generatedAt ?? "").localeCompare(a.generatedAt ?? "")
-        );
-        setSelectedTypeId(sorted[0].id);
+      // Auto-select: prefer most recently generated type, else first type
+      if (typesArr.length > 0) {
+        const withRoutes = typesArr.filter((t) => t.hasRoutes);
+        if (withRoutes.length > 0) {
+          const sorted = [...withRoutes].sort((a, b) =>
+            (b.generatedAt ?? "").localeCompare(a.generatedAt ?? "")
+          );
+          setSelectedTypeId(sorted[0].id);
+        } else {
+          setSelectedTypeId(typesArr[0].id);
+        }
       }
 
       setLoading(false);
@@ -187,21 +191,18 @@ function MapPageInner() {
       <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-4 flex-shrink-0">
         <h1 className="text-lg font-bold text-gray-900 mr-4">Route Map</h1>
 
-        {/* Call cycle type dropdown — only show if there are types with routes */}
-        {routeTypes.filter((t) => t.hasRoutes).length > 0 && (
+        {/* Call cycle type dropdown — always visible when types exist */}
+        {routeTypes.length > 0 && (
           <select
             value={selectedTypeId}
             onChange={(e) => setSelectedTypeId(e.target.value)}
             className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
           >
-            <option value="">Latest Routes</option>
-            {routeTypes
-              .filter((t) => t.hasRoutes)
-              .map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
+            {routeTypes.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}{t.hasRoutes ? " \u2713" : " (no routes)"}
+              </option>
+            ))}
           </select>
         )}
 
