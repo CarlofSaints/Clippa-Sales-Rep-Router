@@ -3,6 +3,8 @@ import { getReps, getStores, saveRoutes, saveRoutesForType, getCallCycleTypes } 
 import { RoutePlanDocument, RepRoutePlan, Store, Rep } from "@/lib/types";
 import { generateRepRoute } from "@/lib/route-engine";
 import { hasGoogleMapsKey } from "@/lib/google-maps";
+import { getSession } from "@/lib/auth";
+import { logActivity } from "@/lib/activityLog";
 
 export const maxDuration = 120;
 
@@ -104,6 +106,9 @@ export async function POST(request: NextRequest) {
       await saveRoutesForType(activeType.id, doc);
     }
     await saveRoutes(doc);
+
+    const session = await getSession();
+    logActivity({ action: "Generated routes", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Generated routes for ${repPlans.length} reps${activeType ? ` (${activeType.name})` : ""}` });
 
     return NextResponse.json(doc);
   } catch (err) {

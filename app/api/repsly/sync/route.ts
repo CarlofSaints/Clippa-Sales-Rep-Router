@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth";
+import { requireAdmin, getSession } from "@/lib/auth";
 import { getRepslyConfig, saveRepslyConfig, getRepslyVisits, saveRepslyVisits, getRepslyWorkingTime, saveRepslyWorkingTime, appendSyncLog } from "@/lib/repslyData";
 import { getStores, getReps, saveStores, saveReps } from "@/lib/data";
 import { fetchAllVisits, fetchAllClients, fetchAllDailyWorkingTime, fetchAllReps } from "@/lib/repslyApi";
+import { logActivity } from "@/lib/activityLog";
 import { RepslySyncConfig, RepslySyncLogEntry } from "@/lib/types";
 
 export const maxDuration = 60;
@@ -98,6 +99,9 @@ async function syncVisits(config: RepslySyncConfig, mode: string) {
   };
   await appendSyncLog(logEntry);
 
+  const session = await getSession();
+  logActivity({ action: "Synced Repsly visits", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Synced Repsly visits: ${imported} imported, ${skipped} skipped` });
+
   return NextResponse.json({
     mode: "import",
     type: "visits",
@@ -157,6 +161,9 @@ async function syncClients(config: RepslySyncConfig, mode: string) {
     recordsSkipped: skipped,
   });
 
+  const session = await getSession();
+  logActivity({ action: "Synced Repsly clients", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Synced Repsly clients: ${updated} updated, ${skipped} skipped` });
+
   return NextResponse.json({
     mode: "import",
     type: "clients",
@@ -211,6 +218,9 @@ async function syncWorkingTime(config: RepslySyncConfig, mode: string) {
     recordsImported: imported,
     recordsSkipped: skipped,
   });
+
+  const session = await getSession();
+  logActivity({ action: "Synced Repsly working time", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Synced Repsly working time: ${imported} imported, ${skipped} skipped` });
 
   return NextResponse.json({
     mode: "import",
@@ -273,6 +283,9 @@ async function syncReps(config: RepslySyncConfig, mode: string) {
     recordsImported: updated,
     recordsSkipped: skipped,
   });
+
+  const session = await getSession();
+  logActivity({ action: "Synced Repsly reps", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Synced Repsly reps: ${updated} updated, ${skipped} skipped` });
 
   return NextResponse.json({
     mode: "import",

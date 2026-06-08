@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getZones, saveZones } from "@/lib/data";
 import { Zone } from "@/lib/types";
+import { getSession } from "@/lib/auth";
+import { logActivity } from "@/lib/activityLog";
 
 export async function GET() {
   try {
@@ -27,6 +29,10 @@ export async function POST(request: NextRequest) {
     };
     zones.push(newZone);
     await saveZones(zones);
+
+    const session = await getSession();
+    logActivity({ action: "Created zone", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Created zone ${newZone.name}` });
+
     return NextResponse.json(newZone, { status: 201 });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
@@ -46,6 +52,10 @@ export async function PUT(request: NextRequest) {
     if (description !== undefined) zones[idx].description = description.trim();
 
     await saveZones(zones);
+
+    const session = await getSession();
+    logActivity({ action: "Updated zone", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Updated zone ${zones[idx].name}` });
+
     return NextResponse.json(zones[idx]);
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
@@ -55,9 +65,14 @@ export async function PUT(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const { id } = await request.json();
-    let zones = await getZones();
-    zones = zones.filter((z) => z.id !== id);
-    await saveZones(zones);
+    const zones = await getZones();
+    const target = zones.find((z) => z.id === id);
+    const filtered = zones.filter((z) => z.id !== id);
+    await saveZones(filtered);
+
+    const session = await getSession();
+    logActivity({ action: "Deleted zone", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Deleted zone ${target?.name || id}` });
+
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });

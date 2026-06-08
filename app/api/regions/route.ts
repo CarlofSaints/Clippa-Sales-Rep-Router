@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRegions, saveRegions } from "@/lib/data";
-import { requireAdmin } from "@/lib/auth";
+import { requireAdmin, getSession } from "@/lib/auth";
+import { logActivity } from "@/lib/activityLog";
 import { Region } from "@/lib/types";
 
 export async function GET() {
@@ -31,6 +32,10 @@ export async function POST(request: NextRequest) {
     regions.push(region);
     regions.sort((a, b) => a.name.localeCompare(b.name));
     await saveRegions(regions);
+
+    const session = await getSession();
+    logActivity({ action: "Created region", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Created region ${region.name}` });
+
     return NextResponse.json(region);
   } catch (err) {
     if (String(err).includes("Unauthorized"))
@@ -59,6 +64,10 @@ export async function PUT(request: NextRequest) {
     regions[idx].name = name.trim();
     regions.sort((a, b) => a.name.localeCompare(b.name));
     await saveRegions(regions);
+
+    const session = await getSession();
+    logActivity({ action: "Updated region", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Updated region ${regions[idx].name}` });
+
     return NextResponse.json(regions[idx]);
   } catch (err) {
     if (String(err).includes("Unauthorized"))
@@ -76,11 +85,16 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "ID required" }, { status: 400 });
     }
     const regions = await getRegions();
+    const target = regions.find((r) => r.id === id);
     const filtered = regions.filter((r) => r.id !== id);
     if (filtered.length === regions.length) {
       return NextResponse.json({ error: "Region not found" }, { status: 404 });
     }
     await saveRegions(filtered);
+
+    const session = await getSession();
+    logActivity({ action: "Deleted region", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Deleted region ${target?.name || id}` });
+
     return NextResponse.json({ ok: true });
   } catch (err) {
     if (String(err).includes("Unauthorized"))

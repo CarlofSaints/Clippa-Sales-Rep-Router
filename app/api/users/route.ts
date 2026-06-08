@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUsers, saveUsers } from "@/lib/data";
 import { User, UserRole } from "@/lib/types";
 import { getSession } from "@/lib/auth";
+import { logActivity } from "@/lib/activityLog";
 import bcrypt from "bcryptjs";
 
 const SUPER_ADMIN_FORBIDDEN = { error: "Only Super Admins can add, edit, or remove Super Admin users" };
@@ -48,6 +49,8 @@ export async function POST(request: NextRequest) {
     users.push(newUser);
     await saveUsers(users);
 
+    logActivity({ action: "Created user", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Created user ${name} (${email}) with role ${role || "viewer"}` });
+
     const { password: _, ...safe } = newUser;
     return NextResponse.json(safe, { status: 201 });
   } catch (err) {
@@ -80,6 +83,9 @@ export async function PUT(request: NextRequest) {
     if (cell !== undefined) users[idx].cell = cell;
 
     await saveUsers(users);
+
+    logActivity({ action: "Updated user", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Updated user ${users[idx].name} (${users[idx].email})` });
+
     const { password: _, ...safe } = users[idx];
     return NextResponse.json(safe);
   } catch (err) {
@@ -101,6 +107,9 @@ export async function DELETE(request: NextRequest) {
 
     const filtered = users.filter((u) => u.id !== id);
     await saveUsers(filtered);
+
+    logActivity({ action: "Deleted user", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Deleted user ${target?.name || id} (${target?.email || ""})` });
+
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });

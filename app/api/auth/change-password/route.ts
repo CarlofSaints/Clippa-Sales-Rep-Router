@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUsers, saveUsers, getReps, getTeams } from "@/lib/data";
 import { encodeSession } from "@/lib/auth";
+import { logActivity } from "@/lib/activityLog";
 import { SessionPayload } from "@/lib/types";
 import bcrypt from "bcryptjs";
 
@@ -18,6 +19,8 @@ export async function POST(request: NextRequest) {
     users[idx].password = await bcrypt.hash(newPassword, 10);
     users[idx].forcePasswordChange = false;
     await saveUsers(users);
+
+    logActivity({ action: "Changed password", actor: users[idx].email, actorName: users[idx].name, summary: `${users[idx].name} changed their password` });
 
     // Re-issue session cookie without forcePasswordChange
     const session: SessionPayload = {

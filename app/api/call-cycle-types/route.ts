@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCallCycleTypes, saveCallCycleTypes } from "@/lib/data";
 import { CallCycleType, CallCycleStrategy } from "@/lib/types";
+import { getSession } from "@/lib/auth";
+import { logActivity } from "@/lib/activityLog";
 
 export async function GET() {
   try {
@@ -41,6 +43,10 @@ export async function POST(request: NextRequest) {
 
     types.push(newType);
     await saveCallCycleTypes(types);
+
+    const session = await getSession();
+    logActivity({ action: "Created call cycle type", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Created call cycle type ${newType.name} (${newType.strategy})` });
+
     return NextResponse.json(newType, { status: 201 });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
@@ -68,6 +74,10 @@ export async function PUT(request: NextRequest) {
     }
 
     await saveCallCycleTypes(types);
+
+    const session = await getSession();
+    logActivity({ action: "Updated call cycle type", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Updated call cycle type ${types[idx].name}${active === true ? " (set active)" : ""}` });
+
     return NextResponse.json(types);
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
@@ -80,6 +90,7 @@ export async function DELETE(request: NextRequest) {
     const { id } = body as { id: string };
 
     const types = await getCallCycleTypes();
+    const target = types.find((t) => t.id === id);
     const filtered = types.filter((t) => t.id !== id);
 
     if (filtered.length === types.length) {
@@ -87,6 +98,10 @@ export async function DELETE(request: NextRequest) {
     }
 
     await saveCallCycleTypes(filtered);
+
+    const session = await getSession();
+    logActivity({ action: "Deleted call cycle type", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Deleted call cycle type ${target?.name || id}` });
+
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });

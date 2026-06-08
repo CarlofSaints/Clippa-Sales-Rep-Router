@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getReps, saveReps } from "@/lib/data";
 import { Rep } from "@/lib/types";
+import { getSession } from "@/lib/auth";
+import { logActivity } from "@/lib/activityLog";
 
 export async function GET() {
   try {
@@ -33,6 +35,10 @@ export async function PUT(request: NextRequest) {
     if (updates.assignedChannels !== undefined) reps[idx].assignedChannels = updates.assignedChannels;
     if (updates.assignedZones !== undefined) reps[idx].assignedZones = updates.assignedZones;
     await saveReps(reps);
+
+    const session = await getSession();
+    logActivity({ action: "Updated rep", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Updated rep ${reps[idx].name} (${reps[idx].code})` });
+
     return NextResponse.json(reps[idx]);
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
@@ -67,6 +73,10 @@ export async function POST(request: NextRequest) {
     };
     reps.push(newRep);
     await saveReps(reps);
+
+    const session = await getSession();
+    logActivity({ action: "Created rep", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Created rep ${newRep.name} (${newRep.code})` });
+
     return NextResponse.json(newRep, { status: 201 });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
@@ -76,9 +86,14 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const { id } = await request.json();
-    let reps = await getReps();
-    reps = reps.filter((r) => r.id !== id);
-    await saveReps(reps);
+    const reps = await getReps();
+    const target = reps.find((r) => r.id === id);
+    const filtered = reps.filter((r) => r.id !== id);
+    await saveReps(filtered);
+
+    const session = await getSession();
+    logActivity({ action: "Deleted rep", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Deleted rep ${target?.name || id} (${target?.code || ""})` });
+
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });

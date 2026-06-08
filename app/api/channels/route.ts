@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getChannels, saveChannels } from "@/lib/data";
 import { Channel, FrequencyType } from "@/lib/types";
+import { getSession } from "@/lib/auth";
+import { logActivity } from "@/lib/activityLog";
 
 export async function GET() {
   try {
@@ -25,6 +27,10 @@ export async function PUT(request: NextRequest) {
     if (duration !== undefined) channels[idx].duration = duration;
 
     await saveChannels(channels);
+
+    const session = await getSession();
+    logActivity({ action: "Updated channel", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Updated channel ${channels[idx].name}` });
+
     return NextResponse.json(channels[idx]);
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
@@ -43,6 +49,10 @@ export async function POST(request: NextRequest) {
     };
     channels.push(newChannel);
     await saveChannels(channels);
+
+    const session = await getSession();
+    logActivity({ action: "Created channel", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Created channel ${newChannel.name}` });
+
     return NextResponse.json(newChannel, { status: 201 });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
@@ -52,9 +62,14 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const { id } = await request.json();
-    let channels = await getChannels();
-    channels = channels.filter((c) => c.id !== id);
-    await saveChannels(channels);
+    const channels = await getChannels();
+    const target = channels.find((c) => c.id === id);
+    const filtered = channels.filter((c) => c.id !== id);
+    await saveChannels(filtered);
+
+    const session = await getSession();
+    logActivity({ action: "Deleted channel", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Deleted channel ${target?.name || id}` });
+
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });

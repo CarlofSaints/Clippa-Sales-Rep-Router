@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth";
+import { requireAdmin, getSession } from "@/lib/auth";
 import { getRepslyConfig, saveRepslyConfig } from "@/lib/repslyData";
 import { testConnection } from "@/lib/repslyApi";
+import { logActivity } from "@/lib/activityLog";
 
 // GET — return config (mask API key)
 export async function GET() {
@@ -49,5 +50,9 @@ export async function PUT(request: NextRequest) {
   }
 
   await saveRepslyConfig(config);
+
+  const session = await getSession();
+  logActivity({ action: "Updated Repsly config", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: "Updated Repsly API configuration" });
+
   return NextResponse.json({ ok: true });
 }

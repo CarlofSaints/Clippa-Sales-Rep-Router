@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStores, saveStores } from "@/lib/data";
 import { Store, FrequencyType } from "@/lib/types";
+import { getSession } from "@/lib/auth";
+import { logActivity } from "@/lib/activityLog";
 
 export async function GET() {
   try {
@@ -31,6 +33,10 @@ export async function PUT(request: NextRequest) {
     if (updates.province !== undefined) stores[idx].province = updates.province;
 
     await saveStores(stores);
+
+    const session = await getSession();
+    logActivity({ action: "Updated store", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Updated store ${stores[idx].name}` });
+
     return NextResponse.json(stores[idx]);
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });

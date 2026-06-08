@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { requireSuperAdmin } from "@/lib/auth";
+import { requireSuperAdmin, getSession } from "@/lib/auth";
 import { getRolePermissions, saveRolePermissions } from "@/lib/data";
+import { logActivity } from "@/lib/activityLog";
 import { ROLE_DEFINITIONS, ALL_PERMISSIONS, RolePermission, UserRole } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -62,6 +63,10 @@ export async function PUT(req: Request) {
 
   // superAdmin always keeps ALL (enforced server-side in saveRolePermissions)
   await saveRolePermissions(body);
+
+  const session = await getSession();
+  logActivity({ action: "Updated role permissions", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: "Updated role permissions matrix" });
+
   const saved = await getRolePermissions();
   return NextResponse.json(saved);
 }

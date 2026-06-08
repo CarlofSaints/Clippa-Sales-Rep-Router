@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validateCredentials, encodeSession } from "@/lib/auth";
 import { getReps, getTeams, getUsers } from "@/lib/data";
+import { logActivity } from "@/lib/activityLog";
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,6 +25,8 @@ export async function POST(request: NextRequest) {
       const team = teams.find((t) => t.managerEmail.toLowerCase() === session.email.toLowerCase());
       if (team) session.teamId = team.id;
     }
+
+    logActivity({ action: "User logged in", actor: session.email, actorName: session.name, summary: `${session.name} logged in` });
 
     const token = encodeSession(session);
     const response = NextResponse.json({ ok: true, user: session });

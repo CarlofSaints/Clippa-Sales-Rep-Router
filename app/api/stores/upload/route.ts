@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStores, saveStores, getChannels, saveChannels, getReps, saveReps, getZones } from "@/lib/data";
 import { Store, Channel, Rep } from "@/lib/types";
+import { getSession } from "@/lib/auth";
+import { logActivity } from "@/lib/activityLog";
 import * as XLSX from "xlsx";
 
 export async function POST(request: NextRequest) {
@@ -156,6 +158,9 @@ export async function POST(request: NextRequest) {
     await saveChannels(Array.from(channelMap.values()));
     await saveReps(Array.from(repMap.values()));
     await saveStores(Array.from(storeMap.values()));
+
+    const session = await getSession();
+    logActivity({ action: "Uploaded stores", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Uploaded ${file.name}: ${newCount} added, ${updatedCount} updated (${storeMap.size} total)` });
 
     return NextResponse.json({
       ok: true,
