@@ -45,10 +45,11 @@ export async function POST(request: NextRequest) {
     const fileHeaders = rows.length > 0 ? Object.keys(rows[0]).map((h) => h.trim()) : [];
     let skippedRows = 0;
 
-    // Detect format: Repsly Places export has "ID" + "Name" + "Tags" columns
+    // Detect format: Repsly Places export has "ID" + "Name" + "Representative ID" columns
+    // (Tags column is optional — some Repsly exports omit it)
     const hasRepslyFormat = fileHeaders.some((h) => h === "ID") &&
       fileHeaders.some((h) => h === "Name") &&
-      fileHeaders.some((h) => h === "Tags");
+      fileHeaders.some((h) => h === "Representative ID");
 
     for (const row of rows) {
       let placeId: string, storeName: string, repCode: string, repName: string;
