@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Channel, FREQUENCY_OPTIONS, FrequencyType, getFrequencyLabel } from "@/lib/types";
 
 export default function ChannelsPage() {
@@ -14,6 +14,9 @@ export default function ChannelsPage() {
   const [newFreq, setNewFreq] = useState<FrequencyType>("monthly");
   const [newDuration, setNewDuration] = useState(30);
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState<{ text: string; type: "success" | "error" } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const load = () => {
     fetch("/api/channels")
@@ -75,6 +78,36 @@ export default function ChannelsPage() {
     load();
   };
 
+  const handleImport = async (file: File) => {
+    setImporting(true);
+    setImportMsg(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/channels/import", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) {
+        setImportMsg({ text: data.error || "Import failed", type: "error" });
+        return;
+      }
+      const parts: string[] = [];
+      if (data.updated) parts.push(`${data.updated} updated`);
+      if (data.created) parts.push(`${data.created} created`);
+      if (data.errors?.length) parts.push(`${data.errors.length} error${data.errors.length > 1 ? "s" : ""}`);
+      if (!data.updated && !data.created && !data.errors?.length) parts.push("No changes");
+      setImportMsg({
+        text: parts.join(", ") + (data.errors?.length ? ": " + data.errors.join("; ") : ""),
+        type: data.errors?.length && !data.updated && !data.created ? "error" : "success",
+      });
+      load();
+    } catch {
+      setImportMsg({ text: "Import failed", type: "error" });
+    } finally {
+      setImporting(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -90,16 +123,53 @@ export default function ChannelsPage() {
           <h1 className="text-xl font-bold text-gray-900">Channels</h1>
           <p className="text-sm text-gray-500">{channels.length} channels configured</p>
         </div>
-        <button
-          onClick={() => setShowAdd(!showAdd)}
-          className="flex items-center gap-2 px-4 py-2 bg-clippa-red text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Add Channel
-        </button>
+        <div className="flex items-center gap-2">
+          <a
+            href="/api/channels/export"
+            className="px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            Export Excel
+          </a>
+          <label
+            className={`px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 cursor-pointer transition-colors ${importing ? "opacity-50 pointer-events-none" : ""}`}
+          >
+            {importing ? "Importing..." : "Import Excel"}
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".xlsx,.xls"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleImport(f);
+              }}
+            />
+          </label>
+          <button
+            onClick={() => setShowAdd(!showAdd)}
+            className="flex items-center gap-2 px-4 py-2 bg-clippa-red text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Add Channel
+          </button>
+        </div>
       </div>
+
+      {/* Import message */}
+      {importMsg && (
+        <div
+          className={`p-3 rounded-lg text-sm mb-6 flex items-center justify-between ${
+            importMsg.type === "success"
+              ? "bg-green-50 text-green-700"
+              : "bg-red-50 text-red-700"
+          }`}
+        >
+          <span>{importMsg.text}</span>
+          <button onClick={() => setImportMsg(null)} className="text-xs opacity-60 hover:opacity-100 ml-4">dismiss</button>
+        </div>
+      )}
 
       {/* Add Channel Form */}
       {showAdd && (
