@@ -37,7 +37,7 @@ export default function StoreUploadPage() {
         setResult({ ok: false, message: data.error || "Upload failed" });
       }
     } catch {
-      setResult({ ok: false, message: "Upload error — check network" });
+      setResult({ ok: false, message: "Please close the file you're attempting to load" });
     }
     setUploading(false);
   };
