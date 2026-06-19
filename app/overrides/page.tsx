@@ -18,10 +18,8 @@ interface Meta {
 }
 
 const STATUS_BADGE: Record<OverrideApprovalStatus, { label: string; cls: string }> = {
-  none: { label: "No approval", cls: "bg-gray-100 text-gray-600" },
-  pending: { label: "Pending approval", cls: "bg-amber-100 text-amber-700" },
-  approved: { label: "Approved", cls: "bg-emerald-100 text-emerald-700" },
-  rejected: { label: "Rejected", cls: "bg-red-100 text-red-700" },
+  pending: { label: "Not yet approved", cls: "bg-amber-100 text-amber-700" },
+  approved: { label: "Approved by manager", cls: "bg-emerald-100 text-emerald-700" },
 };
 
 export default function OverridesPage() {
@@ -38,7 +36,6 @@ export default function OverridesPage() {
   const [selectedStoreId, setSelectedStoreId] = useState("");
   const [editFreq, setEditFreq] = useState<FrequencyType>("monthly");
   const [editDur, setEditDur] = useState<number>(30);
-  const [requestApproval, setRequestApproval] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const showMsg = (text: string, type: "ok" | "error") => {
@@ -96,7 +93,6 @@ export default function OverridesPage() {
     setSelectedStoreId(s.id);
     setEditFreq(s.frequency);
     setEditDur(s.duration);
-    setRequestApproval(false);
   };
 
   const save = async () => {
@@ -110,7 +106,6 @@ export default function OverridesPage() {
           storeId: selectedStore.id,
           frequency: editFreq,
           duration: Number(editDur),
-          requestApproval,
         }),
       });
       if (!res.ok) {
@@ -123,7 +118,7 @@ export default function OverridesPage() {
       );
       await loadOverrides();
       showMsg(
-        requestApproval ? "Saved — approval requested from your manager." : "Override saved.",
+        meta.canManage ? "Override saved." : "Override saved — sent to your manager for approval.",
         "ok"
       );
     } catch (err) {
@@ -154,16 +149,16 @@ export default function OverridesPage() {
     }
   };
 
-  const decide = async (o: StoreOverride, decision: "approved" | "rejected") => {
+  const approve = async (o: StoreOverride) => {
     try {
       const res = await fetch("/api/store-overrides", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: o.id, decision }),
+        body: JSON.stringify({ id: o.id }),
       });
-      if (!res.ok) throw new Error("Decision failed");
+      if (!res.ok) throw new Error("Approve failed");
       await loadOverrides();
-      showMsg(`Override ${decision}.`, "ok");
+      showMsg("Override approved.", "ok");
     } catch (err) {
       showMsg(String(err instanceof Error ? err.message : err), "error");
     }
@@ -192,7 +187,8 @@ export default function OverridesPage() {
         <h1 className="text-xl font-bold text-gray-900">Call Frequency Overrides</h1>
         <p className="text-sm text-gray-500">
           Stores default to their channel&apos;s call frequency &amp; duration. Override a single store below — the change
-          applies immediately. {meta.canManage ? "You can approve rep requests." : "You can request manager approval; it won't delay the change."}
+          applies immediately and is sent for manager approval.{" "}
+          {meta.canManage ? "As a manager, your changes are auto-approved and you can approve others below." : ""}
         </p>
       </div>
 
@@ -227,16 +223,10 @@ export default function OverridesPage() {
                 </div>
                 <div className="flex gap-2 flex-shrink-0">
                   <button
-                    onClick={() => decide(o, "approved")}
+                    onClick={() => approve(o)}
                     className="text-xs font-medium px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
                   >
                     Approve
-                  </button>
-                  <button
-                    onClick={() => decide(o, "rejected")}
-                    className="text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
-                  >
-                    Reject
                   </button>
                 </div>
               </div>
@@ -300,7 +290,7 @@ export default function OverridesPage() {
                     </span>
                     <span className="text-xs text-gray-500 flex-shrink-0">
                       {getFrequencyLabel(s.frequency)} · {s.duration}min
-                      {ov && ov.approvalStatus !== "none" && (
+                      {ov && (
                         <span className={`ml-2 px-1.5 py-0.5 rounded ${STATUS_BADGE[ov.approvalStatus].cls}`}>
                           {STATUS_BADGE[ov.approvalStatus].label}
                         </span>
@@ -349,20 +339,15 @@ export default function OverridesPage() {
                 />
               </div>
             </div>
-            <label className="flex items-center gap-2 text-sm text-gray-600 mb-4 select-none">
-              <input
-                type="checkbox"
-                checked={requestApproval}
-                onChange={(e) => setRequestApproval(e.target.checked)}
-                className="rounded border-gray-300 text-clippa-red focus:ring-clippa-red"
-              />
-              Request manager approval for this change
-              <span className="text-xs text-gray-400">(doesn&apos;t delay the change)</span>
-            </label>
+            {!meta.canManage && (
+              <p className="text-xs text-gray-400 mb-4">
+                Saving applies the change immediately and sends it to your manager for approval.
+              </p>
+            )}
             <div className="flex items-center gap-3">
               <button
                 onClick={save}
-                disabled={saving || (!isDirty && !requestApproval)}
+                disabled={saving || !isDirty}
                 className="text-sm font-medium px-4 py-2 rounded-lg bg-clippa-red text-white hover:opacity-90 disabled:opacity-40"
               >
                 {saving ? "Saving..." : "Save override"}
@@ -384,7 +369,7 @@ export default function OverridesPage() {
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
         <div className="px-4 py-3 border-b border-gray-100">
           <h2 className="text-sm font-semibold text-gray-900">
-            {meta.canManage ? "All overrides" : "Your overrides"} ({overrides.length})
+            Stores overriding the channel default ({overrides.length})
           </h2>
         </div>
         {overrides.length === 0 ? (
@@ -424,20 +409,12 @@ export default function OverridesPage() {
                     </td>
                     <td className="px-4 py-2 text-right whitespace-nowrap">
                       {meta.canManage && o.approvalStatus === "pending" && (
-                        <>
-                          <button
-                            onClick={() => decide(o, "approved")}
-                            className="text-xs font-medium text-emerald-600 hover:underline mr-3"
-                          >
-                            Approve
-                          </button>
-                          <button
-                            onClick={() => decide(o, "rejected")}
-                            className="text-xs font-medium text-gray-500 hover:underline mr-3"
-                          >
-                            Reject
-                          </button>
-                        </>
+                        <button
+                          onClick={() => approve(o)}
+                          className="text-xs font-medium text-emerald-600 hover:underline mr-3"
+                        >
+                          Approve
+                        </button>
                       )}
                       <button
                         onClick={() => resetToDefault(o)}

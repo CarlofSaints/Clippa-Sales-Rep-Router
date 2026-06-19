@@ -49,11 +49,10 @@ export async function POST(request: NextRequest) {
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: noStore });
 
     const body = await request.json();
-    const { storeId, frequency, duration, requestApproval } = body as {
+    const { storeId, frequency, duration } = body as {
       storeId: string;
       frequency: FrequencyType;
       duration: number;
-      requestApproval?: boolean;
     };
 
     if (!storeId || !frequency || duration == null || isNaN(Number(duration))) {
@@ -84,6 +83,9 @@ export async function POST(request: NextRequest) {
     store.duration = dur;
     await saveStores(stores);
 
+    // Manager edits are auto-approved (they are the approver); rep edits need approval.
+    const autoApproved = canManage;
+
     // Upsert the override record (keyed by storeId)
     const overrides = await getStoreOverrides();
     const existing = overrides.find((o) => o.storeId === storeId);
@@ -100,14 +102,16 @@ export async function POST(request: NextRequest) {
       existing.frequency = frequency;
       existing.duration = dur;
       existing.updatedAt = now;
-      if (requestApproval) {
+      existing.requestedBy = actor;
+      existing.requestedAt = now;
+      if (autoApproved) {
+        existing.approvalStatus = "approved";
+        existing.decidedBy = actor;
+        existing.decidedAt = now;
+      } else {
         existing.approvalStatus = "pending";
-        existing.requestedBy = actor;
-        existing.requestedAt = now;
         existing.decidedBy = undefined;
         existing.decidedAt = undefined;
-      } else {
-        existing.approvalStatus = "none";
       }
       record = existing;
     } else {
@@ -122,9 +126,11 @@ export async function POST(request: NextRequest) {
         defaultDuration,
         frequency,
         duration: dur,
-        approvalStatus: requestApproval ? "pending" : "none",
-        requestedBy: requestApproval ? actor : undefined,
-        requestedAt: requestApproval ? now : undefined,
+        approvalStatus: autoApproved ? "approved" : "pending",
+        requestedBy: actor,
+        requestedAt: now,
+        decidedBy: autoApproved ? actor : undefined,
+        decidedAt: autoApproved ? now : undefined,
         createdBy: actor,
         createdAt: now,
         updatedAt: now,
@@ -137,7 +143,7 @@ export async function POST(request: NextRequest) {
       action: "Store call override",
       actor: session.email,
       actorName: actor,
-      summary: `${requestApproval ? "Requested approval for " : "Set "}override on ${store.name}`,
+      summary: `${autoApproved ? "Set" : "Submitted"} override on ${store.name}`,
       details: `${frequency}, ${dur}min (channel default: ${defaultFrequency}, ${defaultDuration}min)`,
     });
 
@@ -147,7 +153,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PATCH — approve/reject a pending override (managers only). Does not change store values.
+// PATCH — approve a pending override (managers only). Does not change store values.
 export async function PATCH(request: NextRequest) {
   try {
     const session = await getSession();
@@ -156,25 +162,23 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403, headers: noStore });
     }
 
-    const { id, decision } = (await request.json()) as { id: string; decision: "approved" | "rejected" };
-    if (!id || (decision !== "approved" && decision !== "rejected")) {
-      return NextResponse.json({ error: "id and decision (approved|rejected) required" }, { status: 400, headers: noStore });
-    }
+    const { id } = (await request.json()) as { id: string };
+    if (!id) return NextResponse.json({ error: "id required" }, { status: 400, headers: noStore });
 
     const overrides = await getStoreOverrides();
     const record = overrides.find((o) => o.id === id);
     if (!record) return NextResponse.json({ error: "Not found" }, { status: 404, headers: noStore });
 
-    record.approvalStatus = decision;
+    record.approvalStatus = "approved";
     record.decidedBy = session.name || session.email;
     record.decidedAt = new Date().toISOString();
     await saveStoreOverrides(overrides);
 
     logActivity({
-      action: "Override decision",
+      action: "Override approved",
       actor: session.email,
       actorName: session.name || session.email,
-      summary: `${decision === "approved" ? "Approved" : "Rejected"} override on ${record.storeName}`,
+      summary: `Approved override on ${record.storeName}`,
     });
 
     return NextResponse.json(record, { headers: noStore });

@@ -98,7 +98,7 @@ export interface Region {
 
 // ---------- Store Call Frequency/Duration Overrides ----------
 
-export type OverrideApprovalStatus = "none" | "pending" | "approved" | "rejected";
+export type OverrideApprovalStatus = "pending" | "approved";
 
 export interface StoreOverride {
   id: string;
