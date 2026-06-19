@@ -41,8 +41,8 @@ export interface Rep {
   homeGpsLng: string;
   teamId: string;
   workingHoursPerDay?: number; // default 8.5
-  assignedChannels?: string[]; // channel IDs for channel_dedicated/hybrid strategies
-  assignedZones?: string[]; // zone IDs for geography/hybrid strategies
+  assignedChannels?: string[]; // channel IDs for channel_dedicated strategy
+  assignedZones?: string[]; // zone IDs for geography strategy
 }
 
 export interface Team {
@@ -68,7 +68,7 @@ export interface Store {
   duration: number; // minutes
   dayOfWeek: string;
   weekNumber: string;
-  zoneId?: string; // for geography/hybrid strategies
+  zoneId?: string; // for geography strategy
   region?: string; // user-defined region
   province?: string; // auto-populated from GPS via Google Geocoding
 }
@@ -185,7 +185,7 @@ export interface SessionPayload {
 
 // ---------- Call Cycle Types ----------
 
-export type CallCycleStrategy = "channel_dedicated" | "geography" | "hybrid" | "dynamic";
+export type CallCycleStrategy = "channel_dedicated" | "geography";
 
 export interface CallCycleType {
   id: string;
@@ -208,20 +208,6 @@ export const DEFAULT_CALL_CYCLE_TYPES: CallCycleType[] = [
     name: "Geography",
     strategy: "geography",
     description: "Reps are assigned geographic areas and call on any channel within their area, limited by daily store capacity.",
-    active: false,
-  },
-  {
-    id: "cct-hybrid",
-    name: "Hybrid",
-    strategy: "hybrid",
-    description: "Combination of channel and geography — reps have channel preferences but are clustered by area.",
-    active: false,
-  },
-  {
-    id: "cct-dynamic",
-    name: "Dynamic",
-    strategy: "dynamic",
-    description: "System optimises store assignments based on rep capacity, proximity, and channel coverage targets.",
     active: false,
   },
 ];

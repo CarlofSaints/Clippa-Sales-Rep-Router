@@ -22,18 +22,8 @@ function getStoresForRep(
       if (!rep.assignedZones?.length) return [];
       return allStores.filter((s) => s.zoneId && rep.assignedZones!.includes(s.zoneId));
 
-    case "hybrid":
-      if (!rep.assignedChannels?.length || !rep.assignedZones?.length) return [];
-      return allStores.filter(
-        (s) =>
-          rep.assignedChannels!.includes(s.channelId) &&
-          s.zoneId &&
-          rep.assignedZones!.includes(s.zoneId)
-      );
-
-    case "dynamic":
     default:
-      // Current behaviour: manual repCode assignment
+      // Fallback: manual repCode assignment
       return allStores.filter((s) => s.repCode === rep.code);
   }
 }

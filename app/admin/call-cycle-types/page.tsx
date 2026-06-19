@@ -6,32 +6,21 @@ import { CallCycleType, CallCycleStrategy } from "@/lib/types";
 const STRATEGY_LABELS: Record<CallCycleStrategy, string> = {
   channel_dedicated: "Channel Dedicated",
   geography: "Geography",
-  hybrid: "Hybrid",
-  dynamic: "Dynamic",
 };
 
 const STRATEGY_COLORS: Record<CallCycleStrategy, { bg: string; text: string; border: string; dot: string }> = {
   channel_dedicated: { bg: "bg-blue-50", text: "text-blue-700", border: "border-blue-200", dot: "bg-blue-500" },
   geography: { bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200", dot: "bg-emerald-500" },
-  hybrid: { bg: "bg-purple-50", text: "text-purple-700", border: "border-purple-200", dot: "bg-purple-500" },
-  dynamic: { bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200", dot: "bg-amber-500" },
 };
 
 const STRATEGY_ICONS: Record<CallCycleStrategy, string> = {
   channel_dedicated: "M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10",
   geography: "M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z M15 11a3 3 0 11-6 0 3 3 0 016 0z",
-  hybrid: "M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm0 8a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zm12 0a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z",
-  dynamic: "M13 10V3L4 14h7v7l9-11h-7z",
 };
 
 const STRATEGY_CONFIG_LINKS: Record<CallCycleStrategy, { href: string; label: string }[]> = {
   channel_dedicated: [{ href: "/admin/rep-channels", label: "Configure Channel Map" }],
   geography: [{ href: "/admin/zones", label: "Configure Zones" }],
-  hybrid: [
-    { href: "/admin/rep-channels", label: "Configure Channel Map" },
-    { href: "/admin/zones", label: "Configure Zones" },
-  ],
-  dynamic: [],
 };
 
 export default function CallCycleTypesPage() {
@@ -286,8 +275,8 @@ export default function CallCycleTypesPage() {
       {/* Type Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {types.map((t) => {
-          const colors = STRATEGY_COLORS[t.strategy] || STRATEGY_COLORS.dynamic;
-          const icon = STRATEGY_ICONS[t.strategy] || STRATEGY_ICONS.dynamic;
+          const colors = STRATEGY_COLORS[t.strategy] || STRATEGY_COLORS.channel_dedicated;
+          const icon = STRATEGY_ICONS[t.strategy] || STRATEGY_ICONS.channel_dedicated;
           const isEditing = editing === t.id;
 
           return (
@@ -439,14 +428,6 @@ export default function CallCycleTypesPage() {
           <div className="flex items-start gap-2">
             <span className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${STRATEGY_COLORS.geography.dot}`} />
             <div><span className="font-medium text-gray-700">Geography</span> — Reps visit any channel but focus on a geographic area, limited by daily capacity.</div>
-          </div>
-          <div className="flex items-start gap-2">
-            <span className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${STRATEGY_COLORS.hybrid.dot}`} />
-            <div><span className="font-medium text-gray-700">Hybrid</span> — Combination of channel preference and geographic clustering.</div>
-          </div>
-          <div className="flex items-start gap-2">
-            <span className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${STRATEGY_COLORS.dynamic.dot}`} />
-            <div><span className="font-medium text-gray-700">Dynamic</span> — System optimises assignments based on capacity, proximity, and coverage targets.</div>
           </div>
         </div>
       </div>
