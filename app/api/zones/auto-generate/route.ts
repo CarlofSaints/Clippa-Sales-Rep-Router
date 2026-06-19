@@ -4,6 +4,8 @@ import { Zone } from "@/lib/types";
 import { requireSession } from "@/lib/auth";
 import { logActivity } from "@/lib/activityLog";
 
+export const maxDuration = 60;
+
 export async function POST() {
   try {
     const session = await requireSession();
@@ -80,13 +82,12 @@ export async function POST() {
       });
     }
 
-    // Save everything
+    // Save sequentially — stores first (largest payload), then reps, then zones last
+    // so zones only appear once stores are confirmed saved
     const allZones = [...existingZones, ...newZones];
-    await Promise.all([
-      saveZones(allZones),
-      saveStores(stores),
-      saveReps(reps),
-    ]);
+    await saveStores(stores);
+    await saveReps(reps);
+    await saveZones(allZones);
 
     logActivity({
       action: "Auto-generated zones",
