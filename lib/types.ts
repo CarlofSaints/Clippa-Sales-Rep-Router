@@ -96,6 +96,33 @@ export interface Region {
   name: string;
 }
 
+// ---------- Store Call Frequency/Duration Overrides ----------
+
+export type OverrideApprovalStatus = "none" | "pending" | "approved" | "rejected";
+
+export interface StoreOverride {
+  id: string;
+  storeId: string;
+  storeName: string; // denormalized for display/history
+  placeId: string;
+  channelId: string;
+  repCode: string;
+  // channel defaults captured at time of override (audit/reference)
+  defaultFrequency: FrequencyType;
+  defaultDuration: number;
+  // override values that were applied to the store
+  frequency: FrequencyType;
+  duration: number;
+  approvalStatus: OverrideApprovalStatus;
+  requestedBy?: string;
+  requestedAt?: string;
+  decidedBy?: string;
+  decidedAt?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type UserRole = "superAdmin" | "admin" | "teamManager" | "rep" | "viewer";
 
 export interface User {
@@ -121,19 +148,19 @@ export const ROLE_DEFINITIONS: RolePermission[] = [
     role: "superAdmin",
     label: "Super Admin",
     description: "Full unrestricted access",
-    permissions: ["manage_super_admins", "manage_users", "manage_roles", "manage_teams", "manage_reps", "manage_stores", "manage_channels", "manage_routes", "manage_call_cycles", "manage_channel_map", "manage_zones", "manage_regions", "manage_repsly", "view_dashboard", "view_map", "view_routes", "upload_stores", "upload_data", "export_data"],
+    permissions: ["manage_super_admins", "manage_users", "manage_roles", "manage_teams", "manage_reps", "manage_stores", "manage_store_overrides", "manage_channels", "manage_routes", "manage_call_cycles", "manage_channel_map", "manage_zones", "manage_regions", "manage_repsly", "view_dashboard", "view_map", "view_routes", "upload_stores", "upload_data", "export_data"],
   },
   {
     role: "admin",
     label: "Admin",
     description: "Manage reps, stores, channels, and view reports",
-    permissions: ["manage_teams", "manage_reps", "manage_stores", "manage_channels", "manage_routes", "manage_call_cycles", "manage_channel_map", "manage_zones", "manage_regions", "manage_repsly", "view_dashboard", "view_map", "view_routes", "upload_stores", "upload_data", "export_data"],
+    permissions: ["manage_teams", "manage_reps", "manage_stores", "manage_store_overrides", "manage_channels", "manage_routes", "manage_call_cycles", "manage_channel_map", "manage_zones", "manage_regions", "manage_repsly", "view_dashboard", "view_map", "view_routes", "upload_stores", "upload_data", "export_data"],
   },
   {
     role: "teamManager",
     label: "Team Manager",
     description: "View and manage assigned team and reps",
-    permissions: ["manage_reps", "manage_stores", "view_dashboard", "view_map", "view_routes"],
+    permissions: ["manage_reps", "manage_stores", "manage_store_overrides", "view_dashboard", "view_map", "view_routes"],
   },
   {
     role: "rep",
@@ -156,6 +183,7 @@ export const ALL_PERMISSIONS = [
   { key: "manage_teams", label: "Manage Teams" },
   { key: "manage_reps", label: "Manage Reps" },
   { key: "manage_stores", label: "Manage Stores" },
+  { key: "manage_store_overrides", label: "Manage Store Call Overrides" },
   { key: "manage_channels", label: "Manage Channels" },
   { key: "manage_routes", label: "Manage Routes" },
   { key: "manage_call_cycles", label: "Manage Call Cycles" },

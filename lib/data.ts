@@ -1,5 +1,5 @@
 import { put, list, del } from "@vercel/blob";
-import { Channel, Rep, Store, User, Team, RoutePlanDocument, RolePermission, ROLE_DEFINITIONS, ALL_PERMISSIONS, CallCycleType, DEFAULT_CALL_CYCLE_TYPES, Zone, Region } from "./types";
+import { Channel, Rep, Store, User, Team, RoutePlanDocument, RolePermission, ROLE_DEFINITIONS, ALL_PERMISSIONS, CallCycleType, DEFAULT_CALL_CYCLE_TYPES, Zone, Region, StoreOverride } from "./types";
 import fs from "fs";
 import path from "path";
 
@@ -86,6 +86,16 @@ export async function getStores(): Promise<Store[]> {
 
 export async function saveStores(stores: Store[]): Promise<void> {
   await writeJSON("stores", stores);
+}
+
+// ---------- Store Call Overrides ----------
+
+export async function getStoreOverrides(): Promise<StoreOverride[]> {
+  return readJSON<StoreOverride[]>("store-overrides", []);
+}
+
+export async function saveStoreOverrides(overrides: StoreOverride[]): Promise<void> {
+  await writeJSON("store-overrides", overrides);
 }
 
 // ---------- Users ----------
