@@ -24,6 +24,8 @@ export async function PUT(request: NextRequest) {
 
     if (updates.repCode !== undefined) stores[idx].repCode = updates.repCode;
     if (updates.channelId !== undefined) stores[idx].channelId = updates.channelId;
+    if (updates.gpsLat !== undefined) stores[idx].gpsLat = updates.gpsLat;
+    if (updates.gpsLng !== undefined) stores[idx].gpsLng = updates.gpsLng;
     if (updates.frequency !== undefined) stores[idx].frequency = updates.frequency as FrequencyType;
     if (updates.duration !== undefined) stores[idx].duration = updates.duration;
     if (updates.dayOfWeek !== undefined) stores[idx].dayOfWeek = updates.dayOfWeek;

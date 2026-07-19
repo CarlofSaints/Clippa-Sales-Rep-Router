@@ -5,6 +5,7 @@ import { useSession } from "@/components/SessionProvider";
 import {
   Rep,
   Team,
+  Store,
   RoutePlanDocument,
   RepRoutePlan,
   RouteDayPlan,
@@ -30,6 +31,10 @@ export default function RoutesPage() {
   const [routes, setRoutes] = useState<RoutePlanDocument | null>(null);
   const [reps, setReps] = useState<Rep[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
+  const [stores, setStores] = useState<Store[]>([]);
+  const [gpsEdits, setGpsEdits] = useState<Record<string, { lat: string; lng: string }>>({});
+  const [gpsSaving, setGpsSaving] = useState<string | null>(null);
+  const [gpsFixed, setGpsFixed] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState("");
@@ -53,10 +58,12 @@ export default function RoutesPage() {
       fetch("/api/reps").then((r) => r.json()),
       fetch("/api/teams").then((r) => r.json()),
       fetch("/api/routes/types").then((r) => r.json()).catch(() => []),
-    ]).then(([rt, rp, tm, types]) => {
+      fetch("/api/stores").then((r) => r.json()).catch(() => []),
+    ]).then(([rt, rp, tm, types, st]) => {
       setRoutes(rt);
       setReps(rp);
       setTeams(tm);
+      setStores(Array.isArray(st) ? st : []);
 
       const typesArr: RouteTypeInfo[] = Array.isArray(types) ? types : [];
       setRouteTypes(typesArr);
@@ -184,6 +191,59 @@ export default function RoutesPage() {
     if (!selectedCell) return null;
     return grid.get(`${selectedCell.week}-${selectedCell.day}`) || null;
   }, [selectedCell, grid]);
+
+  const storeById = useMemo(
+    () => new Map(stores.map((s) => [s.id, s])),
+    [stores]
+  );
+
+  const gpsValue = (storeId: string, field: "lat" | "lng"): string => {
+    const edit = gpsEdits[storeId];
+    if (edit) return edit[field];
+    const s = storeById.get(storeId);
+    return (field === "lat" ? s?.gpsLat : s?.gpsLng) ?? "";
+  };
+
+  const setGpsField = (storeId: string, field: "lat" | "lng", value: string) => {
+    setGpsEdits((prev) => ({
+      ...prev,
+      [storeId]: {
+        lat: prev[storeId]?.lat ?? storeById.get(storeId)?.gpsLat ?? "",
+        lng: prev[storeId]?.lng ?? storeById.get(storeId)?.gpsLng ?? "",
+        [field]: value,
+      },
+    }));
+  };
+
+  const saveGps = async (storeId: string) => {
+    const lat = gpsValue(storeId, "lat").trim();
+    const lng = gpsValue(storeId, "lng").trim();
+    const latN = parseFloat(lat);
+    const lngN = parseFloat(lng);
+    if (
+      isNaN(latN) || isNaN(lngN) ||
+      latN < -90 || latN > 90 || lngN < -180 || lngN > 180
+    ) {
+      setError("Enter a valid latitude (-90 to 90) and longitude (-180 to 180).");
+      return;
+    }
+    setError("");
+    setGpsSaving(storeId);
+    try {
+      const res = await fetch("/api/stores", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: storeId, gpsLat: lat, gpsLng: lng }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setStores((prev) => prev.map((s) => (s.id === storeId ? { ...s, gpsLat: lat, gpsLng: lng } : s)));
+      setGpsFixed((prev) => new Set(prev).add(storeId));
+    } catch (err) {
+      setError(`Failed to save GPS: ${String(err)}`);
+    } finally {
+      setGpsSaving(null);
+    }
+  };
 
   // Capacity color
   const capacityColor = (plan: RouteDayPlan | undefined, workingHours: number) => {
@@ -377,12 +437,50 @@ export default function RoutesPage() {
               Export all (Excel)
             </a>
           </div>
-          <ul className="text-xs text-amber-700 space-y-1">
-            {currentPlan.stats.unassignedStores.map((s) => (
-              <li key={s.storeId}>
-                <span className="font-medium">{currentPlan.repName}</span> — {s.storeName} — {s.reason}
-              </li>
-            ))}
+          {currentPlan.stats.unassignedStores.some((s) => s.reason.toLowerCase().includes("gps")) && (
+            <p className="text-[11px] text-amber-600 mb-2">
+              Fix any bad coordinates below and click <span className="font-medium">Generate Routes</span> to reschedule them.
+            </p>
+          )}
+          <ul className="text-xs text-amber-700 space-y-1.5">
+            {currentPlan.stats.unassignedStores.map((s) => {
+              const isGps = s.reason.toLowerCase().includes("gps");
+              const fixed = gpsFixed.has(s.storeId);
+              return (
+                <li key={s.storeId} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="font-medium">{currentPlan.repName}</span>
+                  <span>—</span>
+                  <span>{s.storeName}</span>
+                  {isGps && !fixed && (
+                    <span className="flex items-center gap-1 ml-1">
+                      <input
+                        value={gpsValue(s.storeId, "lat")}
+                        onChange={(e) => setGpsField(s.storeId, "lat", e.target.value)}
+                        placeholder="lat e.g. -26.1"
+                        className="w-28 border border-amber-300 rounded px-2 py-0.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-clippa-red"
+                      />
+                      <input
+                        value={gpsValue(s.storeId, "lng")}
+                        onChange={(e) => setGpsField(s.storeId, "lng", e.target.value)}
+                        placeholder="lng e.g. 28.0"
+                        className="w-28 border border-amber-300 rounded px-2 py-0.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-clippa-red"
+                      />
+                      <button
+                        onClick={() => saveGps(s.storeId)}
+                        disabled={gpsSaving === s.storeId}
+                        className="px-2 py-0.5 bg-clippa-red text-white rounded text-xs font-medium hover:bg-red-700 disabled:opacity-50"
+                      >
+                        {gpsSaving === s.storeId ? "Saving..." : "Save GPS"}
+                      </button>
+                    </span>
+                  )}
+                  {isGps && fixed && (
+                    <span className="text-green-700 font-medium ml-1">✓ GPS saved — regenerate routes to schedule</span>
+                  )}
+                  {!isGps && <span>— {s.reason}</span>}
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
