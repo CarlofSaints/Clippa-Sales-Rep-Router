@@ -60,6 +60,12 @@ export async function POST(request: NextRequest) {
     const startTime = body.startTime || "08:00";
     const repPlans: RepRoutePlan[] = [];
 
+    // Budget for Google Directions calls. Generating for a single rep gets the
+    // full budget (fast, all days road-optimised); a bulk all-reps run uses
+    // Google until the budget is spent, then falls back to Haversine so the
+    // request always completes well within the function timeout.
+    const googleDeadline = Date.now() + (reps.length === 1 ? 55_000 : 45_000);
+
     for (const rep of reps) {
       // Get stores for this rep based on active strategy
       const repStores = getStoresForRep(rep, allStores, strategy);
@@ -76,7 +82,7 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const plan = await generateRepRoute(rep, repStores, startTime);
+      const plan = await generateRepRoute(rep, repStores, startTime, googleDeadline);
       repPlans.push(plan);
     }
 

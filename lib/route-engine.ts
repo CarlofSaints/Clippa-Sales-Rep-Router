@@ -23,7 +23,8 @@ const DEFAULT_START_TIME = "08:00";
 export async function generateRepRoute(
   rep: Rep,
   stores: Store[],
-  startTime: string = DEFAULT_START_TIME
+  startTime: string = DEFAULT_START_TIME,
+  googleDeadline?: number
 ): Promise<RepRoutePlan> {
   const homeLat = parseFloat(rep.homeGpsLat);
   const homeLng = parseFloat(rep.homeGpsLng);
@@ -61,7 +62,8 @@ export async function generateRepRoute(
         week,
         DAYS[dayIdx],
         startTime,
-        workingMinutes
+        workingMinutes,
+        googleDeadline
       );
 
       // Step 3b: If over capacity, remove last stores
@@ -343,7 +345,8 @@ async function buildDayPlan(
   week: WeekLabel,
   day: DayLabel,
   startTime: string,
-  workingMinutes: number
+  workingMinutes: number,
+  googleDeadline?: number
 ): Promise<RouteDayPlan> {
   const storePoints = stores.map((s) => ({
     store: s,
@@ -355,8 +358,11 @@ async function buildDayPlan(
   let legs: { distanceKm: number; durationMin: number }[] = [];
   let polyline: string | undefined;
 
-  // Try Google Maps optimization
-  if (hasGoogleMapsKey() && home && storePoints.length > 0) {
+  // Try Google Maps optimization — but only while we're inside the time budget.
+  // Past the deadline we fall back to the instant Haversine method so a bulk
+  // "generate all reps" run always finishes within the function timeout.
+  const withinBudget = googleDeadline === undefined || Date.now() < googleDeadline;
+  if (hasGoogleMapsKey() && home && storePoints.length > 0 && withinBudget) {
     const waypoints = storePoints.map((s) => ({ lat: s.lat, lng: s.lng }));
     const result = await getOptimizedRoute(home, home, waypoints);
 

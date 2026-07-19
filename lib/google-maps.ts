@@ -46,8 +46,8 @@ export async function getOptimizedRoute(
     waypointsParam +
     `&key=${API_KEY()}`;
 
-  // Rate limit: 200ms delay between calls
-  await delay(200);
+  // Rate limit: small delay between calls
+  await delay(80);
 
   const res = await fetch(url);
   if (!res.ok) return null;
