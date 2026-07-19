@@ -13,19 +13,18 @@ function getStoresForRep(
   allStores: Store[],
   strategy: string | null
 ): Store[] {
-  switch (strategy) {
-    case "channel_dedicated":
-      if (!rep.assignedChannels?.length) return [];
-      return allStores.filter((s) => rep.assignedChannels!.includes(s.channelId));
+  // A rep's stores are the stores allocated to them (repCode). This is the
+  // source of truth for "which stores does this rep call on". The route engine
+  // then clusters them geographically and optimises the daily order.
+  const allocated = allStores.filter((s) => s.repCode === rep.code);
 
-    case "geography":
-      if (!rep.assignedZones?.length) return [];
-      return allStores.filter((s) => s.zoneId && rep.assignedZones!.includes(s.zoneId));
-
-    default:
-      // Fallback: manual repCode assignment
-      return allStores.filter((s) => s.repCode === rep.code);
+  // Channel Dedicated additionally narrows the allocation to the rep's channels.
+  if (strategy === "channel_dedicated" && rep.assignedChannels?.length) {
+    return allocated.filter((s) => rep.assignedChannels!.includes(s.channelId));
   }
+
+  // Geography / default: the rep calls on every store allocated to them.
+  return allocated;
 }
 
 export async function POST(request: NextRequest) {

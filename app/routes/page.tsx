@@ -274,7 +274,7 @@ export default function RoutesPage() {
             <option value="">Latest Routes</option>
             {routeTypes.map((t) => (
               <option key={t.id} value={t.id}>
-                {t.name}{t.hasRoutes ? " \u2713" : " (no routes)"}
+                {t.name}{t.hasRoutes ? "" : " (no routes)"}
               </option>
             ))}
           </select>

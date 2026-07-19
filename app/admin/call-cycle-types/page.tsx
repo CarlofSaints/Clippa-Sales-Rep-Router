@@ -20,7 +20,7 @@ const STRATEGY_ICONS: Record<CallCycleStrategy, string> = {
 
 const STRATEGY_CONFIG_LINKS: Record<CallCycleStrategy, { href: string; label: string }[]> = {
   channel_dedicated: [{ href: "/admin/rep-channels", label: "Configure Channel Map" }],
-  geography: [{ href: "/admin/zones", label: "Configure Zones" }],
+  geography: [],
 };
 
 export default function CallCycleTypesPage() {
@@ -427,7 +427,7 @@ export default function CallCycleTypesPage() {
           </div>
           <div className="flex items-start gap-2">
             <span className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${STRATEGY_COLORS.geography.dot}`} />
-            <div><span className="font-medium text-gray-700">Geography</span> — Reps visit any channel but focus on a geographic area, limited by daily capacity.</div>
+            <div><span className="font-medium text-gray-700">Geography</span> — Reps call on every store allocated to them; the app clusters those stores geographically into the most efficient daily route, limited by daily capacity.</div>
           </div>
         </div>
       </div>

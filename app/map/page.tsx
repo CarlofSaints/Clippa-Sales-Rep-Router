@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useSession } from "@/components/SessionProvider";
 import { Store, Rep, Channel, Team, RoutePlanDocument, RouteDayPlan, WeekLabel, CallCycleStrategy } from "@/lib/types";
+import { decodePolyline } from "@/lib/google-maps";
 
 const MapView = dynamic(() => import("./MapView"), { ssr: false });
 
@@ -137,7 +138,8 @@ function MapPageInner() {
     return matchingDayPlans.flatMap((d) => d.stops);
   }, [matchingDayPlans]);
 
-  // Build per-day polyline positions (straight lines: home → stops → home)
+  // Build per-day polyline positions. Prefer Google's road-following geometry
+  // (stored on each day plan); fall back to straight lines home → stops → home.
   const routeLines = useMemo((): [number, number][][] => {
     if (matchingDayPlans.length === 0) return [];
     const home = (() => {
@@ -148,6 +150,12 @@ function MapPageInner() {
       return !isNaN(lat) && !isNaN(lng) ? [lat, lng] as [number, number] : null;
     })();
     return matchingDayPlans.map((dp) => {
+      // Road-following line from the stored Google polyline, when present.
+      if (dp.polyline) {
+        const decoded = decodePolyline(dp.polyline);
+        if (decoded.length > 1) return decoded;
+      }
+      // Fallback: straight segments home → stops → home.
       const pts: [number, number][] = [];
       if (home) pts.push(home);
       for (const stop of dp.stops) pts.push([stop.lat, stop.lng]);
@@ -204,7 +212,7 @@ function MapPageInner() {
             <option value="">Latest Routes</option>
             {routeTypes.map((t) => (
               <option key={t.id} value={t.id}>
-                {t.name}{t.hasRoutes ? " \u2713" : " (no routes)"}
+                {t.name}{t.hasRoutes ? "" : " (no routes)"}
               </option>
             ))}
           </select>
