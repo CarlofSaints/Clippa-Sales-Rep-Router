@@ -85,10 +85,11 @@ function MapPageInner() {
       });
   }, [selectedTypeId]);
 
-  // Auto-set filterRep for rep users
+  // Auto-set filterRep for rep users, and show their route by default
   useEffect(() => {
     if (isRep && session?.repCode && reps.length > 0) {
       setFilterRep(session.repCode);
+      setShowRoute(true);
     }
   }, [isRep, session?.repCode, reps]);
 
@@ -222,7 +223,10 @@ function MapPageInner() {
         {!isRep && (
           <select
             value={filterRep}
-            onChange={(e) => setFilterRep(e.target.value)}
+            onChange={(e) => {
+              setFilterRep(e.target.value);
+              if (e.target.value) setShowRoute(true);
+            }}
             className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-clippa-red"
             style={{ color: filterRep ? repColors[filterRep] || "#111827" : "#111827" }}
           >
