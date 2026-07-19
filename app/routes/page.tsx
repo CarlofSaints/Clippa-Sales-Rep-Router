@@ -37,6 +37,7 @@ export default function RoutesPage() {
   const [gpsFixed, setGpsFixed] = useState<Set<string>>(new Set());
   const [confirmingRange, setConfirmingRange] = useState<string | null>(null);
   const [rangeConfirmed, setRangeConfirmed] = useState<Set<string>>(new Set());
+  const [repslyMonths, setRepslyMonths] = useState(3);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState("");
@@ -441,6 +442,30 @@ export default function RoutesPage() {
             </svg>
             Export to Excel
           </button>
+        )}
+
+        {/* Export for Repsly (dated call cycle) */}
+        {routes && (
+          <div className="flex items-center gap-1.5 border border-gray-200 rounded-lg pl-2 pr-1 py-1">
+            <span className="text-xs text-gray-500">Repsly</span>
+            <select
+              value={repslyMonths}
+              onChange={(e) => setRepslyMonths(Number(e.target.value))}
+              className="text-xs border border-gray-200 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-clippa-red"
+              title="Months of call cycle to generate"
+            >
+              <option value={1}>1 mo</option>
+              <option value={2}>2 mo</option>
+              <option value={3}>3 mo</option>
+            </select>
+            <a
+              href={`/api/routes/repsly-export?months=${repslyMonths}&format=xlsx${selectedTypeId ? `&typeId=${selectedTypeId}` : ""}${selectedRep ? `&repCode=${selectedRep}` : ""}`}
+              className="bg-gray-800 text-white px-3 py-1.5 rounded-md text-xs font-medium hover:bg-gray-900 transition-colors"
+              title={selectedRep ? "Export this rep's call cycle for Repsly" : "Export all reps' call cycle for Repsly"}
+            >
+              Export {selectedRep ? "rep" : "all"}
+            </a>
+          </div>
         )}
 
         {/* Stats */}
