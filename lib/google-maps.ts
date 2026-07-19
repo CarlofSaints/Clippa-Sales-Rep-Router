@@ -142,6 +142,48 @@ export async function reverseGeocodeRegion(
   return null;
 }
 
+/**
+ * Reverse-geocode a lat/lng to a human-readable place: "City, Province, Country".
+ * Used to tell the client exactly where a wrong coordinate actually points.
+ */
+export async function reverseGeocodePlace(
+  lat: number,
+  lng: number
+): Promise<string | null> {
+  if (!hasGoogleMapsKey()) return null;
+
+  await delay(80);
+
+  const url =
+    `https://maps.googleapis.com/maps/api/geocode/json` +
+    `?latlng=${lat},${lng}` +
+    `&key=${API_KEY()}`;
+
+  const res = await fetch(url);
+  if (!res.ok) return null;
+
+  const data = await res.json();
+  if (data.status !== "OK" || !data.results?.length) return null;
+
+  const comps = data.results[0].address_components as {
+    long_name: string;
+    types: string[];
+  }[];
+  const pick = (...types: string[]) => {
+    for (const t of types) {
+      const c = comps.find((comp) => comp.types?.includes(t));
+      if (c) return c.long_name;
+    }
+    return "";
+  };
+
+  const city = pick("locality", "postal_town", "sublocality", "administrative_area_level_2");
+  const province = pick("administrative_area_level_1");
+  const country = pick("country");
+  const parts = [city, province, country].filter(Boolean);
+  return parts.length ? parts.join(", ") : (data.results[0].formatted_address || null);
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

@@ -79,6 +79,16 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
   await writeJSON("settings", settings);
 }
 
+// ---------- Geocode cache (reverse-geocoded place names, keyed by rounded coord) ----------
+
+export async function getGeocodeCache(): Promise<Record<string, string>> {
+  return readJSON<Record<string, string>>("geocache", {});
+}
+
+export async function saveGeocodeCache(cache: Record<string, string>): Promise<void> {
+  await writeJSON("geocache", cache);
+}
+
 // ---------- Reps ----------
 
 export async function getReps(): Promise<Rep[]> {
