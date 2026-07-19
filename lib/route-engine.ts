@@ -28,7 +28,12 @@ export async function generateRepRoute(
   const homeLat = parseFloat(rep.homeGpsLat);
   const homeLng = parseFloat(rep.homeGpsLng);
   const hasHome = !isNaN(homeLat) && !isNaN(homeLng);
-  const home = hasHome ? { lat: homeLat, lng: homeLng } : null;
+  // If the rep has no home GPS loaded, default the start/end point to the
+  // centroid of their allocated stores so routes still generate (and Google
+  // optimisation still runs) from a sensible anchor in the middle of their patch.
+  const home = hasHome
+    ? { lat: homeLat, lng: homeLng }
+    : storeCentroid(stores);
   const workingMinutes = (rep.workingHoursPerDay ?? DEFAULT_WORKING_HOURS) * 60;
 
   // Step 1: Distribute stores across weeks based on frequency
@@ -584,6 +589,18 @@ async function rebalanceOverflow(
 // ──────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────
+
+/** Average lat/lng of all stores with valid GPS — a fallback "home" anchor. */
+function storeCentroid(stores: Store[]): { lat: number; lng: number } | null {
+  const pts = stores
+    .map((s) => ({ lat: parseFloat(s.gpsLat), lng: parseFloat(s.gpsLng) }))
+    .filter((p) => !isNaN(p.lat) && !isNaN(p.lng));
+  if (pts.length === 0) return null;
+  return {
+    lat: pts.reduce((sum, p) => sum + p.lat, 0) / pts.length,
+    lng: pts.reduce((sum, p) => sum + p.lng, 0) / pts.length,
+  };
+}
 
 export function haversineKm(
   lat1: number,
