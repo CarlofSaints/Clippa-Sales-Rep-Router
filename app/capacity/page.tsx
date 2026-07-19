@@ -38,6 +38,10 @@ interface OutlierStore {
   storeName: string;
   channel: string;
   distanceKm: number;
+  province: string;
+  gpsLat: string;
+  gpsLng: string;
+  outsideSA: boolean;
 }
 
 interface OutlierResponse {
@@ -148,13 +152,13 @@ export default function CapacityPage() {
   const groupedOutliers = useMemo(() => {
     const map = new Map<
       string,
-      { repName: string; storeName: string; channel: string; distanceKm: number; storeIds: string[] }
+      { repName: string; storeName: string; channel: string; distanceKm: number; province: string; gpsLat: string; gpsLng: string; outsideSA: boolean; storeIds: string[] }
     >();
     for (const o of scopedOutliers) {
       const key = `${o.repCode}||${o.storeName.trim().toUpperCase()}`;
       const g = map.get(key);
       if (g) g.storeIds.push(o.storeId);
-      else map.set(key, { repName: o.repName, storeName: o.storeName, channel: o.channel, distanceKm: o.distanceKm, storeIds: [o.storeId] });
+      else map.set(key, { repName: o.repName, storeName: o.storeName, channel: o.channel, distanceKm: o.distanceKm, province: o.province, gpsLat: o.gpsLat, gpsLng: o.gpsLng, outsideSA: o.outsideSA, storeIds: [o.storeId] });
     }
     return [...map.values()].sort((a, b) => b.distanceKm - a.distanceKm);
   }, [scopedOutliers]);
@@ -439,6 +443,7 @@ export default function CapacityPage() {
                 <th className="px-4 py-3">Rep</th>
                 <th className="px-4 py-3">Store</th>
                 <th className="px-4 py-3">Channel</th>
+                <th className="px-4 py-3">Location</th>
                 <th className="px-4 py-3 text-right">Distance from area</th>
                 <th className="px-4 py-3 text-right">Action</th>
               </tr>
@@ -456,6 +461,18 @@ export default function CapacityPage() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-gray-600">{g.channel}</td>
+                  <td className="px-4 py-3">
+                    {g.outsideSA && (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700 mr-1">
+                        Outside SA
+                      </span>
+                    )}
+                    {g.province ? (
+                      <span className="text-gray-600">{g.province}</span>
+                    ) : (
+                      <span className="text-gray-400 font-mono text-xs">{g.gpsLat}, {g.gpsLng}</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-right font-semibold text-orange-700">{g.distanceKm.toLocaleString()} km</td>
                   <td className="px-4 py-3 text-right">
                     <button
@@ -471,7 +488,7 @@ export default function CapacityPage() {
               ))}
               {groupedOutliers.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
                     No out-of-range stores at {outliers?.radiusKm ?? radiusInput} km.
                   </td>
                 </tr>

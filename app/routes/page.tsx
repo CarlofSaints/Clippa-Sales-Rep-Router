@@ -217,9 +217,10 @@ export default function RoutesPage() {
     }));
   };
 
-  const saveGps = async (storeId: string) => {
-    const lat = gpsValue(storeId, "lat").trim();
-    const lng = gpsValue(storeId, "lng").trim();
+  const saveGps = async (storeIds: string[]) => {
+    const primary = storeIds[0];
+    const lat = gpsValue(primary, "lat").trim();
+    const lng = gpsValue(primary, "lng").trim();
     const latN = parseFloat(lat);
     const lngN = parseFloat(lng);
     if (
@@ -230,16 +231,19 @@ export default function RoutesPage() {
       return;
     }
     setError("");
-    setGpsSaving(storeId);
+    setGpsSaving(primary);
     try {
-      const res = await fetch("/api/stores", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: storeId, gpsLat: lat, gpsLng: lng }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setStores((prev) => prev.map((s) => (s.id === storeId ? { ...s, gpsLat: lat, gpsLng: lng } : s)));
-      setGpsFixed((prev) => new Set(prev).add(storeId));
+      // Same physical store may have several duplicate records — fix them all.
+      for (const id of storeIds) {
+        const res = await fetch("/api/stores", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, gpsLat: lat, gpsLng: lng }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      }
+      setStores((prev) => prev.map((s) => (storeIds.includes(s.id) ? { ...s, gpsLat: lat, gpsLng: lng } : s)));
+      setGpsFixed((prev) => new Set(prev).add(primary));
     } catch (err) {
       setError(`Failed to save GPS: ${String(err)}`);
     } finally {
@@ -247,22 +251,39 @@ export default function RoutesPage() {
     }
   };
 
-  const confirmInCycle = async (storeId: string) => {
-    setConfirmingRange(storeId);
+  const confirmInCycle = async (storeIds: string[]) => {
+    const primary = storeIds[0];
+    setConfirmingRange(primary);
     try {
-      const res = await fetch("/api/stores", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: storeId, rangeConfirmed: true }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setRangeConfirmed((prev) => new Set(prev).add(storeId));
+      for (const id of storeIds) {
+        const res = await fetch("/api/stores", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, rangeConfirmed: true }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      }
+      setRangeConfirmed((prev) => new Set(prev).add(primary));
     } catch (err) {
       setError(`Failed to confirm store: ${String(err)}`);
     } finally {
       setConfirmingRange(null);
     }
   };
+
+  // Collapse duplicate records (same store name) in the unassigned list so a
+  // store surfaces once; actions apply to all its duplicate records.
+  const groupedUnassigned = useMemo(() => {
+    if (!currentPlan) return [] as { storeName: string; reason: string; storeIds: string[] }[];
+    const map = new Map<string, { storeName: string; reason: string; storeIds: string[] }>();
+    for (const s of currentPlan.stats.unassignedStores) {
+      const key = s.storeName.trim().toUpperCase();
+      const g = map.get(key);
+      if (g) g.storeIds.push(s.storeId);
+      else map.set(key, { storeName: s.storeName, reason: s.reason, storeIds: [s.storeId] });
+    }
+    return [...map.values()];
+  }, [currentPlan]);
 
   // Capacity color
   const capacityColor = (plan: RouteDayPlan | undefined, workingHours: number) => {
@@ -462,37 +483,43 @@ export default function RoutesPage() {
             </p>
           )}
           <ul className="text-xs text-amber-700 space-y-1.5">
-            {currentPlan.stats.unassignedStores.map((s, i) => {
-              const isGps = s.reason.toLowerCase().includes("gps");
-              const isRange = s.reason.toLowerCase().includes("out of range");
-              const fixed = gpsFixed.has(s.storeId);
-              const confirmed = rangeConfirmed.has(s.storeId);
+            {groupedUnassigned.map((g, i) => {
+              const isGps = g.reason.toLowerCase().includes("gps");
+              const isRange = g.reason.toLowerCase().includes("out of range");
+              const primary = g.storeIds[0];
+              const fixed = gpsFixed.has(primary);
+              const confirmed = rangeConfirmed.has(primary);
               return (
-                <li key={s.storeId} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <li key={primary} className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <span className="text-amber-500 font-mono w-6 flex-shrink-0 text-right">{i + 1}.</span>
                   <span className="font-medium">{currentPlan.repName}</span>
                   <span>—</span>
-                  <span>{s.storeName}</span>
+                  <span>{g.storeName}</span>
+                  {g.storeIds.length > 1 && (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-200/60 text-amber-800" title={`${g.storeIds.length} duplicate records`}>
+                      ×{g.storeIds.length}
+                    </span>
+                  )}
                   {isGps && !fixed && (
                     <span className="flex items-center gap-1 ml-1">
                       <input
-                        value={gpsValue(s.storeId, "lat")}
-                        onChange={(e) => setGpsField(s.storeId, "lat", e.target.value)}
+                        value={gpsValue(primary, "lat")}
+                        onChange={(e) => setGpsField(primary, "lat", e.target.value)}
                         placeholder="lat e.g. -26.1"
                         className="w-28 border border-amber-300 rounded px-2 py-0.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-clippa-red"
                       />
                       <input
-                        value={gpsValue(s.storeId, "lng")}
-                        onChange={(e) => setGpsField(s.storeId, "lng", e.target.value)}
+                        value={gpsValue(primary, "lng")}
+                        onChange={(e) => setGpsField(primary, "lng", e.target.value)}
                         placeholder="lng e.g. 28.0"
                         className="w-28 border border-amber-300 rounded px-2 py-0.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-clippa-red"
                       />
                       <button
-                        onClick={() => saveGps(s.storeId)}
-                        disabled={gpsSaving === s.storeId}
+                        onClick={() => saveGps(g.storeIds)}
+                        disabled={gpsSaving === primary}
                         className="px-2 py-0.5 bg-clippa-red text-white rounded text-xs font-medium hover:bg-red-700 disabled:opacity-50"
                       >
-                        {gpsSaving === s.storeId ? "Saving..." : "Save GPS"}
+                        {gpsSaving === primary ? "Saving..." : "Save GPS"}
                       </button>
                     </span>
                   )}
@@ -501,22 +528,22 @@ export default function RoutesPage() {
                   )}
                   {isRange && (
                     <>
-                      <span>— {s.reason}</span>
+                      <span>— {g.reason}</span>
                       {confirmed ? (
                         <span className="text-green-700 font-medium ml-1">✓ Confirmed — regenerate to schedule</span>
                       ) : (
                         <button
-                          onClick={() => confirmInCycle(s.storeId)}
-                          disabled={confirmingRange === s.storeId}
+                          onClick={() => confirmInCycle(g.storeIds)}
+                          disabled={confirmingRange === primary}
                           className="px-2 py-0.5 bg-green-600 text-white rounded text-xs font-medium hover:bg-green-700 disabled:opacity-50 ml-1"
                           title="Confirm this store really is in the rep's cycle"
                         >
-                          {confirmingRange === s.storeId ? "Confirming..." : "Confirm in cycle"}
+                          {confirmingRange === primary ? "Confirming..." : "Confirm in cycle"}
                         </button>
                       )}
                     </>
                   )}
-                  {!isGps && !isRange && <span>— {s.reason}</span>}
+                  {!isGps && !isRange && <span>— {g.reason}</span>}
                 </li>
               );
             })}

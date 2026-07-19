@@ -20,12 +20,28 @@ export async function GET(request: NextRequest) {
 
     const result = computeOutliers(reps, stores, radiusKm);
     const channelName = new Map(channels.map((c) => [c.id, c.name]));
-    const withChannel = result.stores.map((s) => ({
-      ...s,
-      channel: channelName.get(s.channelId) || s.channelId || "",
-    }));
+    const storeById = new Map(stores.map((s) => [s.id, s]));
 
-    return NextResponse.json({ ...result, stores: withChannel });
+    // South Africa bounding box — coords outside it are clearly wrong.
+    const outsideSA = (lat: number, lng: number) =>
+      lat < -35 || lat > -22 || lng < 16 || lng > 33;
+
+    const enriched = result.stores.map((s) => {
+      const st = storeById.get(s.storeId);
+      const lat = parseFloat(st?.gpsLat ?? "");
+      const lng = parseFloat(st?.gpsLng ?? "");
+      const valid = !isNaN(lat) && !isNaN(lng);
+      return {
+        ...s,
+        channel: channelName.get(s.channelId) || s.channelId || "",
+        province: (st?.province || "").trim(),
+        gpsLat: st?.gpsLat ?? "",
+        gpsLng: st?.gpsLng ?? "",
+        outsideSA: valid ? outsideSA(lat, lng) : false,
+      };
+    });
+
+    return NextResponse.json({ ...result, stores: enriched });
   } catch (err) {
     if (String(err).includes("Unauthorized")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

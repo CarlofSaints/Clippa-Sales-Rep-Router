@@ -23,8 +23,14 @@ export async function GET(request: NextRequest) {
     const channelName = new Map(channels.map((c) => [c.id, c.name]));
     const storeById = new Map(stores.map((s) => [s.id, s]));
 
+    const outsideSA = (latS: string, lngS: string) => {
+      const lat = parseFloat(latS), lng = parseFloat(lngS);
+      if (isNaN(lat) || isNaN(lng)) return "";
+      return lat < -35 || lat > -22 || lng < 16 || lng > 33 ? "Yes" : "";
+    };
+
     const rows: (string | number)[][] = [
-      ["Rep Code", "Rep Name", "Store Name", "Store ID", "Channel", "Distance (km)", "Latitude", "Longitude"],
+      ["Rep Code", "Rep Name", "Store Name", "Store ID", "Channel", "Province", "Outside SA", "Distance (km)", "Latitude", "Longitude"],
     ];
     for (const o of result.stores) {
       const st = storeById.get(o.storeId);
@@ -34,6 +40,8 @@ export async function GET(request: NextRequest) {
         o.storeName,
         o.storeId,
         channelName.get(o.channelId) || o.channelId || "",
+        (st?.province || "").trim(),
+        outsideSA(st?.gpsLat ?? "", st?.gpsLng ?? ""),
         o.distanceKm,
         st?.gpsLat ?? "",
         st?.gpsLng ?? "",
@@ -42,8 +50,8 @@ export async function GET(request: NextRequest) {
 
     const ws = XLSX.utils.aoa_to_sheet(rows);
     ws["!cols"] = [
-      { wch: 12 }, { wch: 24 }, { wch: 36 }, { wch: 22 },
-      { wch: 20 }, { wch: 13 }, { wch: 13 }, { wch: 13 },
+      { wch: 12 }, { wch: 24 }, { wch: 36 }, { wch: 22 }, { wch: 20 },
+      { wch: 16 }, { wch: 10 }, { wch: 13 }, { wch: 13 }, { wch: 13 },
     ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, `Out-of-range ${radiusKm}km`);
