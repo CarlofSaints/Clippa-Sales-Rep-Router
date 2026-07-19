@@ -361,14 +361,26 @@ export default function RoutesPage() {
       {/* Unassigned stores alert */}
       {currentPlan && currentPlan.stats.unassignedStores.length > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
-          <p className="text-sm font-medium text-amber-800 mb-2">
-            {currentPlan.stats.unassignedStores.length} stores could not be
-            scheduled:
-          </p>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-medium text-amber-800">
+              {currentPlan.stats.unassignedStores.length} stores could not be
+              scheduled:
+            </p>
+            <a
+              href={`/api/routes/unassigned/export${selectedTypeId ? `?typeId=${selectedTypeId}` : ""}`}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-amber-300 text-amber-800 text-xs font-medium rounded-lg hover:bg-amber-100 transition-colors flex-shrink-0"
+              title="Export unassigned stores for all reps"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              Export all (Excel)
+            </a>
+          </div>
           <ul className="text-xs text-amber-700 space-y-1">
             {currentPlan.stats.unassignedStores.map((s) => (
               <li key={s.storeId}>
-                {s.storeName} — {s.reason}
+                <span className="font-medium">{currentPlan.repName}</span> — {s.storeName} — {s.reason}
               </li>
             ))}
           </ul>
