@@ -33,7 +33,6 @@ export async function PUT(request: NextRequest) {
     if (updates.teamId !== undefined) reps[idx].teamId = updates.teamId;
     if (updates.workingHoursPerDay !== undefined) reps[idx].workingHoursPerDay = updates.workingHoursPerDay;
     if (updates.assignedChannels !== undefined) reps[idx].assignedChannels = updates.assignedChannels;
-    if (updates.assignedZones !== undefined) reps[idx].assignedZones = updates.assignedZones;
     await saveReps(reps);
 
     const session = await getSession();

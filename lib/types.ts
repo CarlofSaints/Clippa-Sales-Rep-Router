@@ -42,7 +42,6 @@ export interface Rep {
   teamId: string;
   workingHoursPerDay?: number; // default 8.5
   assignedChannels?: string[]; // channel IDs for channel_dedicated strategy
-  assignedZones?: string[]; // zone IDs for geography strategy
 }
 
 export interface Team {
@@ -68,7 +67,6 @@ export interface Store {
   duration: number; // minutes
   dayOfWeek: string;
   weekNumber: string;
-  zoneId?: string; // for geography strategy
   region?: string; // user-defined region
   province?: string; // auto-populated from GPS via Google Geocoding
 }
@@ -84,12 +82,6 @@ export const SA_PROVINCES = [
   "Northern Cape",
   "Western Cape",
 ] as const;
-
-export interface Zone {
-  id: string;
-  name: string;
-  description: string;
-}
 
 export interface Region {
   id: string;
@@ -148,13 +140,13 @@ export const ROLE_DEFINITIONS: RolePermission[] = [
     role: "superAdmin",
     label: "Super Admin",
     description: "Full unrestricted access",
-    permissions: ["manage_super_admins", "manage_users", "manage_roles", "manage_teams", "manage_reps", "manage_stores", "manage_store_overrides", "manage_channels", "manage_routes", "manage_call_cycles", "manage_channel_map", "manage_zones", "manage_regions", "manage_repsly", "view_dashboard", "view_map", "view_routes", "upload_stores", "upload_data", "export_data"],
+    permissions: ["manage_super_admins", "manage_users", "manage_roles", "manage_teams", "manage_reps", "manage_stores", "manage_store_overrides", "manage_channels", "manage_routes", "manage_call_cycles", "manage_channel_map", "manage_regions", "manage_repsly", "view_dashboard", "view_map", "view_routes", "upload_stores", "upload_data", "export_data"],
   },
   {
     role: "admin",
     label: "Admin",
     description: "Manage reps, stores, channels, and view reports",
-    permissions: ["manage_teams", "manage_reps", "manage_stores", "manage_store_overrides", "manage_channels", "manage_routes", "manage_call_cycles", "manage_channel_map", "manage_zones", "manage_regions", "manage_repsly", "view_dashboard", "view_map", "view_routes", "upload_stores", "upload_data", "export_data"],
+    permissions: ["manage_teams", "manage_reps", "manage_stores", "manage_store_overrides", "manage_channels", "manage_routes", "manage_call_cycles", "manage_channel_map", "manage_regions", "manage_repsly", "view_dashboard", "view_map", "view_routes", "upload_stores", "upload_data", "export_data"],
   },
   {
     role: "teamManager",
@@ -188,7 +180,6 @@ export const ALL_PERMISSIONS = [
   { key: "manage_routes", label: "Manage Routes" },
   { key: "manage_call_cycles", label: "Manage Call Cycles" },
   { key: "manage_channel_map", label: "Manage Channel Map" },
-  { key: "manage_zones", label: "Manage Zones" },
   { key: "manage_regions", label: "Manage Regions" },
   { key: "manage_repsly", label: "Manage Repsly API" },
   { key: "view_dashboard", label: "View Dashboard" },

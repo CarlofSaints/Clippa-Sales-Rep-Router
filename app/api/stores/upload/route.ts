@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStores, saveStores, getChannels, saveChannels, getReps, saveReps, getZones } from "@/lib/data";
+import { getStores, saveStores, getChannels, saveChannels, getReps, saveReps } from "@/lib/data";
 import { Store, Channel, Rep } from "@/lib/types";
 import { getSession } from "@/lib/auth";
 import { logActivity } from "@/lib/activityLog";
@@ -20,8 +20,6 @@ export async function POST(request: NextRequest) {
     const existingChannels = await getChannels();
     const existingReps = await getReps();
     const existingStores = await getStores();
-    const existingZones = await getZones();
-    const zoneMap = new Map(existingZones.map((z) => [z.name.toLowerCase(), z]));
     const channelMap = new Map(existingChannels.map((c) => [c.name, c]));
     const repMap = new Map(existingReps.map((r) => [r.code, r]));
 
@@ -56,7 +54,7 @@ export async function POST(request: NextRequest) {
     for (const row of rows) {
       let placeId: string, storeName: string, repCode: string, repName: string;
       let channelName: string, lat: string, lng: string, region: string;
-      let rawSales: string, zoneName: string;
+      let rawSales: string;
 
       if (hasRepslyFormat) {
         // Repsly Places export format
@@ -68,7 +66,6 @@ export async function POST(request: NextRequest) {
         lng = col(row, "Gps longitude");
         region = col(row, "State", "Territory");
         rawSales = "";
-        zoneName = col(row, "Territory");
         // Channel from Tags: "INDEPENDENT','GAUTENG" → first tag = channel
         const tags = col(row, "Tags");
         const tagParts = tags.split(/[',]+/).map((t) => t.trim()).filter(Boolean);
@@ -83,7 +80,6 @@ export async function POST(request: NextRequest) {
         lat = col(row, "GPS LATITUDE", "Gps latitude", "Gps Latitude", "GPS_LATITUDE", "Latitude");
         lng = col(row, "GPS LONGITUDE", "Gps longitude", "Gps Longitude", "GPS_LONGITUDE", "Longitude");
         rawSales = col(row, "MONTHLY AVERAGE", "VALUE", "Value", "Monthly Average", "Sales");
-        zoneName = col(row, "ZONE", "Zone");
         region = col(row, "REGION", "Region", "PROVINCE", "Province", "AREA", "Area");
       }
 
@@ -119,7 +115,6 @@ export async function POST(request: NextRequest) {
       }
 
       const channelId = channelMap.get(channelName)?.id || "";
-      const zoneId = zoneName ? (zoneMap.get(zoneName.toLowerCase())?.id || "") : "";
 
       if (storeMap.has(placeId)) {
         // Update existing store
@@ -130,7 +125,6 @@ export async function POST(request: NextRequest) {
         existing.gpsLat = lat;
         existing.gpsLng = lng;
         existing.monthlySales = sales;
-        if (zoneId) existing.zoneId = zoneId;
         if (region) existing.region = region;
         updatedCount++;
       } else {
@@ -148,7 +142,6 @@ export async function POST(request: NextRequest) {
           duration: 30,
           dayOfWeek: "",
           weekNumber: "",
-          ...(zoneId ? { zoneId } : {}),
           ...(region ? { region } : {}),
         });
         newCount++;
