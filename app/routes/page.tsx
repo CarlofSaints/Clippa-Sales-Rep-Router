@@ -462,13 +462,14 @@ export default function RoutesPage() {
             </p>
           )}
           <ul className="text-xs text-amber-700 space-y-1.5">
-            {currentPlan.stats.unassignedStores.map((s) => {
+            {currentPlan.stats.unassignedStores.map((s, i) => {
               const isGps = s.reason.toLowerCase().includes("gps");
               const isRange = s.reason.toLowerCase().includes("out of range");
               const fixed = gpsFixed.has(s.storeId);
               const confirmed = rangeConfirmed.has(s.storeId);
               return (
                 <li key={s.storeId} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="text-amber-500 font-mono w-6 flex-shrink-0 text-right">{i + 1}.</span>
                   <span className="font-medium">{currentPlan.repName}</span>
                   <span>—</span>
                   <span>{s.storeName}</span>
