@@ -92,12 +92,26 @@ export default function RepsPage() {
           <h1 className="text-xl font-bold text-gray-900">Sales Reps</h1>
           <p className="text-sm text-gray-500">{reps.length} reps</p>
         </div>
-        <button
-          onClick={() => setShowAdd(true)}
-          className="bg-clippa-red text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-700 transition-colors"
-        >
-          + Add Rep
-        </button>
+        <div className="flex items-center gap-2">
+          <a
+            href="/api/reps/export?format=xlsx"
+            className="px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            Export Excel
+          </a>
+          <a
+            href="/api/reps/export?format=csv"
+            className="px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            Export CSV
+          </a>
+          <button
+            onClick={() => setShowAdd(true)}
+            className="bg-clippa-red text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-700 transition-colors"
+          >
+            + Add Rep
+          </button>
+        </div>
       </div>
 
       {/* Add Rep Form */}
