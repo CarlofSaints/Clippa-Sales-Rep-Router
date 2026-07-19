@@ -26,19 +26,24 @@ export async function generateRepRoute(
   startTime: string = DEFAULT_START_TIME,
   googleDeadline?: number
 ): Promise<RepRoutePlan> {
-  const homeLat = parseFloat(rep.homeGpsLat);
-  const homeLng = parseFloat(rep.homeGpsLng);
-  const hasHome = !isNaN(homeLat) && !isNaN(homeLng);
-  // If the rep has no home GPS loaded, default the start/end point to the
-  // centroid of their allocated stores so routes still generate (and Google
+  // Separate stores we can actually route (valid GPS) from those with missing
+  // or corrupted coordinates. Bad coords (e.g. a lat of -260896520 from a lost
+  // decimal point, or a (0,0) placeholder) would otherwise produce astronomical
+  // distances and poison both the centroid anchor and every travel estimate.
+  const routable: Store[] = [];
+  const noGps: Store[] = [];
+  for (const s of stores) {
+    (parseLatLng(s.gpsLat, s.gpsLng) ? routable : noGps).push(s);
+  }
+
+  // If the rep has no valid home GPS loaded, default the start/end point to the
+  // centroid of their routable stores so routes still generate (and Google
   // optimisation still runs) from a sensible anchor in the middle of their patch.
-  const home = hasHome
-    ? { lat: homeLat, lng: homeLng }
-    : storeCentroid(stores);
+  const home = parseLatLng(rep.homeGpsLat, rep.homeGpsLng) ?? storeCentroid(routable);
   const workingMinutes = (rep.workingHoursPerDay ?? DEFAULT_WORKING_HOURS) * 60;
 
   // Step 1: Distribute stores across weeks based on frequency
-  const weekAssignments = distributeToWeeks(stores);
+  const weekAssignments = distributeToWeeks(routable);
 
   // Step 2: For each week, cluster stores into 5 day-groups
   const dayPlans: RouteDayPlan[] = [];
@@ -91,6 +96,12 @@ export async function generateRepRoute(
     workingMinutes
   );
 
+  const noGpsUnassigned = noGps.map((s) => ({
+    storeId: s.id,
+    storeName: s.name,
+    reason: "Missing or invalid GPS coordinates",
+  }));
+
   return {
     repCode: rep.code,
     repName: rep.name,
@@ -100,7 +111,7 @@ export async function generateRepRoute(
     days: dayPlans,
     stats: {
       totalStores: stores.length,
-      unassignedStores: stillUnassigned,
+      unassignedStores: [...noGpsUnassigned, ...stillUnassigned],
     },
   };
 }
@@ -596,11 +607,28 @@ async function rebalanceOverflow(
 // Helpers
 // ──────────────────────────────────────────────
 
+/**
+ * Parse and validate a lat/lng pair. Returns null for missing, non-numeric,
+ * out-of-range, or null-island (0,0) coordinates so corrupted rows can't be
+ * routed or distance-measured.
+ */
+export function parseLatLng(
+  latStr: string | undefined,
+  lngStr: string | undefined
+): { lat: number; lng: number } | null {
+  const lat = parseFloat(latStr ?? "");
+  const lng = parseFloat(lngStr ?? "");
+  if (isNaN(lat) || isNaN(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  if (Math.abs(lat) < 0.01 && Math.abs(lng) < 0.01) return null; // (0,0) placeholder
+  return { lat, lng };
+}
+
 /** Average lat/lng of all stores with valid GPS — a fallback "home" anchor. */
 function storeCentroid(stores: Store[]): { lat: number; lng: number } | null {
   const pts = stores
-    .map((s) => ({ lat: parseFloat(s.gpsLat), lng: parseFloat(s.gpsLng) }))
-    .filter((p) => !isNaN(p.lat) && !isNaN(p.lng));
+    .map((s) => parseLatLng(s.gpsLat, s.gpsLng))
+    .filter((p): p is { lat: number; lng: number } => p !== null);
   if (pts.length === 0) return null;
   return {
     lat: pts.reduce((sum, p) => sum + p.lat, 0) / pts.length,
