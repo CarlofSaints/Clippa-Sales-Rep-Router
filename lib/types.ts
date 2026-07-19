@@ -67,6 +67,7 @@ export interface Store {
   duration: number; // minutes
   dayOfWeek: string;
   weekNumber: string;
+  rangeConfirmed?: boolean; // manager confirmed this store is in the rep's cycle despite being far from their area
   region?: string; // user-defined region
   province?: string; // auto-populated from GPS via Google Geocoding
 }

@@ -24,16 +24,35 @@ export async function generateRepRoute(
   rep: Rep,
   stores: Store[],
   startTime: string = DEFAULT_START_TIME,
-  googleDeadline?: number
+  googleDeadline?: number,
+  outlierRadiusKm?: number
 ): Promise<RepRoutePlan> {
   // Separate stores we can actually route (valid GPS) from those with missing
   // or corrupted coordinates. Bad coords (e.g. a lat of -260896520 from a lost
   // decimal point, or a (0,0) placeholder) would otherwise produce astronomical
   // distances and poison both the centroid anchor and every travel estimate.
-  const routable: Store[] = [];
+  const withGps: Store[] = [];
   const noGps: Store[] = [];
   for (const s of stores) {
-    (parseLatLng(s.gpsLat, s.gpsLng) ? routable : noGps).push(s);
+    (parseLatLng(s.gpsLat, s.gpsLng) ? withGps : noGps).push(s);
+  }
+
+  // Hold out stores that are far outside the rep's working area (likely an
+  // allocation error) until a manager confirms they belong in the cycle. A
+  // store flagged `rangeConfirmed` is always kept regardless of distance.
+  const routable: Store[] = [];
+  const outOfRange: { store: Store; distanceKm: number }[] = [];
+  const center = outlierRadiusKm ? medianCenter(withGps) : null;
+  for (const s of withGps) {
+    if (center && !s.rangeConfirmed) {
+      const p = parseLatLng(s.gpsLat, s.gpsLng)!;
+      const d = haversineKm(center.lat, center.lng, p.lat, p.lng);
+      if (d > outlierRadiusKm!) {
+        outOfRange.push({ store: s, distanceKm: Math.round(d) });
+        continue;
+      }
+    }
+    routable.push(s);
   }
 
   // If the rep has no valid home GPS loaded, default the start/end point to the
@@ -102,6 +121,12 @@ export async function generateRepRoute(
     reason: "Missing or invalid GPS coordinates",
   }));
 
+  const outOfRangeUnassigned = outOfRange.map(({ store, distanceKm }) => ({
+    storeId: store.id,
+    storeName: store.name,
+    reason: `Out of range (${distanceKm} km from rep's area) — confirm to include`,
+  }));
+
   return {
     repCode: rep.code,
     repName: rep.name,
@@ -111,7 +136,7 @@ export async function generateRepRoute(
     days: dayPlans,
     stats: {
       totalStores: stores.length,
-      unassignedStores: [...noGpsUnassigned, ...stillUnassigned],
+      unassignedStores: [...noGpsUnassigned, ...outOfRangeUnassigned, ...stillUnassigned],
     },
   };
 }
@@ -622,6 +647,24 @@ export function parseLatLng(
   if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
   if (Math.abs(lat) < 0.01 && Math.abs(lng) < 0.01) return null; // (0,0) placeholder
   return { lat, lng };
+}
+
+/**
+ * Component-wise median lat/lng of stores with valid GPS — a robust centre of a
+ * rep's working area that isn't dragged toward a few far-flung outliers (unlike
+ * the mean). Used for out-of-range detection.
+ */
+export function medianCenter(stores: Store[]): { lat: number; lng: number } | null {
+  const pts = stores
+    .map((s) => parseLatLng(s.gpsLat, s.gpsLng))
+    .filter((p): p is { lat: number; lng: number } => p !== null);
+  if (pts.length === 0) return null;
+  const med = (nums: number[]) => {
+    const sorted = [...nums].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  };
+  return { lat: med(pts.map((p) => p.lat)), lng: med(pts.map((p) => p.lng)) };
 }
 
 /** Average lat/lng of all stores with valid GPS — a fallback "home" anchor. */

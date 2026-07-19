@@ -62,6 +62,23 @@ export async function saveChannels(channels: Channel[]): Promise<void> {
   await writeJSON("channels", channels);
 }
 
+// ---------- App Settings ----------
+
+export interface AppSettings {
+  outlierRadiusKm: number; // stores beyond this distance from a rep's area are flagged out-of-range
+}
+
+const DEFAULT_SETTINGS: AppSettings = { outlierRadiusKm: 150 };
+
+export async function getSettings(): Promise<AppSettings> {
+  const saved = await readJSON<Partial<AppSettings> | null>("settings", null);
+  return { ...DEFAULT_SETTINGS, ...(saved || {}) };
+}
+
+export async function saveSettings(settings: AppSettings): Promise<void> {
+  await writeJSON("settings", settings);
+}
+
 // ---------- Reps ----------
 
 export async function getReps(): Promise<Rep[]> {

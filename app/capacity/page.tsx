@@ -31,6 +31,21 @@ interface CapacityResponse {
   reps: RepCapacity[];
 }
 
+interface OutlierStore {
+  repCode: string;
+  repName: string;
+  storeId: string;
+  storeName: string;
+  channel: string;
+  distanceKm: number;
+}
+
+interface OutlierResponse {
+  radiusKm: number;
+  perRep: Record<string, number>;
+  stores: OutlierStore[];
+}
+
 function utilBand(r: RepCapacity): { label: string; bar: string; text: string; bg: string } {
   if (!r.hasRoute) return { label: "No route", bar: "bg-gray-300", text: "text-gray-400", bg: "bg-gray-50" };
   if (r.utilization > 1) return { label: "Over capacity", bar: "bg-red-500", text: "text-red-700", bg: "bg-red-50" };
@@ -44,21 +59,65 @@ export default function CapacityPage() {
   const [data, setData] = useState<CapacityResponse | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
+  const [outliers, setOutliers] = useState<OutlierResponse | null>(null);
+  const [radiusInput, setRadiusInput] = useState("150");
+  const [savingRadius, setSavingRadius] = useState(false);
+  const [confirming, setConfirming] = useState<string | null>(null);
 
   const isAdmin = session?.role === "superAdmin" || session?.role === "admin";
   const isTeamManager = session?.role === "teamManager";
   const isRep = session?.role === "rep";
 
+  const loadOutliers = () =>
+    fetch("/api/reps/outliers")
+      .then((r) => r.json())
+      .catch(() => null)
+      .then((o) => {
+        if (o && "stores" in o) {
+          setOutliers(o);
+          setRadiusInput(String(o.radiusKm));
+        }
+      });
+
   useEffect(() => {
     Promise.all([
       fetch("/api/reps/capacity").then((r) => r.json()).catch(() => null),
       fetch("/api/teams").then((r) => r.json()).catch(() => []),
-    ]).then(([cap, tm]) => {
+      fetch("/api/reps/outliers").then((r) => r.json()).catch(() => null),
+    ]).then(([cap, tm, out]) => {
       setData(cap && "reps" in cap ? cap : null);
       setTeams(Array.isArray(tm) ? tm : []);
+      if (out && "stores" in out) {
+        setOutliers(out);
+        setRadiusInput(String(out.radiusKm));
+      }
       setLoading(false);
     });
   }, []);
+
+  const applyRadius = async () => {
+    const km = Number(radiusInput);
+    if (isNaN(km) || km <= 0) return;
+    setSavingRadius(true);
+    await fetch("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ outlierRadiusKm: km }),
+    }).catch(() => {});
+    await loadOutliers();
+    setSavingRadius(false);
+  };
+
+  const confirmInCycle = async (storeId: string) => {
+    setConfirming(storeId);
+    await fetch("/api/stores", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: storeId, rangeConfirmed: true }),
+    }).catch(() => {});
+    await loadOutliers();
+    setConfirming(null);
+  };
 
   const teamName = useMemo(() => {
     const m = new Map(teams.map((t) => [t.id, t.name || t.managerName || "—"]));
@@ -72,6 +131,14 @@ export default function CapacityPage() {
     if (isTeamManager && session?.teamId) return all.filter((r) => r.teamId === session.teamId);
     return all;
   }, [data, isRep, isTeamManager, session?.repCode, session?.teamId]);
+
+  // Outlier stores scoped to the reps this user can see
+  const visibleRepCodes = useMemo(() => new Set(reps.map((r) => r.repCode)), [reps]);
+  const scopedOutliers = useMemo(
+    () => (outliers?.stores ?? []).filter((o) => visibleRepCodes.has(o.repCode)),
+    [outliers, visibleRepCodes]
+  );
+  const outlierCount = (repCode: string) => outliers?.perRep?.[repCode] ?? 0;
 
   const sorted = useMemo(
     () => [...reps].sort((a, b) => b.utilization - a.utilization),
@@ -216,6 +283,7 @@ export default function CapacityPage() {
                 <th className="px-4 py-3 text-right">Hrs used / avail</th>
                 <th className="px-4 py-3 w-48">Utilisation</th>
                 <th className="px-4 py-3 text-right">Spare (h)</th>
+                <th className="px-4 py-3 text-right">Out of range</th>
                 <th className="px-4 py-3">Flags</th>
               </tr>
             </thead>
@@ -260,6 +328,15 @@ export default function CapacityPage() {
                     <td className={`px-4 py-3 text-right ${r.hasRoute && r.spareHours < 0 ? "text-red-600" : "text-gray-700"}`}>
                       {r.hasRoute ? r.spareHours.toFixed(1) : <span className="text-gray-300">—</span>}
                     </td>
+                    <td className="px-4 py-3 text-right">
+                      {outlierCount(r.repCode) > 0 ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-orange-50 text-orange-700">
+                          {outlierCount(r.repCode)}
+                        </span>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
                         {r.overCapacityDays > 0 && (
@@ -284,8 +361,90 @@ export default function CapacityPage() {
               })}
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={isAdmin ? 8 : 7} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={isAdmin ? 9 : 8} className="px-4 py-8 text-center text-gray-400">
                     No reps to show.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Out-of-range stores */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 mt-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-b border-gray-100">
+          <div>
+            <h2 className="font-semibold text-gray-900">Out-of-range stores</h2>
+            <p className="text-xs text-gray-500">
+              Stores more than the range below from their rep&apos;s working area. These are <span className="font-medium">held out of routing</span> until confirmed as genuinely part of the rep&apos;s cycle — confirm, then regenerate routes to schedule them.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <label className="text-xs text-gray-500">Range bracket</label>
+            <input
+              type="number"
+              min={1}
+              value={radiusInput}
+              onChange={(e) => setRadiusInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") applyRadius(); }}
+              className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-1 focus:ring-clippa-red"
+            />
+            <span className="text-xs text-gray-500">km</span>
+            <button
+              onClick={applyRadius}
+              disabled={savingRadius}
+              className="px-3 py-1.5 bg-clippa-red text-white text-xs font-medium rounded-lg hover:bg-red-700 disabled:opacity-50"
+            >
+              {savingRadius ? "Applying..." : "Apply"}
+            </button>
+            {scopedOutliers.length > 0 && (
+              <a
+                href={`/api/reps/outliers/export`}
+                className="px-3 py-1.5 border border-gray-300 text-gray-700 text-xs font-medium rounded-lg hover:bg-gray-50 flex items-center gap-1.5"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Export
+              </a>
+            )}
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3">Rep</th>
+                <th className="px-4 py-3">Store</th>
+                <th className="px-4 py-3">Channel</th>
+                <th className="px-4 py-3 text-right">Distance from area</th>
+                <th className="px-4 py-3 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {scopedOutliers.map((o) => (
+                <tr key={`${o.repCode}-${o.storeId}`} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 text-gray-700">{o.repName}</td>
+                  <td className="px-4 py-3 font-medium text-gray-900">{o.storeName}</td>
+                  <td className="px-4 py-3 text-gray-600">{o.channel}</td>
+                  <td className="px-4 py-3 text-right font-semibold text-orange-700">{o.distanceKm.toLocaleString()} km</td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      onClick={() => confirmInCycle(o.storeId)}
+                      disabled={confirming === o.storeId}
+                      className="px-3 py-1 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700 disabled:opacity-50"
+                      title="Confirm this store really is in the rep's cycle — it will be routed on the next generation"
+                    >
+                      {confirming === o.storeId ? "Confirming..." : "Confirm in cycle"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {scopedOutliers.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
+                    No out-of-range stores at {outliers?.radiusKm ?? radiusInput} km.
                   </td>
                 </tr>
               )}

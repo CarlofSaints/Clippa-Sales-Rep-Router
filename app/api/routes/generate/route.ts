@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getReps, getStores, saveRoutes, saveRoutesForType, getCallCycleTypes } from "@/lib/data";
+import { getReps, getStores, saveRoutes, saveRoutesForType, getCallCycleTypes, getSettings } from "@/lib/data";
 import { RoutePlanDocument, RepRoutePlan, Store, Rep } from "@/lib/types";
 import { generateRepRoute } from "@/lib/route-engine";
 import { hasGoogleMapsKey } from "@/lib/google-maps";
@@ -32,11 +32,13 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const repCodes: string[] | undefined = body.repCodes;
 
-    const [allReps, allStores, callCycleTypes] = await Promise.all([
+    const [allReps, allStores, callCycleTypes, settings] = await Promise.all([
       getReps(),
       getStores(),
       getCallCycleTypes(),
+      getSettings(),
     ]);
+    const outlierRadiusKm = settings.outlierRadiusKm;
 
     // Determine strategy: prefer explicit typeId from request, fall back to globally active type
     const resolvedType = body.typeId
@@ -82,7 +84,7 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const plan = await generateRepRoute(rep, repStores, startTime, googleDeadline);
+      const plan = await generateRepRoute(rep, repStores, startTime, googleDeadline, outlierRadiusKm);
       repPlans.push(plan);
     }
 
