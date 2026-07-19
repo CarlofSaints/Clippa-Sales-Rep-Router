@@ -16,6 +16,9 @@ export default function ChannelsPage() {
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState<{ text: string; type: "success" | "error" } | null>(null);
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = () => {
@@ -75,6 +78,56 @@ export default function ChannelsPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
     });
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    load();
+  };
+
+  const filtered = channels.filter((ch) =>
+    ch.name.toLowerCase().includes(search.trim().toLowerCase())
+  );
+
+  const allVisibleSelected =
+    filtered.length > 0 && filtered.every((ch) => selected.has(ch.id));
+
+  const toggleOne = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllVisible = () => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        filtered.forEach((ch) => next.delete(ch.id));
+      } else {
+        filtered.forEach((ch) => next.add(ch.id));
+      }
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelected(new Set());
+
+  const deleteSelected = async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    if (!confirm(`Delete ${ids.length} channel${ids.length > 1 ? "s" : ""}? This cannot be undone.`)) return;
+    setBulkDeleting(true);
+    await fetch("/api/channels", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
+    setSelected(new Set());
+    setBulkDeleting(false);
     load();
   };
 
@@ -121,7 +174,10 @@ export default function ChannelsPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Channels</h1>
-          <p className="text-sm text-gray-500">{channels.length} channels configured</p>
+          <p className="text-sm text-gray-500">
+            {channels.length} channels configured
+            {search.trim() && ` · ${filtered.length} match${filtered.length === 1 ? "" : "es"}`}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <a
@@ -226,11 +282,66 @@ export default function ChannelsPage() {
         </div>
       )}
 
+      {/* Search + bulk actions */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
+        <div className="relative flex-1 max-w-sm">
+          <svg className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
+          </svg>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search channels..."
+            className="w-full border border-gray-200 rounded-lg pl-9 pr-8 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none"
+              aria-label="Clear search"
+            >
+              ×
+            </button>
+          )}
+        </div>
+
+        {selected.size > 0 && (
+          <div className="flex items-center gap-3 sm:ml-auto bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+            <span className="text-sm text-gray-600">{selected.size} selected</span>
+            <button
+              onClick={deleteSelected}
+              disabled={bulkDeleting}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-clippa-red text-white text-xs font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              {bulkDeleting ? "Deleting..." : `Delete selected`}
+            </button>
+            <button
+              onClick={clearSelection}
+              className="text-gray-400 hover:text-gray-600 text-xs font-medium"
+            >
+              Clear
+            </button>
+          </div>
+        )}
+      </div>
+
       <div className="bg-white rounded-xl shadow-sm border border-gray-100">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 w-8">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleAllVisible}
+                    className="w-4 h-4 rounded border-gray-300 text-clippa-red focus:ring-clippa-red cursor-pointer align-middle"
+                    aria-label="Select all"
+                  />
+                </th>
                 <th className="px-6 py-3 w-8">#</th>
                 <th className="px-6 py-3">Channel Name</th>
                 <th className="px-6 py-3">Default Frequency</th>
@@ -239,8 +350,17 @@ export default function ChannelsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {channels.map((ch, i) => (
-                <tr key={ch.id} className="hover:bg-gray-50">
+              {filtered.map((ch, i) => (
+                <tr key={ch.id} className={`hover:bg-gray-50 ${selected.has(ch.id) ? "bg-red-50/40" : ""}`}>
+                  <td className="px-6 py-3">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(ch.id)}
+                      onChange={() => toggleOne(ch.id)}
+                      className="w-4 h-4 rounded border-gray-300 text-clippa-red focus:ring-clippa-red cursor-pointer align-middle"
+                      aria-label={`Select ${ch.name}`}
+                    />
+                  </td>
                   <td className="px-6 py-3 text-gray-400">{i + 1}</td>
 
                   {editing === ch.id ? (
@@ -316,10 +436,12 @@ export default function ChannelsPage() {
                   )}
                 </tr>
               ))}
-              {channels.length === 0 && (
+              {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-gray-400">
-                    No channels configured. Click &quot;Add Channel&quot; to create one.
+                  <td colSpan={6} className="px-6 py-8 text-center text-gray-400">
+                    {channels.length === 0
+                      ? 'No channels configured. Click "Add Channel" to create one.'
+                      : `No channels match "${search}".`}
                   </td>
                 </tr>
               )}

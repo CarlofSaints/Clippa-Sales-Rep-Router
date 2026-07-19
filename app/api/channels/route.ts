@@ -61,16 +61,30 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const { id } = await request.json();
+    const body = await request.json();
+    const ids: string[] = Array.isArray(body.ids)
+      ? body.ids
+      : body.id != null
+      ? [body.id]
+      : [];
+    if (ids.length === 0) {
+      return NextResponse.json({ error: "No channel id(s) provided" }, { status: 400 });
+    }
+
+    const idSet = new Set(ids);
     const channels = await getChannels();
-    const target = channels.find((c) => c.id === id);
-    const filtered = channels.filter((c) => c.id !== id);
+    const targets = channels.filter((c) => idSet.has(c.id));
+    const filtered = channels.filter((c) => !idSet.has(c.id));
     await saveChannels(filtered);
 
     const session = await getSession();
-    logActivity({ action: "Deleted channel", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Deleted channel ${target?.name || id}` });
+    const summary =
+      targets.length === 1
+        ? `Deleted channel ${targets[0].name}`
+        : `Deleted ${targets.length} channels: ${targets.map((c) => c.name).join(", ")}`;
+    logActivity({ action: "Deleted channel", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary });
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, deleted: targets.length });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }
