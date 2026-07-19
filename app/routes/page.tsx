@@ -35,6 +35,8 @@ export default function RoutesPage() {
   const [gpsEdits, setGpsEdits] = useState<Record<string, { lat: string; lng: string }>>({});
   const [gpsSaving, setGpsSaving] = useState<string | null>(null);
   const [gpsFixed, setGpsFixed] = useState<Set<string>>(new Set());
+  const [confirmingRange, setConfirmingRange] = useState<string | null>(null);
+  const [rangeConfirmed, setRangeConfirmed] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState("");
@@ -245,6 +247,23 @@ export default function RoutesPage() {
     }
   };
 
+  const confirmInCycle = async (storeId: string) => {
+    setConfirmingRange(storeId);
+    try {
+      const res = await fetch("/api/stores", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: storeId, rangeConfirmed: true }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setRangeConfirmed((prev) => new Set(prev).add(storeId));
+    } catch (err) {
+      setError(`Failed to confirm store: ${String(err)}`);
+    } finally {
+      setConfirmingRange(null);
+    }
+  };
+
   // Capacity color
   const capacityColor = (plan: RouteDayPlan | undefined, workingHours: number) => {
     if (!plan || plan.stops.length === 0) return "bg-gray-50 text-gray-400";
@@ -445,7 +464,9 @@ export default function RoutesPage() {
           <ul className="text-xs text-amber-700 space-y-1.5">
             {currentPlan.stats.unassignedStores.map((s) => {
               const isGps = s.reason.toLowerCase().includes("gps");
+              const isRange = s.reason.toLowerCase().includes("out of range");
               const fixed = gpsFixed.has(s.storeId);
+              const confirmed = rangeConfirmed.has(s.storeId);
               return (
                 <li key={s.storeId} className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <span className="font-medium">{currentPlan.repName}</span>
@@ -477,7 +498,24 @@ export default function RoutesPage() {
                   {isGps && fixed && (
                     <span className="text-green-700 font-medium ml-1">✓ GPS saved — regenerate routes to schedule</span>
                   )}
-                  {!isGps && <span>— {s.reason}</span>}
+                  {isRange && (
+                    <>
+                      <span>— {s.reason}</span>
+                      {confirmed ? (
+                        <span className="text-green-700 font-medium ml-1">✓ Confirmed — regenerate to schedule</span>
+                      ) : (
+                        <button
+                          onClick={() => confirmInCycle(s.storeId)}
+                          disabled={confirmingRange === s.storeId}
+                          className="px-2 py-0.5 bg-green-600 text-white rounded text-xs font-medium hover:bg-green-700 disabled:opacity-50 ml-1"
+                          title="Confirm this store really is in the rep's cycle"
+                        >
+                          {confirmingRange === s.storeId ? "Confirming..." : "Confirm in cycle"}
+                        </button>
+                      )}
+                    </>
+                  )}
+                  {!isGps && !isRange && <span>— {s.reason}</span>}
                 </li>
               );
             })}
