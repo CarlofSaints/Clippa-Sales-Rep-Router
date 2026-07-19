@@ -108,13 +108,17 @@ export default function CapacityPage() {
     setSavingRadius(false);
   };
 
-  const confirmInCycle = async (storeId: string) => {
-    setConfirming(storeId);
-    await fetch("/api/stores", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: storeId, rangeConfirmed: true }),
-    }).catch(() => {});
+  const confirmInCycle = async (storeIds: string[]) => {
+    if (storeIds.length === 0) return;
+    setConfirming(storeIds[0]);
+    // Same physical store can have several duplicate records — confirm them all.
+    for (const id of storeIds) {
+      await fetch("/api/stores", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, rangeConfirmed: true }),
+      }).catch(() => {});
+    }
     await loadOutliers();
     setConfirming(null);
   };
@@ -138,6 +142,23 @@ export default function CapacityPage() {
     () => (outliers?.stores ?? []).filter((o) => visibleRepCodes.has(o.repCode)),
     [outliers, visibleRepCodes]
   );
+
+  // Collapse duplicate store records (same store name + rep) into one row so a
+  // store surfaces once, regardless of how many duplicate records exist.
+  const groupedOutliers = useMemo(() => {
+    const map = new Map<
+      string,
+      { repName: string; storeName: string; channel: string; distanceKm: number; storeIds: string[] }
+    >();
+    for (const o of scopedOutliers) {
+      const key = `${o.repCode}||${o.storeName.trim().toUpperCase()}`;
+      const g = map.get(key);
+      if (g) g.storeIds.push(o.storeId);
+      else map.set(key, { repName: o.repName, storeName: o.storeName, channel: o.channel, distanceKm: o.distanceKm, storeIds: [o.storeId] });
+    }
+    return [...map.values()].sort((a, b) => b.distanceKm - a.distanceKm);
+  }, [scopedOutliers]);
+
   const outlierCount = (repCode: string) => outliers?.perRep?.[repCode] ?? 0;
 
   const sorted = useMemo(
@@ -398,7 +419,7 @@ export default function CapacityPage() {
             >
               {savingRadius ? "Applying..." : "Apply"}
             </button>
-            {scopedOutliers.length > 0 && (
+            {groupedOutliers.length > 0 && (
               <a
                 href={`/api/reps/outliers/export`}
                 className="px-3 py-1.5 border border-gray-300 text-gray-700 text-xs font-medium rounded-lg hover:bg-gray-50 flex items-center gap-1.5"
@@ -423,25 +444,32 @@ export default function CapacityPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {scopedOutliers.map((o) => (
-                <tr key={`${o.repCode}-${o.storeId}`} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-gray-700">{o.repName}</td>
-                  <td className="px-4 py-3 font-medium text-gray-900">{o.storeName}</td>
-                  <td className="px-4 py-3 text-gray-600">{o.channel}</td>
-                  <td className="px-4 py-3 text-right font-semibold text-orange-700">{o.distanceKm.toLocaleString()} km</td>
+              {groupedOutliers.map((g) => (
+                <tr key={g.storeIds[0]} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 text-gray-700">{g.repName}</td>
+                  <td className="px-4 py-3 font-medium text-gray-900">
+                    {g.storeName}
+                    {g.storeIds.length > 1 && (
+                      <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500" title={`${g.storeIds.length} duplicate records for this store`}>
+                        ×{g.storeIds.length} records
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-gray-600">{g.channel}</td>
+                  <td className="px-4 py-3 text-right font-semibold text-orange-700">{g.distanceKm.toLocaleString()} km</td>
                   <td className="px-4 py-3 text-right">
                     <button
-                      onClick={() => confirmInCycle(o.storeId)}
-                      disabled={confirming === o.storeId}
+                      onClick={() => confirmInCycle(g.storeIds)}
+                      disabled={confirming === g.storeIds[0]}
                       className="px-3 py-1 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700 disabled:opacity-50"
                       title="Confirm this store really is in the rep's cycle — it will be routed on the next generation"
                     >
-                      {confirming === o.storeId ? "Confirming..." : "Confirm in cycle"}
+                      {confirming === g.storeIds[0] ? "Confirming..." : "Confirm in cycle"}
                     </button>
                   </td>
                 </tr>
               ))}
-              {scopedOutliers.length === 0 && (
+              {groupedOutliers.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
                     No out-of-range stores at {outliers?.radiusKm ?? radiusInput} km.
