@@ -1,7 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
-import { validateCredentials, encodeSession } from "@/lib/auth";
-import { getReps, getTeams, getUsers } from "@/lib/data";
+import { validateCredentials, encodeSession, getSession, SESSION_COOKIE, SESSION_COOKIE_OPTIONS } from "@/lib/auth";
+import { getReps, getTeams, getUsers, getRolePermissions } from "@/lib/data";
 import { logActivity } from "@/lib/activityLog";
+
+export const dynamic = "force-dynamic";
+
+/**
+ * The current session as the SERVER sees it, with the live role and the
+ * permission list for that role. The client used to decode the cookie itself,
+ * so a promoted user kept their old role in the UI until the cookie expired.
+ */
+export async function GET() {
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ session: null, permissions: [] }, { headers: { "Cache-Control": "no-store" } });
+  }
+  const perms = await getRolePermissions();
+  const permissions = perms.find((p) => p.role === session.role)?.permissions ?? [];
+  return NextResponse.json({ session, permissions }, { headers: { "Cache-Control": "no-store" } });
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -28,15 +45,9 @@ export async function POST(request: NextRequest) {
 
     logActivity({ action: "User logged in", actor: session.email, actorName: session.name, summary: `${session.name} logged in` });
 
-    const token = encodeSession(session);
+    const token = await encodeSession(session);
     const response = NextResponse.json({ ok: true, user: session });
-    response.cookies.set("clippa_session", token, {
-      httpOnly: false,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 30, // 30 days
-    });
+    response.cookies.set(SESSION_COOKIE, token, SESSION_COOKIE_OPTIONS);
     return response;
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
@@ -45,10 +56,6 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE() {
   const response = NextResponse.json({ ok: true });
-  response.cookies.set("clippa_session", "", {
-    httpOnly: false,
-    path: "/",
-    maxAge: 0,
-  });
+  response.cookies.set(SESSION_COOKIE, "", SESSION_COOKIE_OPTIONS);
   return response;
 }

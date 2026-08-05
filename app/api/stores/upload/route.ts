@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStores, saveStores, getChannels, saveChannels, getReps, saveReps } from "@/lib/data";
+import { getStores, saveStores, getChannels, saveChannels, getReps, saveReps, getStoreOverrides } from "@/lib/data";
+import { overriddenStoreIds } from "@/lib/channelDefaults";
 import { Store, Channel, Rep } from "@/lib/types";
 import { getSession } from "@/lib/auth";
 import { logActivity } from "@/lib/activityLog";
@@ -25,6 +26,7 @@ export async function POST(request: NextRequest) {
 
     // Index existing stores by placeId for merge
     const storeMap = new Map(existingStores.map((s) => [s.placeId, s]));
+    const pinnedStoreIds = overriddenStoreIds(await getStoreOverrides());
     let newCount = 0;
     let updatedCount = 0;
 
@@ -114,13 +116,28 @@ export async function POST(request: NextRequest) {
         repMap.set(repCode, r);
       }
 
-      const channelId = channelMap.get(channelName)?.id || "";
+      const channel = channelMap.get(channelName);
+      const channelId = channel?.id || "";
 
       if (storeMap.has(placeId)) {
         // Update existing store
         const existing = storeMap.get(placeId)!;
+
+        // A store that moves to a different channel takes that channel's
+
+        // defaults with it, unless a manager has pinned it with an override.
+
+        const movedChannel = existing.channelId !== channelId;
         existing.name = storeName;
         existing.channelId = channelId;
+
+        if (movedChannel && channel && !pinnedStoreIds.has(existing.id)) {
+
+          existing.frequency = channel.frequency;
+
+          existing.duration = channel.duration;
+
+        }
         existing.repCode = repCode;
         existing.gpsLat = lat;
         existing.gpsLng = lng;
@@ -138,8 +155,11 @@ export async function POST(request: NextRequest) {
           gpsLat: lat,
           gpsLng: lng,
           monthlySales: sales,
-          frequency: "monthly",
-          duration: 30,
+          // Inherit the channel's defaults. These used to be hardcoded to
+          // monthly/30, so every uploaded store ignored its channel's
+          // settings from the moment it was created.
+          frequency: channel?.frequency ?? "monthly",
+          duration: channel?.duration ?? 30,
           dayOfWeek: "",
           weekNumber: "",
           ...(region ? { region } : {}),

@@ -3,7 +3,7 @@ import { getReps, getStores, saveRoutes, saveRoutesForType, getCallCycleTypes, g
 import { RoutePlanDocument, RepRoutePlan, Store, Rep } from "@/lib/types";
 import { generateRepRoute } from "@/lib/route-engine";
 import { hasGoogleMapsKey } from "@/lib/google-maps";
-import { getSession } from "@/lib/auth";
+import { getSession, sessionHasPermission } from "@/lib/auth";
 import { logActivity } from "@/lib/activityLog";
 
 export const maxDuration = 120;
