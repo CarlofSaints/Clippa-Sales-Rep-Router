@@ -26,7 +26,11 @@ interface Props {
   repColors: Record<string, string>;
   routeStops?: MapRouteStop[];
   routeLines?: [number, number][][]; // per-day polyline positions
-  repHome?: { lat: number; lng: number } | null;
+  /**
+   * Stop 0. `derived` means no home address was captured and this is the
+   * centroid of the rep's stores — it must not be presented as their home.
+   */
+  repHome?: { lat: number; lng: number; derived?: boolean; address?: string } | null;
   showRoute?: boolean;
   singleDay?: boolean; // true when exactly one day plan is on the map
 }
@@ -87,24 +91,33 @@ function numberedIcon(num: number, background: string = "#DC2626"): L.DivIcon {
   });
 }
 
-/** Home marker icon */
+/**
+ * Home marker — numbered 0.
+ *
+ * The day starts and ends at the rep's home, so it is stop zero: the first
+ * store is already 1, and 0 reads as "before the first call" without renaming
+ * anything. Same shape as a numbered stop so the eye follows 0 → 1 → 2, but
+ * larger and in a colour no day line uses, so it stays distinguishable when
+ * several days are drawn at once.
+ */
 const homeIcon = L.divIcon({
   className: "",
   html: `<div style="
     background: #1D4ED8;
     color: white;
-    width: 28px;
-    height: 28px;
+    width: 30px;
+    height: 30px;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 14px;
-    border: 2px solid white;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
-  ">&#8962;</div>`,
-  iconSize: [28, 28],
-  iconAnchor: [14, 14],
+    font-size: 13px;
+    font-weight: 700;
+    border: 3px solid white;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+  ">0</div>`,
+  iconSize: [30, 30],
+  iconAnchor: [15, 15],
 });
 
 export default function MapView({
@@ -237,7 +250,21 @@ export default function MapView({
         {showRoute && repHome && (
           <Marker position={[repHome.lat, repHome.lng]} icon={homeIcon}>
             <Popup>
-              <div className="text-xs font-medium">Rep Home Base</div>
+              <div className="text-xs space-y-1">
+                <p className="font-bold text-sm">0 · Start &amp; End of Day</p>
+                {repHome.derived ? (
+                  <>
+                    <p className="text-amber-700 font-medium">Not a real home address</p>
+                    <p className="text-gray-500">
+                      This rep has no home GPS captured, so routes start from the
+                      centre of their stores. Enter their home address on the Reps
+                      page to plan from where they actually leave.
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-gray-500">{repHome.address || "Rep home base"}</p>
+                )}
+              </div>
             </Popup>
           </Marker>
         )}
