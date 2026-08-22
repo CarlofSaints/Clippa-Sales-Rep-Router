@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Store, Channel, Rep, Team, FREQUENCY_OPTIONS, FrequencyType, getFrequencyLabel, SA_PROVINCES } from "@/lib/types";
+import { useSession } from "@/components/SessionProvider";
+import StoreImportModal from "@/components/StoreImportModal";
 
 const DAYS = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 const WEEKS = ["", "Wk1", "Wk2", "Wk3", "Wk4", "Wk5"];
@@ -153,6 +155,7 @@ function FilterDropdown({
 }
 
 export default function StoresPage() {
+  const { can } = useSession();
   const [stores, setStores] = useState<Store[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [reps, setReps] = useState<Rep[]>([]);
@@ -170,6 +173,8 @@ export default function StoresPage() {
   const [editData, setEditData] = useState<Partial<Store>>({});
   const [saving, setSaving] = useState(false);
   const [regionList, setRegionList] = useState<{ id: string; name: string }[]>([]);
+  const [exporting, setExporting] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const load = () => {
     Promise.all([
@@ -316,6 +321,155 @@ export default function StoresPage() {
     setOnlyBadCoords(false);
   };
 
+  /**
+   * The filters in force, in words. A filtered file that does not say it is
+   * filtered is how someone concludes there are only 99 stores in the business.
+   */
+  const activeFilters = useMemo(() => {
+    const out: string[] = [];
+    if (search.trim()) out.push(`Search: "${search.trim()}"`);
+    const named = (ids: Set<string>, lookup: (id: string) => string) =>
+      Array.from(ids).map(lookup).join(", ");
+    if (filterChannels.size)
+      out.push(`Channels: ${named(filterChannels, (id) => channelMap.get(id)?.name || id)}`);
+    if (filterReps.size)
+      out.push(`Reps: ${named(filterReps, (c) => repMap.get(c)?.name || c)}`);
+    if (filterTeamManagers.size)
+      out.push(
+        `Team Manager: ${named(filterTeamManagers, (id) =>
+          id === "__unassigned__" ? "No Team" : teams.find((t) => t.id === id)?.managerName || id
+        )}`
+      );
+    if (filterProvinces.size)
+      out.push(`Provinces: ${named(filterProvinces, (p) => (p === "__none__" ? "No Province" : p))}`);
+    if (filterRegions.size)
+      out.push(`Regions: ${named(filterRegions, (r) => (r === "__none__" ? "No Region" : r))}`);
+    if (filterFrequencies.size)
+      out.push(`Frequency: ${named(filterFrequencies, (f) => getFrequencyLabel(f as FrequencyType))}`);
+    if (onlyBadCoords) out.push("GPS problems only");
+    return out;
+  }, [search, filterChannels, filterReps, filterTeamManagers, filterProvinces, filterRegions, filterFrequencies, onlyBadCoords, channelMap, repMap, teams]);
+
+  /**
+   * Export what is on screen.
+   *
+   * Built in the browser rather than by an API route so the file is exactly the
+   * filtered grid the user is looking at. A server route would have to
+   * re-implement all eight filters, and the moment the two drifted the file
+   * would stop matching the page it came from.
+   *
+   * MONTHLY SALES and the three rank columns are deliberately NOT in this file
+   * even though the grid shows them. This export exists to be edited and sent
+   * back through Import Stores, which does not read sales — so a sales figure
+   * in the file would be a number someone could change with no effect, and the
+   * ranks are derived from it anyway. Sales stay a screen-only column.
+   *
+   * xlsx is imported on click so it stays out of this page's initial bundle.
+   */
+  const exportExcel = async () => {
+    setExporting(true);
+    try {
+      const { utils, write } = await import("xlsx");
+
+      const header = [
+        "PLACE ID",
+        "PLACE NAME",
+        "CHANNEL",
+        "PROVINCE",
+        "REGION",
+        "GPS LATITUDE",
+        "GPS LONGITUDE",
+        "GPS PROBLEM",
+        "REPRESENTATIVE ID",
+        "REPRESENTATIVE NAME",
+        "TEAM",
+        "FREQUENCY",
+        "DURATION (MIN)",
+        "DAY",
+        "WEEK",
+      ];
+
+      const rows: (string | number)[][] = [header];
+
+      for (const s of filtered) {
+        const rep = repMap.get(s.repCode);
+        const coords = checkCoords(s.gpsLat, s.gpsLng);
+        const team = rep?.teamId ? teams.find((t) => t.id === rep.teamId) : undefined;
+        rows.push([
+          s.placeId || "",
+          s.name || "",
+          channelMap.get(s.channelId)?.name || s.channelId || "",
+          s.province?.trim() || "",
+          s.region?.trim() || "",
+          s.gpsLat?.trim() || "",
+          s.gpsLng?.trim() || "",
+          // The reason a coordinate is unusable, in the same words the grid
+          // shows on hover. Blank means the pin is fine — this column is the
+          // whole point of exporting the GPS problems filter.
+          coords.ok ? "" : coords.problem,
+          s.repCode || "",
+          rep?.name || "",
+          team?.name || "",
+          getFrequencyLabel(s.frequency),
+          s.duration ?? 0,
+          s.dayOfWeek || "",
+          s.weekNumber || "",
+        ]);
+      }
+
+      const ws = utils.aoa_to_sheet(rows);
+      ws["!cols"] = [
+        { wch: 14 }, { wch: 34 }, { wch: 20 }, { wch: 16 }, { wch: 18 },
+        { wch: 14 }, { wch: 14 }, { wch: 46 }, { wch: 14 }, { wch: 24 },
+        { wch: 20 }, { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 8 },
+      ];
+      // Freeze the header so 6 000 rows stay readable.
+      ws["!freeze"] = { xSplit: "0", ySplit: "1" };
+      ws["!autofilter"] = { ref: utils.encode_range({ s: { c: 0, r: 0 }, e: { c: header.length - 1, r: rows.length - 1 } }) };
+
+      const notes: (string | number)[][] = [
+        ["Stores export"],
+        ["Generated", new Date().toLocaleString("en-ZA")],
+        ["Rows in this file", filtered.length],
+        ["Stores in the system", stores.length],
+        [],
+        ["Filters applied"],
+        ...(activeFilters.length
+          ? activeFilters.map((f) => ["", f])
+          : [["", "None — this is every store."]]),
+        [],
+        ["Sending this file back"],
+        ["", "Import Stores on the Stores page reads PLACE ID, PLACE NAME, CHANNEL, PROVINCE, REGION, GPS LATITUDE and GPS LONGITUDE — store details only. It never reads a rep or team column, so those can be wrong, or deleted entirely, without any effect. Correcting GPS LATITUDE and GPS LONGITUDE and importing is the bulk way to fix the stores listed under GPS PROBLEM."],
+        ["", "It updates existing stores only, matched on PLACE ID, and it will not create a channel — a channel name that matches nothing is reported and that store keeps the channel it has. Rows whose PLACE ID is not already in the system are listed back, not created."],
+        ["", "A column you DELETE from this file is left untouched on every store. A column you keep but leave BLANK clears that field, which is how a wrong coordinate is removed in bulk."],
+        ["", "It does NOT read FREQUENCY, DURATION, DAY or WEEK — those come from the Channels page or from editing a store, and a change made in this file will not come back in."],
+        ["", "MONTHLY SALES is deliberately not in this file. The import does not read it, so a figure here would be one nobody could change from this file — it stays a screen-only column on the Stores page."],
+        ["", "Store Upload (under Admin) is the other door: use it to ADD stores, or to load rep allocations and monthly sales. It writes the rep and sales columns, so only send it a file where those are correct."],
+      ];
+      const notesWs = utils.aoa_to_sheet(notes);
+      notesWs["!cols"] = [{ wch: 22 }, { wch: 110 }];
+
+      const wb = utils.book_new();
+      utils.book_append_sheet(wb, ws, "Stores");
+      utils.book_append_sheet(wb, notesWs, "Notes");
+
+      const buf = write(wb, { type: "array", bookType: "xlsx" });
+      const blob = new Blob([buf], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Stores${activeFilters.length ? "_filtered" : ""}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const startEdit = (store: Store) => {
     setEditing(store.id);
     setEditData({
@@ -365,7 +519,42 @@ export default function StoresPage() {
             {filtered.length} of {stores.length} stores
           </p>
         </div>
+        <div className="flex items-center gap-2">
+          {can("export_data") && (
+            <button
+              onClick={exportExcel}
+              disabled={exporting || filtered.length === 0}
+              title={
+                activeFilters.length
+                  ? "Downloads the filtered list you are looking at — the filters are listed on the Notes sheet"
+                  : "Downloads every store"
+              }
+              className="px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            >
+              {exporting
+                ? "Building..."
+                : `Export Excel (${filtered.length.toLocaleString("en-ZA")}${activeFilters.length ? " filtered" : ""})`}
+            </button>
+          )}
+          {/* The return leg of the export. Deliberately not a link to Store
+              Upload: that page loads reps and sales too, and a file without
+              those columns going through it unassigns the rep and zeroes the
+              monthly average on every store it touches. */}
+          {can("upload_stores") && (
+            <button
+              onClick={() => setImportOpen(true)}
+              title="Send the exported file back after fixing GPS coordinates or store details. Reps, teams and sales are not touched."
+              className="px-4 py-2 bg-clippa-red hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              Import Excel
+            </button>
+          )}
+        </div>
       </div>
+
+      {importOpen && (
+        <StoreImportModal onClose={() => setImportOpen(false)} onImported={load} />
+      )}
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 mb-4 items-center">
