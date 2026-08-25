@@ -129,7 +129,7 @@ console.log("\n--- checks fire when they should ---\n");
 {
   const r = run([rep({ code: "GAU001" })], [store({ frequency: "weekly" })]);
   eq("a store out of step with its channel is caught", find(r, "stores-channel-mismatch").count, 1);
-  eq("...and only as info, since it still routes", find(r, "stores-channel-mismatch").severity, "info");
+  eq("...as a warning: routes follow the STORE value, not the channel", find(r, "stores-channel-mismatch").severity, "warning");
 }
 {
   // Far enough that it clears the 50km radius from the median of the cluster.

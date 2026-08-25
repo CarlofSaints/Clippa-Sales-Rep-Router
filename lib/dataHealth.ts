@@ -377,10 +377,10 @@ export function buildDataHealthReport(input: HealthInput): DataHealthReport {
     issues.push(
       issue(
         "stores-channel-mismatch",
-        "Stores that disagree with their channel's defaults",
-        "info",
-        "The store's call frequency or visit length differs from its channel, and no approved override explains why. Often left over from before the channel rules changed.",
-        'Use "Apply defaults to stores" on the Channels page to bring them back into line, or record a store override if the difference is deliberate.',
+        "Stores whose call rhythm ignores their channel",
+        "warning",
+        "The store's call frequency or visit length differs from its channel, with no approved override to explain it. Routes and capacity are built from the STORE's values, so wherever these disagree the plan is not following the agreed call rules.",
+        'Compare the totals before acting. "Apply defaults to stores" on the Channels page rewrites every store in one go, and if the channel rules were never applied in the first place that can multiply the planned workload several times over. Check it against what a rep can actually do in a month first.',
         ["REP CODE", "PLACE ID", "PLACE NAME", "CHANNEL", "STORE FREQUENCY", "CHANNEL FREQUENCY", "STORE MINUTES", "CHANNEL MINUTES"],
         rows
       )
