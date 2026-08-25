@@ -89,6 +89,12 @@ body {
     text-decoration: none;
     color: inherit;
   }
+
+  /* A screenshot is a button on screen so it can be enlarged. On paper there
+     is nothing to click, so it should read as a plain picture. */
+  .guide-shot {
+    box-shadow: none !important;
+  }
 }
 
 @page {

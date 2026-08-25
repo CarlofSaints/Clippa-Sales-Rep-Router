@@ -43,10 +43,71 @@ const TONE_ICON = {
  */
 const EXTENSIONS = ["jpg", "png"];
 
+/**
+ * A screenshot opened full-screen.
+ *
+ * Guide screenshots are shown at column width, which is fine for "where is that
+ * button" and useless for reading a table in one. Clicking opens it as large as
+ * the window allows.
+ *
+ * The overlay itself is the dismiss target, so a click anywhere outside the
+ * image closes it, and Escape does too: a full-screen layer with no way out but
+ * one small button is the thing people get stuck behind. Page scrolling is
+ * frozen while it is open so the page underneath does not slide about, and
+ * hidden entirely in print.
+ */
+function Lightbox({ src, caption, onClose }: { src: string; caption: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previous;
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={caption}
+      onClick={onClose}
+      className="guide-hide-print fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-black/80 p-4 sm:p-8"
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close"
+        className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+      >
+        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+      {/* The image must not inherit the overlay's dismiss click: clicking the
+          picture you just opened should not close it again. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={caption}
+        onClick={(e) => e.stopPropagation()}
+        className="max-h-[85vh] max-w-full rounded-lg object-contain shadow-2xl"
+      />
+      <p className="max-w-2xl text-center text-xs text-white/70">{caption}</p>
+    </div>
+  );
+}
+
 function Screenshot({ slot, caption, capture }: { slot: string; caption: string; capture: string }) {
   const [attempt, setAttempt] = useState(0);
+  const [open, setOpen] = useState(false);
   const missing = attempt >= EXTENSIONS.length;
   const imgRef = useRef<HTMLImageElement>(null);
+  const src = `/guide/${slot}.${EXTENSIONS[Math.min(attempt, EXTENSIONS.length - 1)]}`;
 
   /**
    * onError alone is not enough. The markup is server-rendered, so the browser
@@ -80,18 +141,34 @@ function Screenshot({ slot, caption, capture }: { slot: string; caption: string;
 
   return (
     <figure className="my-5 break-inside-avoid">
-      {/* A plain img, not next/image: the file may not exist, and this needs an
-          onError to fall through to the placeholder above. */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        key={EXTENSIONS[attempt]}
-        ref={imgRef}
-        src={`/guide/${slot}.${EXTENSIONS[attempt]}`}
-        alt={caption}
-        onError={() => setAttempt((a) => a + 1)}
-        className="w-full rounded-lg border border-gray-200 shadow-sm"
-      />
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label={`Enlarge: ${caption}`}
+        className="guide-shot group relative block w-full overflow-hidden rounded-lg border border-gray-200 shadow-sm transition-shadow hover:shadow-md"
+      >
+        {/* A plain img, not next/image: the file may not exist, and this needs
+            an onError to fall through to the placeholder above. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          key={EXTENSIONS[attempt]}
+          ref={imgRef}
+          src={src}
+          alt={caption}
+          onError={() => setAttempt((a) => a + 1)}
+          className="block w-full"
+        />
+        {/* Nothing here says "clickable" on its own, so the hint has to. It is
+            hidden in print, where there is nothing to click. */}
+        <span className="guide-hide-print pointer-events-none absolute right-2 top-2 inline-flex items-center gap-1 rounded-md bg-black/55 px-2 py-1 text-[11px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 18a7 7 0 100-14 7 7 0 000 14zM11 8v6M8 11h6" />
+          </svg>
+          Click to enlarge
+        </span>
+      </button>
       <figcaption className="mt-2 text-xs text-gray-500">{caption}</figcaption>
+      {open && <Lightbox src={src} caption={caption} onClose={() => setOpen(false)} />}
     </figure>
   );
 }
