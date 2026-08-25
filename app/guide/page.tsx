@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { GUIDE, GUIDE_VERSION, Block, GuideSection } from "@/lib/guide";
 import { GuideDiagram } from "@/components/GuideVisuals";
@@ -35,16 +35,33 @@ const TONE_ICON = {
  * remembers to add.
  */
 /**
- * Tries .png, then .jpg, then gives up and shows the placeholder. Two
- * extensions because a screenshot captured from a browser arrives as a JPEG and
- * one exported from a design tool arrives as a PNG, and whoever drops the next
- * one in should not have to know which this file expects.
+ * Tries each extension in turn, then gives up and shows the placeholder. Two of
+ * them because a screenshot captured from a browser arrives as a JPEG and one
+ * exported from a design tool arrives as a PNG, and whoever drops the next one
+ * in should not have to know which this file expects. JPEG is first only because
+ * that is what everything here currently is: a miss costs a real 404.
  */
-const EXTENSIONS = ["png", "jpg"];
+const EXTENSIONS = ["jpg", "png"];
 
 function Screenshot({ slot, caption, capture }: { slot: string; caption: string; capture: string }) {
   const [attempt, setAttempt] = useState(0);
   const missing = attempt >= EXTENSIONS.length;
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  /**
+   * onError alone is not enough. The markup is server-rendered, so the browser
+   * starts fetching the image while the HTML is still parsing and can finish
+   * failing BEFORE React attaches its handler. The error is then never
+   * delivered, the fallback never runs, and the reader is left looking at a
+   * broken-image icon. This catches that case on mount: an <img> that has
+   * finished loading but has no intrinsic width did not load at all.
+   */
+  useEffect(() => {
+    const img = imgRef.current;
+    if (img && img.complete && img.naturalWidth === 0) {
+      setAttempt((a) => a + 1);
+    }
+  }, [attempt]);
 
   if (missing) {
     return (
@@ -68,6 +85,7 @@ function Screenshot({ slot, caption, capture }: { slot: string; caption: string;
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         key={EXTENSIONS[attempt]}
+        ref={imgRef}
         src={`/guide/${slot}.${EXTENSIONS[attempt]}`}
         alt={caption}
         onError={() => setAttempt((a) => a + 1)}
