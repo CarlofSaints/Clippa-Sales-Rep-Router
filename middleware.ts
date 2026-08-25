@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyToken, sessionSecret } from "@/lib/sessionToken";
 import { isRepAllowedPath } from "@/lib/repAccess";
+import { isPublicPath } from "@/lib/publicPaths";
 import type { SessionPayload } from "@/lib/types";
 
 // /api/seed and /api/debug used to be listed here. /api/seed calls saveUsers()
@@ -12,7 +13,8 @@ import type { SessionPayload } from "@/lib/types";
 // which took a userId from the request body, set that user's password and handed
 // back a signed session cookie for them. A public path must be the ONE route
 // that is public, not everything filed beneath it.
-const PUBLIC_EXACT = ["/login", "/api/auth"];
+// The list itself lives in lib/publicPaths so a test can assert against the real
+// thing rather than a copy that quietly drifts.
 
 // Bootstrapping a brand-new deploy is a chicken-and-egg problem: /api/seed
 // creates the first admin, so there is no session cookie to present yet.
@@ -26,7 +28,7 @@ export async function middleware(request: NextRequest) {
 
   // Allow public paths and static assets
   if (
-    PUBLIC_EXACT.includes(pathname) ||
+    isPublicPath(pathname) ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
     pathname.match(/\.(jpg|png|svg|ico|css|js)$/)
