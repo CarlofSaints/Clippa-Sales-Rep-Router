@@ -227,6 +227,7 @@ eq("a rep may open their own profile", isRepAllowedPath("/account"), true);
 eq("a rep may call their own profile API", isRepAllowedPath("/api/account/rep-profile"), true);
 eq("a rep may sign in and out", isRepAllowedPath("/api/auth"), true);
 eq("a rep may change their password on first sign-in", isRepAllowedPath("/api/auth/change-password"), true);
+eq("a rep may read the guide", isRepAllowedPath("/guide"), true);
 eq("a rep may NOT open the rep list", isRepAllowedPath("/reps"), false);
 eq("a rep may NOT read the store table", isRepAllowedPath("/api/stores"), false);
 eq("a rep may NOT read routes", isRepAllowedPath("/api/routes"), false);

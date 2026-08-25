@@ -262,6 +262,17 @@ export default function ChannelsPage() {
               }}
             />
           </label>
+          {/* The cascade existed but nothing invoked it: previewDefaults was
+              defined and never called, so 'Apply defaults to stores' has been
+              unreachable in this app since the feature was ported. */}
+          <button
+            onClick={previewDefaults}
+            disabled={applyBusy}
+            className="px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            title="Push every channel's frequency and duration onto its stores. Shows a preview first."
+          >
+            {applyBusy ? "Checking..." : "Apply defaults to stores"}
+          </button>
           <button
             onClick={() => setShowAdd(!showAdd)}
             className="flex items-center gap-2 px-4 py-2 bg-clippa-red text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors"
@@ -342,7 +353,7 @@ export default function ChannelsPage() {
                 <button
                   onClick={applyDefaults}
                   disabled={applyBusy}
-                  className="px-4 py-2 bg-iram-green text-white text-sm font-medium rounded-lg hover:bg-iram-green-dark disabled:opacity-50"
+                  className="px-4 py-2 bg-clippa-red text-white text-sm font-medium rounded-lg hover:bg-red-700 disabled:opacity-50"
                 >
                   {applyBusy ? "Applying..." : `Apply to ${applyPreview.wouldChange} store(s)`}
                 </button>
