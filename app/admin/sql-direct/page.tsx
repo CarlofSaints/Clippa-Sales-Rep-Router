@@ -47,10 +47,10 @@ interface Result {
  * so this list is the menu, not a suggestion.
  */
 const KNOWN_QUERIES = [
-  { name: "list_clients", label: "List SQL clients", hint: "Confirms the exact client name. CLIPPA SALES vs CLIPPA SALES (Pty) Ltd has bitten us before." },
-  { name: "list_tables", label: "List tables", hint: "Pool 1 only (ClientMaster). Cannot see the second server." },
-  { name: "client_stores", label: "Retail sites for the client", hint: "Sell-out store master. Not IMS." },
-  { name: "client_channels", label: "Retail channels for the client", hint: "" },
+  { name: "list_clients", label: "List SQL clients", hint: "ClientMaster. Confirms the exact client name; CLIPPA SALES vs CLIPPA SALES (Pty) Ltd has bitten us before." },
+  { name: "list_tables", label: "List tables", hint: "ClientMaster only. Cannot see any other server or database." },
+  { name: "client_stores", label: "Retail sites", hint: "ClientMaster. Sell-out store master, NOT the sales this project needs." },
+  { name: "client_channels", label: "Retail channels", hint: "ClientMaster." },
 ];
 
 export default function SqlDirectPage() {
@@ -93,6 +93,12 @@ export default function SqlDirectPage() {
           It runs queries that somebody has already registered on the proxy and describes what comes back. The
           proxy refuses raw SQL by design, so this cannot reach anything that has not been reviewed. Nothing
           here touches stores, reps, channels or the upload path.
+        </p>
+        <p className="mt-2 text-xs font-medium text-amber-900">
+          ⚠️ Every query below runs against <span className="font-mono">ClientMaster</span>, which is the
+          sell-out database and is NOT where in-market sales live. They are here to prove the connection
+          works, not because they hold what this project needs. The IMS source needs its own registry entry
+          on the proxy, and probably its own connection pool.
         </p>
       </div>
 
