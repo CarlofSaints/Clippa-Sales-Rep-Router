@@ -132,7 +132,7 @@ export default function CoveragePage() {
             A store is tied to its rep by the rep code on the store record, and nothing checks that code
             against the rep list. Stores naming a rep who was never loaded are dropped silently: not on the
             map, not in any route, not counted in capacity. Add the reps on the Reps page (Import Excel) and
-            these stores attach themselves — then regenerate routes.
+            these stores attach themselves, then regenerate routes.
           </p>
         </div>
       )}

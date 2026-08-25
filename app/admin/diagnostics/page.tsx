@@ -59,7 +59,7 @@ export default function DiagnosticsPage() {
             <p className="mt-1 text-xs text-gray-500 max-w-lg">
               Route generation uses the Directions API to order each day along real roads, and the Geocoding
               API to turn a rep&apos;s home address into coordinates. If Google stops answering, the router
-              silently falls back to straight-line distances — plans still come out, they just stop
+              silently falls back to straight-line distances: plans still come out, they just stop
               reflecting real driving. This check calls both APIs for real.
             </p>
           </div>

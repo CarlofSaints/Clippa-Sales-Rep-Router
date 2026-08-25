@@ -441,7 +441,7 @@ export default function AccountPage() {
               {locating ? "Getting your location..." : "Use my current location"}
             </button>
             <p className="mt-2 text-xs text-gray-500">
-              Do this <strong className="font-semibold">while you are at home</strong> — it pins the exact
+              Do this <strong className="font-semibold">while you are at home</strong>: it pins the exact
               spot, which matters most if your address is hard to find on a map.
             </p>
           </div>

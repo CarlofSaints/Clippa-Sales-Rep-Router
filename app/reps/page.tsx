@@ -500,7 +500,7 @@ export default function RepsPage() {
           {importResult.nameDifferences.length > 0 && (
             <div className="mb-3">
               <p className="text-xs font-medium text-gray-700 mb-1">
-                Names that differ from the file ({importResult.nameDifferences.length}) — reported, not changed.
+                Names that differ from the file ({importResult.nameDifferences.length}), reported but not changed.
                 A different name on the same code can mean the code was handed to someone else.
               </p>
               <ul className="space-y-0.5 max-h-40 overflow-y-auto">
@@ -518,13 +518,13 @@ export default function RepsPage() {
               {importResult.created.map((c) => (
                 <p key={`c-${c.code}`} className="text-xs text-gray-600 py-0.5">
                   <span className="inline-block w-14 font-semibold text-green-700">NEW</span>
-                  <span className="font-mono">{c.code}</span> {c.name} — {c.fields.join(", ")}
+                  <span className="font-mono">{c.code}</span> {c.name}: {c.fields.join(", ")}
                 </p>
               ))}
               {importResult.updated.map((u) => (
                 <p key={`u-${u.code}`} className="text-xs text-gray-600 py-0.5">
                   <span className="inline-block w-14 font-semibold text-gray-500">UPDATED</span>
-                  <span className="font-mono">{u.code}</span> {u.name} — {u.fields.join(", ")}
+                  <span className="font-mono">{u.code}</span> {u.name}: {u.fields.join(", ")}
                 </p>
               ))}
             </div>
@@ -558,7 +558,7 @@ export default function RepsPage() {
               <div key={o.repId + o.email} className="text-xs">
                 <span className="font-mono text-gray-500">{o.code}</span>{" "}
                 <span className="text-gray-800">{o.name}</span>{" "}
-                <span className="text-gray-500">— {o.detail}</span>
+                <span className="text-gray-500">{o.detail}</span>
                 {o.tempPassword && (
                   <span className="ml-1 font-mono font-semibold text-clippa-red">{o.tempPassword}</span>
                 )}
@@ -583,7 +583,7 @@ export default function RepsPage() {
               </h3>
               <p className="text-xs text-gray-500 mt-0.5">
                 Saved reps now start their day at home. Anything below was too vague to
-                store on its own — check it on Google, then accept it or fix the address.
+                store on its own: check it on Google, then accept it or fix the address.
               </p>
             </div>
             <button
@@ -629,7 +629,7 @@ export default function RepsPage() {
             )}
           </div>
           <p className="text-xs text-amber-700 mt-3">
-            Routes already generated still use the old anchor — regenerate them to pick this up.
+            Routes already generated still use the old anchor, so regenerate them to pick this up.
           </p>
         </div>
       )}

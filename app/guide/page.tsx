@@ -34,8 +34,17 @@ const TONE_ICON = {
  * capture, because a picture that is silently absent is a picture nobody
  * remembers to add.
  */
+/**
+ * Tries .png, then .jpg, then gives up and shows the placeholder. Two
+ * extensions because a screenshot captured from a browser arrives as a JPEG and
+ * one exported from a design tool arrives as a PNG, and whoever drops the next
+ * one in should not have to know which this file expects.
+ */
+const EXTENSIONS = ["png", "jpg"];
+
 function Screenshot({ slot, caption, capture }: { slot: string; caption: string; capture: string }) {
-  const [missing, setMissing] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const missing = attempt >= EXTENSIONS.length;
 
   if (missing) {
     return (
@@ -46,7 +55,7 @@ function Screenshot({ slot, caption, capture }: { slot: string; caption: string;
           </svg>
           <p className="mt-2 text-sm font-medium text-gray-500">{caption}</p>
           <p className="mt-1 text-xs text-gray-400">Screenshot to capture: {capture}</p>
-          <p className="mt-2 text-[11px] font-mono text-gray-400">public/guide/{slot}.png</p>
+          <p className="mt-2 text-[11px] font-mono text-gray-400">public/guide/{slot}.png or .jpg</p>
         </div>
       </figure>
     );
@@ -58,9 +67,10 @@ function Screenshot({ slot, caption, capture }: { slot: string; caption: string;
           onError to fall through to the placeholder above. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={`/guide/${slot}.png`}
+        key={EXTENSIONS[attempt]}
+        src={`/guide/${slot}.${EXTENSIONS[attempt]}`}
         alt={caption}
-        onError={() => setMissing(true)}
+        onError={() => setAttempt((a) => a + 1)}
         className="w-full rounded-lg border border-gray-200 shadow-sm"
       />
       <figcaption className="mt-2 text-xs text-gray-500">{caption}</figcaption>
