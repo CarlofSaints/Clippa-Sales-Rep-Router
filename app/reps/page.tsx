@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Rep } from "@/lib/types";
 import { useSession } from "@/components/SessionProvider";
 
@@ -22,6 +22,51 @@ interface GeocodeResponse {
   needsReview: number;
   failed: number;
   outcomes: GeocodeOutcome[];
+}
+
+interface CreateAccountOutcome {
+  repId: string;
+  code: string;
+  name: string;
+  email: string;
+  status: "created" | "created_no_email" | "exists" | "skipped" | "failed";
+  detail: string;
+  tempPassword?: string;
+}
+
+interface CreateAccountResponse {
+  requested: number;
+  created: number;
+  createdNoEmail: number;
+  alreadyExisted: number;
+  skipped: number;
+  failed: number;
+  outcomes: CreateAccountOutcome[];
+}
+
+interface RepImportChange {
+  code: string;
+  name: string;
+  fields: string[];
+}
+
+interface RepImportResponse {
+  preview: boolean;
+  sheet: string;
+  rowsRead: number;
+  columnsPresent: string[];
+  created: RepImportChange[];
+  updated: RepImportChange[];
+  unchanged: number;
+  rejected: { row: number; reason: string }[];
+  warnings: string[];
+  nameDifferences: { code: string; current: string; inFile: string }[];
+  saved: boolean;
+}
+
+/** A rep can only be given a login if there is somewhere to send it. */
+function hasUsableEmail(rep: Rep): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((rep.email || "").trim());
 }
 
 /** A rep is anchored on their home only when BOTH coordinates are present. */
@@ -80,7 +125,25 @@ export default function RepsPage() {
   const [geocodeResult, setGeocodeResult] = useState<GeocodeResponse | null>(null);
   const [geocodeError, setGeocodeError] = useState("");
 
+  // Rep logins
+  const [repIdsWithLogin, setRepIdsWithLogin] = useState<Set<string>>(new Set());
+  const [creatingAccounts, setCreatingAccounts] = useState(false);
+  const [accountResult, setAccountResult] = useState<CreateAccountResponse | null>(null);
+  const [accountError, setAccountError] = useState("");
+
+  // Excel import
+  const importRef = useRef<HTMLInputElement>(null);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<RepImportResponse | null>(null);
+  const [importError, setImportError] = useState("");
+
   const canManageReps = can("manage_reps");
+  const canCreateLogins = can("create_rep_accounts");
+
+  // Reps who could be given a login right now: an email to send it to, and no
+  // account yet. Reps with no email are shown as such rather than failing.
+  const repsNeedingLogin = reps.filter((r) => hasUsableEmail(r) && !repIdsWithLogin.has(r.id));
 
   // Reps whose address is captured but whose route still anchors on a store
   // centroid because no coordinate was ever derived from it.
@@ -98,6 +161,101 @@ export default function RepsPage() {
   };
 
   useEffect(() => { load(); }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadLogins(); }, [canCreateLogins]);
+
+  /**
+   * Which reps already have a login. Its own endpoint rather than /api/users,
+   * because that one needs `manage_users` (superAdmin only) and an Admin still
+   * has to be able to see who is missing an account.
+   */
+  const loadLogins = () => {
+    if (!canCreateLogins) return;
+    fetch("/api/reps/create-account")
+      .then((r) => r.json())
+      .then((d) => {
+        if (Array.isArray(d.repIdsWithLogin)) setRepIdsWithLogin(new Set(d.repIdsWithLogin));
+      })
+      .catch(() => {
+        /* the button simply stays available; the server refuses if it must */
+      });
+  };
+
+  /**
+   * Create logins for reps. Capped at 20 a request by the server so a batch
+   * cannot outrun the send limit, so a bulk run is sent in chunks.
+   */
+  const createAccounts = async (repIds: string[]) => {
+    if (repIds.length === 0) return;
+    setCreatingAccounts(true);
+    setAccountError("");
+    setAccountResult(null);
+    try {
+      const merged: CreateAccountResponse = {
+        requested: 0, created: 0, createdNoEmail: 0, alreadyExisted: 0, skipped: 0, failed: 0, outcomes: [],
+      };
+      for (let i = 0; i < repIds.length; i += 20) {
+        const res = await fetch("/api/reps/create-account", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ repIds: repIds.slice(i, i + 20) }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setAccountError(data.error || `Could not create logins (${res.status})`);
+          return;
+        }
+        merged.requested += data.requested ?? 0;
+        merged.created += data.created ?? 0;
+        merged.createdNoEmail += data.createdNoEmail ?? 0;
+        merged.alreadyExisted += data.alreadyExisted ?? 0;
+        merged.skipped += data.skipped ?? 0;
+        merged.failed += data.failed ?? 0;
+        merged.outcomes.push(...(data.outcomes ?? []));
+      }
+      setAccountResult(merged);
+      loadLogins();
+    } catch (e) {
+      setAccountError(String(e));
+    } finally {
+      setCreatingAccounts(false);
+    }
+  };
+
+  /**
+   * Preview first, always. The same upload both edits existing reps and creates
+   * new ones, and nobody should find out which afterwards.
+   */
+  const runImport = async (file: File, preview: boolean) => {
+    setImporting(true);
+    setImportError("");
+    if (preview) setImportResult(null);
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      const res = await fetch(`/api/reps/import${preview ? "?mode=preview" : ""}`, {
+        method: "POST",
+        body,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setImportError(data.error || `Import failed (${res.status})`);
+        return;
+      }
+      setImportResult(data);
+      if (!preview) {
+        setImportFile(null);
+        load();
+        loadLogins();
+      }
+    } catch (e) {
+      setImportError(String(e));
+    } finally {
+      setImporting(false);
+    }
+  };
+
+
 
   /**
    * Derive home coordinates from home addresses. The route engine already
@@ -234,6 +392,42 @@ export default function RepsPage() {
               {geocoding ? "Locating..." : `Set Home GPS (${awaitingGeocode})`}
             </button>
           )}
+          {canCreateLogins && repsNeedingLogin.length > 0 && (
+            <button
+              onClick={() => createAccounts(repsNeedingLogin.map((r) => r.id))}
+              disabled={creatingAccounts}
+              title="Create a login for every rep who has an email address and does not have one yet, and email them their details"
+              className="px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+            >
+              {creatingAccounts ? "Creating..." : `Create Logins (${repsNeedingLogin.length})`}
+            </button>
+          )}
+          {canManageReps && (
+            <>
+              <input
+                ref={importRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  // Cleared so choosing the SAME file twice still fires onChange.
+                  e.target.value = "";
+                  if (!file) return;
+                  setImportFile(file);
+                  runImport(file, true);
+                }}
+              />
+              <button
+                onClick={() => importRef.current?.click()}
+                disabled={importing}
+                title="Load a spreadsheet of rep codes, names and email addresses. Existing reps are updated, unknown codes are added."
+                className="px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                {importing ? "Reading..." : "Import Excel"}
+              </button>
+            </>
+          )}
           <button
             onClick={() => setShowAdd(true)}
             className="bg-clippa-red text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-700 transition-colors"
@@ -246,6 +440,135 @@ export default function RepsPage() {
       {geocodeError && (
         <div className="p-3 rounded-lg text-sm mb-6 bg-red-50 text-red-700">{geocodeError}</div>
       )}
+
+      {importError && (
+        <div className="p-3 rounded-lg text-sm mb-6 bg-red-50 text-red-700">{importError}</div>
+      )}
+
+      {/* Import report. What was NOT done is said as loudly as what was — a
+          cut-down sheet importing "nothing" for a field otherwise reads as a
+          failed import. */}
+      {importResult && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
+          <div className="flex items-start justify-between gap-4 mb-3">
+            <div>
+              <h3 className="font-semibold text-gray-900 text-sm">
+                {importResult.preview ? "Preview: " : "Imported: "}
+                {importResult.created.length} new rep{importResult.created.length === 1 ? "" : "s"},{" "}
+                {importResult.updated.length} updated, {importResult.unchanged} unchanged
+              </h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Read {importResult.rowsRead} rows from &quot;{importResult.sheet}&quot;. Columns in the file:{" "}
+                {importResult.columnsPresent.length > 0 ? importResult.columnsPresent.join(", ") : "rep code only"}.
+                Any column the file does not carry is left untouched on every rep.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {importResult.preview && importFile && (importResult.created.length > 0 || importResult.updated.length > 0) && (
+                <button
+                  onClick={() => runImport(importFile, false)}
+                  disabled={importing}
+                  className="bg-clippa-red text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-red-700 disabled:opacity-50"
+                >
+                  {importing ? "Applying..." : "Apply these changes"}
+                </button>
+              )}
+              <button onClick={() => setImportResult(null)} className="text-gray-400 hover:text-gray-600 text-xs">
+                Dismiss
+              </button>
+            </div>
+          </div>
+
+          {importResult.warnings.length > 0 && (
+            <ul className="mb-3 space-y-1">
+              {importResult.warnings.map((w, i) => (
+                <li key={i} className="text-xs text-amber-800 bg-amber-50 rounded px-2 py-1.5">{w}</li>
+              ))}
+            </ul>
+          )}
+
+          {importResult.rejected.length > 0 && (
+            <ul className="mb-3 space-y-1">
+              {importResult.rejected.map((r, i) => (
+                <li key={i} className="text-xs text-red-700 bg-red-50 rounded px-2 py-1.5">
+                  Row {r.row}: {r.reason}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {importResult.nameDifferences.length > 0 && (
+            <div className="mb-3">
+              <p className="text-xs font-medium text-gray-700 mb-1">
+                Names that differ from the file ({importResult.nameDifferences.length}) — reported, not changed.
+                A different name on the same code can mean the code was handed to someone else.
+              </p>
+              <ul className="space-y-0.5 max-h-40 overflow-y-auto">
+                {importResult.nameDifferences.map((n) => (
+                  <li key={n.code} className="text-xs text-gray-600">
+                    <span className="font-mono">{n.code}</span>: here &quot;{n.current}&quot;, in the file &quot;{n.inFile}&quot;
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {(importResult.created.length > 0 || importResult.updated.length > 0) && (
+            <div className="max-h-60 overflow-y-auto border-t border-gray-100 pt-2">
+              {importResult.created.map((c) => (
+                <p key={`c-${c.code}`} className="text-xs text-gray-600 py-0.5">
+                  <span className="inline-block w-14 font-semibold text-green-700">NEW</span>
+                  <span className="font-mono">{c.code}</span> {c.name} — {c.fields.join(", ")}
+                </p>
+              ))}
+              {importResult.updated.map((u) => (
+                <p key={`u-${u.code}`} className="text-xs text-gray-600 py-0.5">
+                  <span className="inline-block w-14 font-semibold text-gray-500">UPDATED</span>
+                  <span className="font-mono">{u.code}</span> {u.name} — {u.fields.join(", ")}
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {accountError && (
+        <div className="p-3 rounded-lg text-sm mb-6 bg-red-50 text-red-700">{accountError}</div>
+      )}
+
+      {/* Login results. A password only ever appears here when the email failed
+          — on success it is in the rep's inbox and a copy on this screen is one
+          nobody needs. */}
+      {accountResult && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
+          <div className="flex items-start justify-between gap-4 mb-3">
+            <h3 className="font-semibold text-gray-900 text-sm">
+              Logins: {accountResult.created} created and emailed
+              {accountResult.createdNoEmail > 0 && `, ${accountResult.createdNoEmail} created but NOT emailed`}
+              {accountResult.alreadyExisted > 0 && `, ${accountResult.alreadyExisted} already had one`}
+              {accountResult.skipped > 0 && `, ${accountResult.skipped} skipped`}
+              {accountResult.failed > 0 && `, ${accountResult.failed} failed`}
+            </h3>
+            <button onClick={() => setAccountResult(null)} className="text-gray-400 hover:text-gray-600 text-xs">
+              Dismiss
+            </button>
+          </div>
+          <div className="max-h-60 overflow-y-auto space-y-1">
+            {accountResult.outcomes.map((o) => (
+              <div key={o.repId + o.email} className="text-xs">
+                <span className="font-mono text-gray-500">{o.code}</span>{" "}
+                <span className="text-gray-800">{o.name}</span>{" "}
+                <span className="text-gray-500">— {o.detail}</span>
+                {o.tempPassword && (
+                  <span className="ml-1 font-mono font-semibold text-clippa-red">{o.tempPassword}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+
 
       {/* Geocoding results. Vague matches are listed rather than saved — a
           suburb centroid looks identical to a real home once it is stored. */}
@@ -380,6 +703,7 @@ export default function RepsPage() {
                 <th className="px-6 py-3">Cell</th>
                 <th className="px-6 py-3">Home Address</th>
                 <th className="px-6 py-3">Starts Day At</th>
+                <th className="px-6 py-3">Login</th>
                 <th className="px-6 py-3 text-center">Hours/Day</th>
                 <th className="px-6 py-3 text-right">Actions</th>
               </tr>
@@ -428,6 +752,7 @@ export default function RepsPage() {
                       <td className="px-6 py-3 text-xs text-gray-400 italic">
                         Save, then Set Home GPS
                       </td>
+                      <td className="px-6 py-3 text-xs text-gray-400 italic">save first</td>
                       <td className="px-6 py-3 text-center">
                         <input
                           type="number"
@@ -487,6 +812,28 @@ export default function RepsPage() {
                               </button>
                             )}
                           </span>
+                        )}
+                      </td>
+                      <td className="px-6 py-3 text-xs">
+                        {repIdsWithLogin.has(rep.id) ? (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-green-100 text-green-700 font-medium">
+                            Has login
+                          </span>
+                        ) : !hasUsableEmail(rep) ? (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
+                            No email
+                          </span>
+                        ) : canCreateLogins ? (
+                          <button
+                            onClick={() => createAccounts([rep.id])}
+                            disabled={creatingAccounts}
+                            title="Create a login for this rep and email them their sign-in details"
+                            className="text-clippa-red hover:underline font-medium disabled:opacity-50"
+                          >
+                            Create login
+                          </button>
+                        ) : (
+                          <span className="text-gray-400">—</span>
                         )}
                       </td>
                       <td className="px-6 py-3 text-center text-gray-600">{rep.workingHoursPerDay ?? 8.5}</td>

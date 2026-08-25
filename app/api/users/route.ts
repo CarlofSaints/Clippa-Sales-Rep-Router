@@ -1,25 +1,46 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUsers, saveUsers } from "@/lib/data";
 import { User, UserRole } from "@/lib/types";
-import { getSession } from "@/lib/auth";
+import { getSession, requirePermission } from "@/lib/auth";
 import { logActivity } from "@/lib/activityLog";
 import bcrypt from "bcryptjs";
 
 const SUPER_ADMIN_FORBIDDEN = { error: "Only Super Admins can add, edit, or remove Super Admin users" };
 
+/**
+ * 🔴 Every verb here was gated only by "are you signed in". Any account — a
+ * viewer included — could create an admin, or set any non-superAdmin's password
+ * and then sign in as them. Only the superAdmin ROWS were protected, not the
+ * table. All of it now needs `manage_users`.
+ *
+ * ⚠️ Only superAdmin holds `manage_users` by default; admin does NOT. That is
+ * the correct reading of the Admin role ("manage reps, stores, channels") and it
+ * is why creating rep logins lives on its own `create_rep_accounts` permission
+ * instead of here. Self-service is untouched — that lives on /api/account.
+ */
+function authError(err: unknown) {
+  const msg = String(err);
+  if (msg.includes("Unauthorized")) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (msg.includes("Forbidden")) {
+    return NextResponse.json({ error: "You do not have permission to manage users." }, { status: 403 });
+  }
+  return NextResponse.json({ error: msg }, { status: 500 });
+}
+
 export async function GET() {
   try {
+    await requirePermission("manage_users");
     const users = await getUsers();
     const safe = users.map(({ password: _, ...u }) => u);
     return NextResponse.json(safe);
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    return authError(err);
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getSession();
+    const session = await requirePermission("manage_users");
     const body = await request.json();
     const { name, email, password, role } = body;
 
@@ -54,13 +75,13 @@ export async function POST(request: NextRequest) {
     const { password: _, ...safe } = newUser;
     return NextResponse.json(safe, { status: 201 });
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    return authError(err);
   }
 }
 
 export async function PUT(request: NextRequest) {
   try {
-    const session = await getSession();
+    const session = await requirePermission("manage_users");
     const body = await request.json();
     const { id, name, email, role, password, forcePasswordChange, cell } = body;
 
@@ -89,13 +110,13 @@ export async function PUT(request: NextRequest) {
     const { password: _, ...safe } = users[idx];
     return NextResponse.json(safe);
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    return authError(err);
   }
 }
 
 export async function DELETE(request: NextRequest) {
   try {
-    const session = await getSession();
+    const session = await requirePermission("manage_users");
     const { id } = await request.json();
     const users = await getUsers();
     const target = users.find((u) => u.id === id);
@@ -112,6 +133,6 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    return authError(err);
   }
 }

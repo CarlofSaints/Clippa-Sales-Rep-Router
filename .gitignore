@@ -10,3 +10,7 @@ data/
 .vercel
 .env*.local
 .env*
+
+# Live data snapshots taken before a bulk import. Real names and email
+# addresses — never commit these.
+/backups/

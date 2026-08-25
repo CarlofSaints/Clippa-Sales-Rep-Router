@@ -5,6 +5,7 @@ import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
 import { SessionProvider, useSession } from "@/components/SessionProvider";
+import { isRepAllowedPath } from "@/lib/repAccess";
 
 const TOP_NAV = [
   { href: "/", label: "Dashboard", icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" },
@@ -24,6 +25,8 @@ const CONTROL_CENTRE_NAV = [
   { href: "/admin/regions", label: "Regions", icon: "M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" },
   { href: "/admin/store-upload", label: "Store Upload", icon: "M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" },
   { href: "/admin/duplicates", label: "Duplicate Stores", icon: "M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" },
+  { href: "/admin/coverage", label: "Store Coverage", icon: "M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" },
+  { href: "/admin/diagnostics", label: "System Health", icon: "M13 10V3L4 14h7v7l9-11h-7z" },
   { href: "/repsly", label: "Repsly", icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" },
   { href: "/activity-log", label: "Activity Log", icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" },
 ];
@@ -57,6 +60,15 @@ function AppShell({ children }: { children: React.ReactNode }) {
   const { session } = useSession();
   const isLogin = pathname === "/login";
 
+  /**
+   * A rep login reaches their own profile and nothing else, so the sidebar must
+   * not offer links the middleware will refuse. It shares the same allow-list
+   * the middleware enforces, so the nav can never drift out of step with it.
+   */
+  const isRep = session?.role === "rep";
+  const topNav = isRep ? TOP_NAV.filter((i) => isRepAllowedPath(i.href)) : TOP_NAV;
+  const bottomNav = isRep ? BOTTOM_NAV.filter((i) => isRepAllowedPath(i.href)) : BOTTOM_NAV;
+
   // Auto-expand Control Centre if current path matches a child
   const ccChildActive = CONTROL_CENTRE_NAV.some((item) => pathname === item.href);
   const [ccOpen, setCcOpen] = useState(ccChildActive);
@@ -87,11 +99,12 @@ function AppShell({ children }: { children: React.ReactNode }) {
         {/* Nav */}
         <nav className="flex-1 py-4 overflow-y-auto">
           {/* Top nav items */}
-          {TOP_NAV.map((item) => (
+          {topNav.map((item) => (
             <NavLink key={item.href} {...item} active={pathname === item.href} />
           ))}
 
           {/* Control Centre group */}
+          {!isRep && (
           <button
             onClick={() => setCcOpen(!ccOpen)}
             className={`flex items-center gap-3 px-4 py-2 text-sm w-full transition-colors ${
@@ -114,7 +127,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
             </svg>
           </button>
-          {ccOpen && (
+          )}
+          {!isRep && ccOpen && (
             <div className="mt-0.5">
               {CONTROL_CENTRE_NAV.map((item) => (
                 <NavLink key={item.href} {...item} active={pathname === item.href} indent />
@@ -124,7 +138,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
           {/* Bottom nav items */}
           <div className="mt-2 pt-2 border-t border-gray-700/50">
-            {BOTTOM_NAV.map((item) => (
+            {bottomNav.map((item) => (
               <NavLink key={item.href} {...item} active={pathname === item.href} />
             ))}
           </div>

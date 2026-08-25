@@ -211,6 +211,12 @@ export interface User {
   forcePasswordChange: boolean;
   cell?: string;
   profilePicUrl?: string;
+  /**
+   * The rep record this login belongs to, stored when the account is created
+   * from the Reps page. Matching on email alone detaches silently the moment
+   * anyone edits the rep's email, so the link is kept rather than inferred.
+   */
+  repId?: string;
 }
 
 export interface RolePermission {
@@ -225,13 +231,13 @@ export const ROLE_DEFINITIONS: RolePermission[] = [
     role: "superAdmin",
     label: "Super Admin",
     description: "Full unrestricted access",
-    permissions: ["manage_super_admins", "manage_users", "manage_roles", "manage_teams", "manage_reps", "manage_stores", "manage_store_overrides", "manage_channels", "manage_routes", "generate_routes", "manage_call_cycles", "manage_channel_map", "manage_regions", "manage_repsly", "view_dashboard", "view_map", "view_routes", "upload_stores", "upload_data", "export_data"],
+    permissions: ["manage_super_admins", "manage_users", "manage_roles", "manage_teams", "manage_reps", "create_rep_accounts", "manage_stores", "manage_store_overrides", "manage_channels", "manage_routes", "generate_routes", "manage_call_cycles", "manage_channel_map", "manage_regions", "manage_repsly", "view_dashboard", "view_map", "view_routes", "upload_stores", "upload_data", "export_data"],
   },
   {
     role: "admin",
     label: "Admin",
     description: "Manage reps, stores, channels, and view reports",
-    permissions: ["manage_teams", "manage_reps", "manage_stores", "manage_store_overrides", "manage_channels", "manage_routes", "generate_routes", "manage_call_cycles", "manage_channel_map", "manage_regions", "manage_repsly", "view_dashboard", "view_map", "view_routes", "upload_stores", "upload_data", "export_data"],
+    permissions: ["manage_teams", "manage_reps", "create_rep_accounts", "manage_stores", "manage_store_overrides", "manage_channels", "manage_routes", "generate_routes", "manage_call_cycles", "manage_channel_map", "manage_regions", "manage_repsly", "view_dashboard", "view_map", "view_routes", "upload_stores", "upload_data", "export_data"],
   },
   {
     role: "teamManager",
@@ -259,6 +265,7 @@ export const ALL_PERMISSIONS = [
   { key: "manage_roles", label: "Manage Roles" },
   { key: "manage_teams", label: "Manage Teams" },
   { key: "manage_reps", label: "Manage Reps" },
+  { key: "create_rep_accounts", label: "Create Rep Logins" },
   { key: "manage_stores", label: "Manage Stores" },
   { key: "manage_store_overrides", label: "Manage Store Call Overrides" },
   { key: "manage_channels", label: "Manage Channels" },

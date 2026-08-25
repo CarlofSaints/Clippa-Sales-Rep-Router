@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getReps, saveReps } from "@/lib/data";
 import { Rep } from "@/lib/types";
-import { getSession } from "@/lib/auth";
+import { getSession, requirePermission } from "@/lib/auth";
 import { logActivity } from "@/lib/activityLog";
 
 export async function GET() {
@@ -13,8 +13,16 @@ export async function GET() {
   }
 }
 
+/**
+ * 🔴 PUT / POST / DELETE here had NO permission check at all. The middleware
+ * only asks "is this a valid session", so any signed-in account — a viewer
+ * included — could rewrite any rep's email, team or home GPS, or delete them.
+ * That was survivable with three admin logins and stops being survivable the
+ * moment reps have logins of their own.
+ */
 export async function PUT(request: NextRequest) {
   try {
+    await requirePermission("manage_reps");
     const body = await request.json();
     const { id, ...updates } = body as Partial<Rep> & { id: string };
 
@@ -52,12 +60,13 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json(reps[idx]);
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    return authError(err);
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
+    await requirePermission("manage_reps");
     const body = await request.json();
     const reps = await getReps();
 
@@ -90,12 +99,13 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(newRep, { status: 201 });
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    return authError(err);
   }
 }
 
 export async function DELETE(request: NextRequest) {
   try {
+    await requirePermission("manage_reps");
     const { id } = await request.json();
     const reps = await getReps();
     const target = reps.find((r) => r.id === id);
@@ -107,6 +117,19 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    return authError(err);
   }
+}
+
+/**
+ * requirePermission throws; returning that as a 500 would read on screen as
+ * "the app broke" when what actually happened is "you may not do this".
+ */
+function authError(err: unknown) {
+  const msg = String(err);
+  if (msg.includes("Unauthorized")) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (msg.includes("Forbidden")) {
+    return NextResponse.json({ error: "You do not have permission to change reps." }, { status: 403 });
+  }
+  return NextResponse.json({ error: msg }, { status: 500 });
 }

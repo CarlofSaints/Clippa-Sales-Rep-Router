@@ -61,7 +61,9 @@ export default function LoginPage() {
       const res = await fetch("/api/auth/change-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, newPassword }),
+        // No userId: the route acts on the session's own account. Sending one
+        // was how this became an account-takeover path.
+        body: JSON.stringify({ newPassword }),
       });
       const data = await res.json();
       if (!res.ok) {
