@@ -21,9 +21,11 @@ import { requirePermission } from "@/lib/auth";
 export const maxDuration = 30;
 export const dynamic = "force-dynamic";
 
-// Sandton City. A well-known building, so a healthy Geocoding API returns
-// ROOFTOP for it. Anything vaguer is a signal in itself.
-const TEST_ADDRESS = "Sandton City, Sandton, South Africa";
+// A full street address, not a landmark. "Sandton City, Sandton, South Africa"
+// came back APPROXIMATE on the first live run: Google matched the SUBURB, not
+// the mall, because a place name is not an address. A numbered street address is
+// what the rep home-address flow actually sends, so it is what this should test.
+const TEST_ADDRESS = "5 Alice Lane, Sandton, 2196, South Africa";
 // Sandton -> Pretoria. Far enough apart that a real road route is unmistakable.
 const TEST_ORIGIN = "-26.1076,28.0567";
 const TEST_DESTINATION = "-25.7479,28.2293";
@@ -115,13 +117,23 @@ export async function GET() {
       const status = geo.value.status || "UNKNOWN";
       const ok = status === "OK";
       const top = geo.value.results?.[0];
+      // Precision is reported but does NOT fail the check. Google answering is
+      // one question; how exactly it answered is another, and conflating them
+      // would raise an alarm about a working key.
+      const precision = top?.geometry?.location_type || "UNKNOWN";
+      const precise = precision === "ROOFTOP" || precision === "RANGE_INTERPOLATED";
       checks.push({
         name: "Geocoding API",
         ok,
         status,
         ms: geo.ms,
         detail: ok
-          ? `Resolved the test address to "${top?.formatted_address}" (${top?.geometry?.location_type}).`
+          ? `Resolved the test address to "${top?.formatted_address}" (${precision}).` +
+            (precise
+              ? " That is building-level precision, so typed home addresses can be saved automatically."
+              : " ⚠️ That is only area-level precision. A typed home address this vague is deliberately NOT saved," +
+                " because a suburb centroid looks identical to a real home once stored — the rep is asked to tap" +
+                " \"Use my current location\" instead.")
           : geo.value.error_message || "Google did not return a result.",
         fix: ok ? undefined : explain(status, geo.value.error_message),
       });

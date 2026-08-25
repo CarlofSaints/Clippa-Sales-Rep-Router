@@ -309,6 +309,10 @@ export async function sendWelcomeEmail(input: WelcomeEmailInput): Promise<Welcom
       body: JSON.stringify({
         from: process.env.RESEND_FROM || "Clippa <onboarding@resend.dev>",
         to: input.email,
+        // The From address is whatever domain is verified with the ESP, which is
+        // not necessarily a mailbox anyone reads. Without this, a rep who simply
+        // hits Reply is writing into the void and nobody ever knows they did.
+        ...(process.env.RESEND_REPLY_TO ? { reply_to: process.env.RESEND_REPLY_TO } : {}),
         subject,
         html,
         text,
