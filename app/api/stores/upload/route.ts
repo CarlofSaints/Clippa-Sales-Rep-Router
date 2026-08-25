@@ -47,6 +47,16 @@ export async function POST(request: NextRequest) {
     const fileHeaders = rows.length > 0 ? Object.keys(rows[0]).map((h) => h.trim()) : [];
     let skippedRows = 0;
 
+    // Whether the file carries a sales column at all. Presence decides scope:
+    // absent means leave the figure alone, which is what makes a stores-only
+    // sheet safe. Writing an unconditional `existing.monthlySales = sales` zeroed
+    // the figure on every row of any file that did not carry the column, and once
+    // sales arrive from IMS rather than from a spreadsheet, that stops being an
+    // inconvenience and becomes a wipe of data nobody can retype.
+    const hasSalesColumn = fileHeaders.some((h) =>
+      ["MONTHLY AVERAGE", "VALUE", "Value", "Monthly Average", "Sales", "SIX MONTH SALES", "6 MONTH SALES"].includes(h)
+    );
+
     // Detect format: Repsly Places export has "ID" + "Name" + "Representative ID" columns
     // (Tags column is optional — some Repsly exports omit it)
     const hasRepslyFormat = fileHeaders.some((h) => h === "ID") &&
@@ -141,7 +151,7 @@ export async function POST(request: NextRequest) {
         existing.repCode = repCode;
         existing.gpsLat = lat;
         existing.gpsLng = lng;
-        existing.monthlySales = sales;
+        if (hasSalesColumn) existing.monthlySales = sales;
         if (region) existing.region = region;
         updatedCount++;
       } else {

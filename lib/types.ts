@@ -146,7 +146,27 @@ export interface Store {
   repCode: string;
   gpsLat: string;
   gpsLng: string;
+  /**
+   * AVERAGE monthly sales: `sixMonthSales / 6`.
+   *
+   * The stored key keeps its old name on purpose. Seventeen places read it, and
+   * renaming a persisted field means a migration that silently drops the value
+   * on every record written before it. What changed is the LABEL and where the
+   * number comes from, not the key.
+   */
   monthlySales: number;
+  /**
+   * Rolling six months of in-market sales for this store, as supplied by the
+   * client's IMS database.
+   *
+   * IMS, not sell-out: most of this store base is independents, forecourts and
+   * liquor stores, and no retailer scan data exists for them. What the outlet
+   * bought is only known to the invoicing system.
+   *
+   * Absent means "we have never been given a figure", which is a different
+   * thing from zero, so it is optional rather than defaulted.
+   */
+  sixMonthSales?: number;
   frequency: FrequencyType;
   duration: number; // minutes
   dayOfWeek: string;
@@ -281,6 +301,11 @@ export const ALL_PERMISSIONS = [
   { key: "upload_stores", label: "Upload Stores" },
   { key: "upload_data", label: "Upload Data" },
   { key: "export_data", label: "Export Data" },
+  // Deliberately granted to NOBODY except superAdmin. getRolePermissions forces
+  // superAdmin to the full ALL_PERMISSIONS list while every other role keeps its
+  // saved explicit list, so adding a key here and nowhere else gives it to the
+  // super admin alone. No user id is hardcoded anywhere.
+  { key: "view_sql_direct", label: "SQL Direct (reconnaissance)" },
 ];
 
 export interface SessionPayload {

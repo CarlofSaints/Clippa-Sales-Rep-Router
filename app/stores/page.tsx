@@ -668,7 +668,12 @@ export default function StoresPage() {
                 <th className="px-3 py-2 bg-gray-50">Latitude</th>
                 <th className="px-3 py-2 bg-gray-50">Longitude</th>
                 <th className="px-3 py-2 bg-gray-50">Rep</th>
-                <th className="px-3 py-2 bg-gray-50 text-right">Monthly Sales</th>
+                <th className="px-3 py-2 bg-gray-50 text-right" title="Rolling six months of in-market sales, divided by six">
+                  Avg Monthly Sales
+                </th>
+                <th className="px-3 py-2 bg-gray-50 text-right" title="Rolling six months of in-market sales, as supplied by IMS">
+                  6-Month Sales
+                </th>
                 <th className="px-3 py-2 bg-gray-50 text-center">Rank Overall</th>
                 <th className="px-3 py-2 bg-gray-50 text-center">Rank/Rep</th>
                 <th className="px-3 py-2 bg-gray-50 text-center">Rank/Channel</th>
@@ -769,6 +774,10 @@ export default function StoresPage() {
                           </select>
                         </td>
                         <td className="px-3 py-2 text-right text-gray-600">{fmt(store.monthlySales)}</td>
+                        {/* Absent means never supplied, which is a different thing from zero. */}
+                        <td className="px-3 py-2 text-right text-gray-500">
+                          {store.sixMonthSales == null ? <span className="text-gray-300">—</span> : fmt(store.sixMonthSales)}
+                        </td>
                         <td className="px-3 py-2 text-center text-gray-400">{rankings.overallRank.get(store.id)}</td>
                         <td className="px-3 py-2 text-center text-gray-400">{rankings.repRank.get(store.id)}</td>
                         <td className="px-3 py-2 text-center text-gray-400">{rankings.channelRank.get(store.id)}</td>
@@ -855,6 +864,10 @@ export default function StoresPage() {
                         </td>
                         <td className="px-3 py-2 text-gray-600">{rep?.name || store.repCode}</td>
                         <td className="px-3 py-2 text-right text-gray-600">{fmt(store.monthlySales)}</td>
+                        {/* Absent means never supplied, which is a different thing from zero. */}
+                        <td className="px-3 py-2 text-right text-gray-500">
+                          {store.sixMonthSales == null ? <span className="text-gray-300">—</span> : fmt(store.sixMonthSales)}
+                        </td>
                         <td className="px-3 py-2 text-center">
                           <span className="inline-flex items-center justify-center w-7 h-5 rounded bg-blue-50 text-blue-700 font-medium">
                             {rankings.overallRank.get(store.id)}
