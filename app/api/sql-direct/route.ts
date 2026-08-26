@@ -54,6 +54,11 @@ export async function POST(request: NextRequest) {
     const query = String(body?.query || "").trim();
     const client = String(body?.client || CLIPPA_SQL_CLIENT).trim();
     const compareOnPlaceId = body?.compareOnPlaceId !== false;
+    // The IMS query takes a rolling window instead of a client name. Sent only
+    // when supplied: the proxy clamps it, and queries that do not declare it
+    // ignore it.
+    const rawMonths = Number(body?.monthsBack);
+    const monthsBack = Number.isFinite(rawMonths) ? Math.trunc(rawMonths) : null;
 
     if (!query) {
       return NextResponse.json({ error: "No query named." }, { status: 400 });
@@ -62,7 +67,10 @@ export async function POST(request: NextRequest) {
     const startedAt = Date.now();
     // `client` is passed for the queries that take it; the proxy ignores params a
     // query does not declare, so sending it always is harmless.
-    const result = await sqlQuery(query, { client });
+    const result = await sqlQuery(query, {
+      client,
+      ...(monthsBack === null ? {} : { monthsBack }),
+    });
     const ms = Date.now() - startedAt;
 
     const rows = result.data ?? [];
@@ -72,6 +80,7 @@ export async function POST(request: NextRequest) {
       configured: true,
       query,
       client,
+      monthsBack,
       ms,
       rowCount: result.count ?? rows.length,
       sampled: Math.min(rows.length, 200),

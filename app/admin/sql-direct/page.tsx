@@ -47,6 +47,7 @@ interface Result {
  * so this list is the menu, not a suggestion.
  */
 const KNOWN_QUERIES = [
+  { name: "clippa_ims_place_sales", label: "IMS sales per outlet", hint: "CLIPPA SALES INTERNAL. THE source for this project: one row per Place ID, already totalled over the window. Takes months back, not a client name.", ims: true },
   { name: "list_clients", label: "List SQL clients", hint: "ClientMaster. Confirms the exact client name; CLIPPA SALES vs CLIPPA SALES (Pty) Ltd has bitten us before." },
   { name: "list_tables", label: "List tables", hint: "ClientMaster only. Cannot see any other server or database." },
   { name: "client_stores", label: "Retail sites", hint: "ClientMaster. Sell-out store master, NOT the sales this project needs." },
@@ -54,8 +55,9 @@ const KNOWN_QUERIES = [
 ];
 
 export default function SqlDirectPage() {
-  const [query, setQuery] = useState("list_clients");
+  const [query, setQuery] = useState("clippa_ims_place_sales");
   const [client, setClient] = useState("CLIPPA SALES");
+  const [monthsBack, setMonthsBack] = useState(6);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
 
@@ -66,7 +68,7 @@ export default function SqlDirectPage() {
       const res = await fetch("/api/sql-direct", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: q, client }),
+        body: JSON.stringify({ query: q, client, monthsBack }),
       });
       setResult(await res.json());
     } catch (e) {
@@ -95,20 +97,41 @@ export default function SqlDirectPage() {
           here touches stores, reps, channels or the upload path.
         </p>
         <p className="mt-2 text-xs font-medium text-amber-900">
-          ⚠️ Every query below runs against <span className="font-mono">ClientMaster</span>, which is the
-          sell-out database and is NOT where in-market sales live. They are here to prove the connection
-          works, not because they hold what this project needs. The IMS source needs its own registry entry
-          on the proxy, and probably its own connection pool.
+          ⚠️ Only <span className="font-mono">IMS sales per outlet</span> reads in-market sales. It runs
+          against <span className="font-mono">CLIPPA SALES INTERNAL</span>, the database Mark supplied on
+          26 August. Every other query below runs against <span className="font-mono">ClientMaster</span>,
+          which is the sell-out database and holds scan data for retailers this store base mostly is not.
+          They are there to prove the connection works, not because they hold what this project needs.
         </p>
       </div>
 
       <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-        <label className="block text-xs font-medium text-gray-500">Client name, as SQL knows it</label>
-        <input
-          value={client}
-          onChange={(e) => setClient(e.target.value)}
-          className="mt-1 w-full max-w-sm rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
-        />
+        <div className="flex flex-wrap items-start gap-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-500">Client name, as SQL knows it</label>
+            <input
+              value={client}
+              onChange={(e) => setClient(e.target.value)}
+              className="mt-1 w-full max-w-sm rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
+            />
+            <p className="mt-1 text-xs text-gray-400">Used by the ClientMaster queries. The IMS query ignores it.</p>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500">Months back</label>
+            <input
+              type="number"
+              min={1}
+              max={24}
+              value={monthsBack}
+              onChange={(e) => setMonthsBack(Number(e.target.value))}
+              className="mt-1 w-28 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
+            />
+            <p className="mt-1 text-xs text-gray-400">
+              IMS query only. Clamped to 1 to 24. A wider window matches more stores because it picks up
+              dormant ones.
+            </p>
+          </div>
+        </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
           {KNOWN_QUERIES.map((q) => (
@@ -137,7 +160,7 @@ export default function SqlDirectPage() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="e.g. the IMS query, once Mark has one"
+              placeholder="e.g. clippa_ims_place_sales"
               className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-clippa-red"
             />
           </div>
