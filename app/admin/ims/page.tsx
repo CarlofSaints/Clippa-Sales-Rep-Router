@@ -1,0 +1,443 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import * as XLSX from "xlsx";
+import type { ReconResult, ReconRow, OrphanRow, MatchStatus } from "@/lib/imsReconCore";
+
+/**
+ * IMS Reconciliation.
+ *
+ * Answers, per store, whether the client's invoicing system has ever seen it —
+ * and when it has not, offers the account code the sales appear to be going to
+ * instead.
+ */
+
+type Tab = "all" | MatchStatus | "orphans";
+
+const STATUS_LABEL: Record<MatchStatus, string> = {
+  selling: "Selling",
+  dormant: "Dormant",
+  dark: "No sales",
+  absent: "Not in IMS",
+};
+
+const STATUS_STYLE: Record<MatchStatus, string> = {
+  selling: "bg-green-100 text-green-800",
+  dormant: "bg-amber-100 text-amber-800",
+  dark: "bg-red-100 text-red-800",
+  absent: "bg-gray-200 text-gray-700",
+};
+
+const CONFIDENCE_STYLE: Record<string, string> = {
+  strong: "bg-green-100 text-green-800",
+  weak: "bg-amber-100 text-amber-800",
+  ambiguous: "bg-gray-200 text-gray-600",
+};
+
+const rand = (n: number | null | undefined) =>
+  n === null || n === undefined ? "" : "R " + Math.round(n).toLocaleString("en-ZA");
+
+export default function ImsReconciliationPage() {
+  const [data, setData] = useState<ReconResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<Tab>("all");
+  const [search, setSearch] = useState("");
+  const [applying, setApplying] = useState(false);
+  const [applyResult, setApplyResult] = useState<Record<string, unknown> | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/ims/reconcile", { cache: "no-store" });
+      const json = await res.json();
+      if (!res.ok) setError(json.error || "Could not load the reconciliation.");
+      else setData(json);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const runApply = async (mode: "preview" | "apply") => {
+    setApplying(true);
+    setApplyResult(null);
+    try {
+      const res = await fetch(`/api/ims/apply-sales?mode=${mode}`, { method: "POST" });
+      setApplyResult(await res.json());
+      if (mode === "apply") await load();
+    } catch (e) {
+      setApplyResult({ error: String(e) });
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const rows = useMemo(() => {
+    if (!data) return [];
+    const q = search.trim().toUpperCase();
+    const match = (t: string | null) => !!t && t.toUpperCase().includes(q);
+    if (tab === "orphans") {
+      return data.orphans.filter((o) => !q || match(o.placeId) || match(o.imsName));
+    }
+    return data.rows
+      .filter((r) => tab === "all" || r.status === tab)
+      .filter((r) => !q || match(r.placeId) || match(r.name) || match(r.imsName) || match(r.repCode) || match(r.twin?.code ?? null));
+  }, [data, tab, search]);
+
+  const exportExcel = () => {
+    if (!data) return;
+    const wb = XLSX.utils.book_new();
+
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet(
+        data.rows.map((r) => ({
+          "PLACE ID": r.placeId,
+          "STORE NAME (ROUTER)": r.name,
+          "STORE NAME (IMS)": r.imsName ?? "",
+          STATUS: STATUS_LABEL[r.status],
+          "6-MONTH SALES": r.sixMonthSales ?? "",
+          "REP CODE (ROUTER)": r.repCode,
+          "REP CODE (IMS)": r.imsRepCode ?? "",
+          "IMS PROVINCE": r.imsProvince ?? "",
+          "IMS CHANNEL": r.imsChannel ?? "",
+          "CLOSED IN IMS": r.imsClosed === null ? "" : r.imsClosed ? "YES" : "NO",
+          "LIKELY SAME STORE AS": r.twin?.code ?? "",
+          "THAT CODE'S NAME": r.twin?.name ?? "",
+          "THAT CODE'S SALES": r.twin?.sixMonthSales ?? "",
+          CONFIDENCE: r.twin?.confidence ?? "",
+          "SAME PROVINCE": r.twin ? (r.twin.sameProvince ? "YES" : "NO") : "",
+          "TWIN ALSO IN ROUTER": r.twin ? (r.twin.twinIsInRouter ? "YES" : "NO") : "",
+        }))
+      ),
+      "Stores"
+    );
+
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet(
+        data.orphans.map((o) => ({
+          "PLACE ID": o.placeId,
+          "STORE NAME (IMS)": o.imsName ?? "",
+          "6-MONTH SALES": o.sixMonthSales,
+          "REP CODE (IMS)": o.imsRepCode ?? "",
+          "IMS PROVINCE": o.imsProvince ?? "",
+          "IMS CHANNEL": o.imsChannel ?? "",
+          "CLOSED IN IMS": o.imsClosed === null ? "" : o.imsClosed ? "YES" : "NO",
+        }))
+      ),
+      "Selling but not routed"
+    );
+
+    const s = data.summary;
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet([
+        { MEASURE: "Stores in the router", VALUE: s.appStores },
+        { MEASURE: "Selling (has 6-month sales)", VALUE: s.selling },
+        { MEASURE: "Dormant (sold 6 to 12 months ago)", VALUE: s.dormant },
+        { MEASURE: "No sales in 12 months", VALUE: s.dark },
+        { MEASURE: "Not in the IMS outlet master at all", VALUE: s.absent },
+        { MEASURE: "IMS codes with sales", VALUE: s.imsSalesCodes },
+        { MEASURE: "IMS codes selling but not routed", VALUE: s.orphanCount },
+        { MEASURE: "Total 6-month IMS value", VALUE: Math.round(s.totalValue) },
+        { MEASURE: "Value reaching a routed store", VALUE: Math.round(s.matchedValue) },
+        { MEASURE: "Value reaching no routed store", VALUE: Math.round(s.strandedValue) },
+        { MEASURE: "Likely duplicate accounts (strong)", VALUE: s.twinStrong },
+        { MEASURE: "Likely duplicate accounts (weak)", VALUE: s.twinWeak },
+        { MEASURE: "Possible duplicates (ambiguous)", VALUE: s.twinAmbiguous },
+      ]),
+      "Summary"
+    );
+
+    XLSX.writeFile(wb, "IMS reconciliation.xlsx");
+  };
+
+  const s = data?.summary;
+
+  return (
+    <div className="space-y-5 p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-gray-900">IMS Reconciliation</h1>
+          <p className="mt-1 text-sm text-gray-500">
+            Every store in the router against the client&apos;s invoicing system, and where the sales went
+            when a store has none of its own.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={load}
+            disabled={loading}
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {loading ? "Loading..." : "Refresh"}
+          </button>
+          <button
+            onClick={exportExcel}
+            disabled={!data}
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            Export Excel
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          {error}
+          <p className="mt-1 text-xs text-red-700">
+            A 400 naming an unknown query means Railway has not picked up the proxy change yet.
+          </p>
+        </div>
+      )}
+
+      {s && (
+        <>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <Tile label="Selling" value={s.selling} sub={`${pctOf(s.selling, s.appStores)} of the router`} tone="green" />
+            <Tile label="Dormant" value={s.dormant} sub="sold 6 to 12 months ago" tone="amber" />
+            <Tile label="No sales in 12 months" value={s.dark} sub="in IMS, never invoiced" tone="red" />
+            <Tile label="Not in IMS at all" value={s.absent} sub="code unknown to IMS" tone="gray" />
+          </div>
+
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <p className="text-sm font-semibold text-amber-900">
+              {rand(s.strandedValue)} of {rand(s.totalValue)} in six-month sales reaches no store in the
+              router ({pctOf(s.strandedValue, s.totalValue)}).
+            </p>
+            <p className="mt-1 text-xs text-amber-800">
+              {s.orphanCount.toLocaleString("en-ZA")} IMS codes are being invoiced with no rep routed to
+              them. They are on the <strong>Selling, not routed</strong> tab.{" "}
+              {s.orphanWholesaleCount > 0 && (
+                <>
+                  Of those, {s.orphanWholesaleCount.toLocaleString("en-ZA")} carrying{" "}
+                  {rand(s.orphanWholesaleValue)} look like depots, DCs or head offices rather than shops, so
+                  no rep was ever going to visit them. That leaves roughly{" "}
+                  <strong>{rand(s.strandedValue - s.orphanWholesaleValue)}</strong> sitting in outlets that
+                  plausibly should be on somebody&apos;s route.
+                </>
+              )}
+            </p>
+            <p className="mt-2 text-xs text-amber-800">
+              <strong>{s.twinStrong.toLocaleString("en-ZA")}</strong> stores with no sales have a strong
+              duplicate-account match, {s.twinWeak.toLocaleString("en-ZA")} a weak one and{" "}
+              {s.twinAmbiguous.toLocaleString("en-ZA")} an ambiguous one. A Place ID is{" "}
+              <span className="font-mono">ACCOUNT-STORE</span>: the part after the hyphen identifies the
+              shop, the part before it identifies who invoices it. The same shop bought through a different
+              wholesaler gets a different code, and looks dead here.
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+            <h2 className="text-sm font-semibold text-gray-900">Write the six-month sales onto the stores</h2>
+            <p className="mt-1 text-xs text-gray-500">
+              Sets <span className="font-mono">6-Month Sales</span> and recalculates{" "}
+              <span className="font-mono">Avg Monthly Sales</span> as a sixth of it. A store with no IMS
+              figure is left exactly as it is, never zeroed.
+            </p>
+            <div className="mt-3 flex gap-2">
+              <button
+                onClick={() => runApply("preview")}
+                disabled={applying}
+                className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                {applying ? "Working..." : "Preview"}
+              </button>
+              <button
+                onClick={() => runApply("apply")}
+                disabled={applying || !applyResult || !!applyResult.error || applyResult.applied === true}
+                className="rounded-lg bg-clippa-red px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                title={!applyResult ? "Preview first" : ""}
+              >
+                Apply to stores
+              </button>
+            </div>
+            {applyResult && <ApplyReport result={applyResult} />}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {(["all", "selling", "dormant", "dark", "absent", "orphans"] as Tab[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  tab === t ? "border-clippa-red bg-clippa-red text-white" : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                }`}
+              >
+                {t === "all"
+                  ? `All (${s.appStores.toLocaleString("en-ZA")})`
+                  : t === "orphans"
+                  ? `Selling, not routed (${s.orphanCount.toLocaleString("en-ZA")})`
+                  : `${STATUS_LABEL[t as MatchStatus]} (${(s[t as MatchStatus] as number).toLocaleString("en-ZA")})`}
+              </button>
+            ))}
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search place id, store name or rep"
+              className="ml-auto w-64 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
+            />
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-gray-100 bg-white shadow-sm">
+            <p className="border-b border-gray-100 px-4 py-2 text-xs text-gray-500">
+              Showing {rows.length.toLocaleString("en-ZA")} rows
+              {rows.length > 500 ? " (first 500; export for the full list)" : ""}
+            </p>
+            {tab === "orphans" ? <OrphanTable rows={rows as OrphanRow[]} /> : <StoreTable rows={rows as ReconRow[]} />}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function pctOf(a: number, b: number) {
+  return b ? `${Math.round((a / b) * 1000) / 10}%` : "0%";
+}
+
+function Tile({ label, value, sub, tone }: { label: string; value: number; sub: string; tone: string }) {
+  const tones: Record<string, string> = {
+    green: "border-green-200 bg-green-50 text-green-900",
+    amber: "border-amber-200 bg-amber-50 text-amber-900",
+    red: "border-red-200 bg-red-50 text-red-900",
+    gray: "border-gray-200 bg-gray-50 text-gray-900",
+  };
+  return (
+    <div className={`rounded-xl border p-4 ${tones[tone]}`}>
+      <p className="text-xs font-medium opacity-80">{label}</p>
+      <p className="mt-1 text-2xl font-bold">{value.toLocaleString("en-ZA")}</p>
+      <p className="mt-0.5 text-xs opacity-70">{sub}</p>
+    </div>
+  );
+}
+
+function StoreTable({ rows }: { rows: ReconRow[] }) {
+  return (
+    <table className="min-w-full text-sm">
+      <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+        <tr>
+          <Th>Place ID</Th>
+          <Th>Store (router)</Th>
+          <Th>Store (IMS)</Th>
+          <Th>Rep</Th>
+          <Th>Status</Th>
+          <Th right>6-month sales</Th>
+          <Th>Likely same store as</Th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-gray-100">
+        {rows.slice(0, 500).map((r) => (
+          <tr key={r.placeId} className="hover:bg-gray-50">
+            <td className="whitespace-nowrap px-4 py-2 font-mono text-xs">{r.placeId}</td>
+            <td className="px-4 py-2">{r.name}</td>
+            <td className="px-4 py-2 text-gray-500">
+              {r.imsName ?? <span className="italic text-gray-400">not in IMS</span>}
+            </td>
+            <td className="whitespace-nowrap px-4 py-2 text-xs">
+              {r.repCode}
+              {r.imsRepCode && r.imsRepCode.trim().toUpperCase() !== (r.repCode || "").trim().toUpperCase() && (
+                <span className="ml-1 rounded bg-amber-100 px-1 text-amber-800" title="IMS thinks a different rep owns this store">
+                  IMS: {r.imsRepCode}
+                </span>
+              )}
+            </td>
+            <td className="whitespace-nowrap px-4 py-2">
+              <span className={`rounded px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[r.status]}`}>
+                {STATUS_LABEL[r.status]}
+              </span>
+              {r.imsClosed && (
+                <span className="ml-1 rounded bg-gray-200 px-1 text-xs text-gray-700">closed</span>
+              )}
+            </td>
+            <td className="whitespace-nowrap px-4 py-2 text-right font-medium">{rand(r.sixMonthSales)}</td>
+            <td className="whitespace-nowrap px-4 py-2 text-xs">
+              {r.twin ? (
+                <span title={`${r.twin.candidates} selling code(s) share this suffix`}>
+                  <span className="font-mono">{r.twin.code}</span>{" "}
+                  <span className={`rounded px-1 ${CONFIDENCE_STYLE[r.twin.confidence]}`}>{r.twin.confidence}</span>{" "}
+                  <span className="text-gray-500">{rand(r.twin.sixMonthSales)}</span>
+                  {r.twin.twinIsInRouter && <span className="ml-1 text-gray-400">(also routed)</span>}
+                </span>
+              ) : (
+                ""
+              )}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function OrphanTable({ rows }: { rows: OrphanRow[] }) {
+  return (
+    <table className="min-w-full text-sm">
+      <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+        <tr>
+          <Th>Place ID</Th>
+          <Th>Store (IMS)</Th>
+          <Th>Province</Th>
+          <Th>Channel</Th>
+          <Th>Rep (IMS)</Th>
+          <Th right>6-month sales</Th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-gray-100">
+        {rows.slice(0, 500).map((o) => (
+          <tr key={o.placeId} className="hover:bg-gray-50">
+            <td className="whitespace-nowrap px-4 py-2 font-mono text-xs">{o.placeId}</td>
+            <td className="px-4 py-2">
+              {o.imsName ?? <span className="italic text-gray-400">no master record</span>}
+              {o.imsClosed && <span className="ml-1 rounded bg-gray-200 px-1 text-xs text-gray-700">closed</span>}
+            </td>
+            <td className="px-4 py-2 text-gray-500">{o.imsProvince ?? ""}</td>
+            <td className="px-4 py-2 text-gray-500">{o.imsChannel ?? ""}</td>
+            <td className="whitespace-nowrap px-4 py-2 text-xs">{o.imsRepCode ?? ""}</td>
+            <td className="whitespace-nowrap px-4 py-2 text-right font-medium">{rand(o.sixMonthSales)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function Th({ children, right }: { children: React.ReactNode; right?: boolean }) {
+  return <th className={`px-4 py-2 font-medium ${right ? "text-right" : ""}`}>{children}</th>;
+}
+
+function ApplyReport({ result }: { result: Record<string, unknown> }) {
+  if (result.error) {
+    return <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-800">{String(result.error)}</p>;
+  }
+  const n = (k: string) => Number(result[k] ?? 0).toLocaleString("en-ZA");
+  return (
+    <div className={`mt-3 rounded-lg p-3 text-sm ${result.applied ? "bg-green-50 text-green-900" : "bg-gray-50 text-gray-700"}`}>
+      <p className="font-medium">
+        {result.applied ? "Applied." : "Preview only, nothing written."} {n("updated")} stores would change,{" "}
+        {n("unchanged")} already match, {n("untouched")} have no IMS figure and were left alone.
+      </p>
+      <p className="mt-1 text-xs">
+        {n("firstTimeValue")} are getting a sales figure for the first time. {n("overwritingExisting")} already
+        had one and it will be replaced.
+      </p>
+      {Array.isArray(result.samples) && result.samples.length > 0 && (
+        <ul className="mt-2 space-y-0.5 text-xs">
+          {(result.samples as Array<{ placeId: string; name: string; from: number | null; to: number }>).map((x) => (
+            <li key={x.placeId} className="font-mono">
+              {x.placeId} {x.name.slice(0, 28)} : {x.from === null ? "(none)" : rand(x.from)} to {rand(x.to)}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
