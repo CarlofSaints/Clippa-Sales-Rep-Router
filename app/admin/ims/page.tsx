@@ -226,6 +226,16 @@ export default function ImsReconciliationPage() {
                 </>
               )}
             </p>
+            {s.repMismatchCount > 0 && (
+              <p className="mt-2 text-xs text-amber-800">
+                On <strong>{s.repMismatchCount.toLocaleString("en-ZA")}</strong> stores IMS names a different
+                rep than the router does. Those rows carry an amber{" "}
+                <span className="rounded bg-amber-100 px-1">IMS:</span> badge in the Rep column, and both
+                codes are in the Excel export. IMS&apos;s parallel{" "}
+                <span className="font-mono">CODE + CMR</span> spelling of the same person is not counted as a
+                disagreement.
+              </p>
+            )}
             <p className="mt-2 text-xs text-amber-800">
               <strong>{s.twinStrong.toLocaleString("en-ZA")}</strong> stores with no sales have a strong
               duplicate-account match, {s.twinWeak.toLocaleString("en-ZA")} a weak one and{" "}
@@ -344,7 +354,7 @@ function StoreTable({ rows }: { rows: ReconRow[] }) {
             </td>
             <td className="whitespace-nowrap px-4 py-2 text-xs">
               {r.repCode}
-              {r.imsRepCode && r.imsRepCode.trim().toUpperCase() !== (r.repCode || "").trim().toUpperCase() && (
+              {r.repMismatch && (
                 <span className="ml-1 rounded bg-amber-100 px-1 text-amber-800" title="IMS thinks a different rep owns this store">
                   IMS: {r.imsRepCode}
                 </span>

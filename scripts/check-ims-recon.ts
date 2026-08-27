@@ -14,6 +14,8 @@ import {
   applySalesToStores,
   gradeTwin,
   suffixOf,
+  sameRep,
+  looksWholesale,
   type ImsStore,
 } from "../lib/imsReconCore";
 import type { Store } from "../lib/types";
@@ -216,6 +218,42 @@ ok("three candidates is still gradeable", gradeTwin("GO38", 3) === "strong");
   const out = applySalesToStores(stores, new Map([["Z", 0]]));
   ok("a genuine zero IS written", out.stores[0].sixMonthSales === 0 && out.stores[0].monthlySales === 0,
     "0 from IMS means it sold nothing; absent means we were never told");
+}
+
+// ── sameRep: the CMR suffix is the same person, a different code is not ─────
+ok("identical codes are the same rep", sameRep("KZN021", "KZN021"));
+ok("a trailing CMR is the same rep", sameRep("KZN021", "KZN021CMR"));
+ok("CMR on the router side is the same rep too", sameRep("MP001CMR", "MP001"));
+ok("case and whitespace do not create a mismatch", sameRep(" kzn021 ", "KZN021CMR"));
+ok("a genuinely different code IS a mismatch", !sameRep("GAU086", "GAU083"),
+  "this is the GAU086 reallocation, it must not be swallowed");
+ok("CMR is only stripped from the END", !sameRep("GAU086", "CMRGAU086"));
+ok("a blank on either side is not a disagreement", sameRep("", "GAU083") && sameRep("GAU083", ""));
+ok("a bare CMR code does not match everything", !sameRep("GAU086", "CMRMP"));
+
+// ── looksWholesale ──────────────────────────────────────────────────────────
+{
+  const w = (extra: Partial<ImsStore>) => looksWholesale(ims("X", extra));
+  ok("a distribution centre is flagged", w({ "Store Name": "PNP EASTPORT DISTRIBUTION CENTRE" }));
+  ok("a depot is flagged", w({ "Store Name": "NR MORELETA SUPERSPAR DC" }));
+  ok("cash and carry is flagged", w({ "Store Name": "AONE SWEETS CASH AND CARRY" }));
+  ok("the flag reads Group and Category too", w({ Group: "WHOLESALE" }) && w({ "Store Category": "DEPOT" }));
+  ok("an ordinary shop is NOT flagged", !w({ "Store Name": "SPAR FRANKFORT" }),
+    "over-flagging would hide real unrouted outlets");
+  ok("a missing master record is not flagged", !looksWholesale(undefined));
+}
+
+// The mismatch flag on a real row.
+{
+  const stores = [store("A-1", { repCode: "KZN021" }), store("A-2", { repCode: "GAU086" })];
+  const master = new Map([
+    ["A-1", ims("A-1", { "Rep Code": "KZN021CMR" })],
+    ["A-2", ims("A-2", { "Rep Code": "GAU083" })],
+  ]);
+  const r = reconcile(stores, new Map(), new Set(), master);
+  ok("a CMR-suffix rep is not reported as a mismatch", r.rows.find((x) => x.placeId === "A-1")!.repMismatch === false);
+  ok("a different rep IS reported as a mismatch", r.rows.find((x) => x.placeId === "A-2")!.repMismatch === true);
+  ok("the summary counts only real mismatches", r.summary.repMismatchCount === 1);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

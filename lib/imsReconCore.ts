@@ -71,6 +71,8 @@ export interface ReconRow {
   imsChannel: string | null;
   imsRepCode: string | null;
   imsClosed: boolean | null;
+  /** IMS names a genuinely different rep, CMR-suffix duplicates excluded. */
+  repMismatch: boolean;
   twin: TwinSuggestion | null;
 }
 
@@ -103,6 +105,22 @@ export interface OrphanRow {
 const WHOLESALE_RE =
   /(DISTRIBUTION|DEPOT|WAREHOUSE|HEAD[\s-]?OFFICE|\bDC\b|WHOLESALE|CASH\s*(&|AND)\s*CARRY|BUYING|GROUP OFFICE)/;
 
+/**
+ * Do the router and IMS name the same rep?
+ *
+ * IMS carries a parallel `<CODE>CMR` form of the same rep — `KZN021` and
+ * `KZN021CMR` are one person. 231 of 664 raw mismatches are only that suffix, so
+ * comparing the strings directly flags a third of them for nothing and buries the
+ * 433 real ones. Only the suffix is stripped: `GAU086` versus `GAU083` stays a
+ * genuine disagreement.
+ */
+export function sameRep(routerCode: unknown, imsCode: unknown): boolean {
+  const a = norm(routerCode);
+  const b = norm(imsCode);
+  if (!a || !b) return true; // nothing to disagree about
+  return a === b || b.replace(/CMR$/, "") === a || a.replace(/CMR$/, "") === b;
+}
+
 export function looksWholesale(m: ImsStore | undefined): boolean {
   if (!m) return false;
   return (
@@ -127,6 +145,8 @@ export interface ReconSummary {
   /** Of the orphans, how many look like depots/DCs, and what they are worth. */
   orphanWholesaleCount: number;
   orphanWholesaleValue: number;
+  /** Stores where IMS names a different rep than the router. */
+  repMismatchCount: number;
   twinStrong: number;
   twinWeak: number;
   twinAmbiguous: number;
@@ -192,7 +212,7 @@ export function reconcile(
     imsMasterCodes: master.size,
     selling: 0, dormant: 0, dark: 0, absent: 0,
     totalValue: 0, matchedValue: 0, strandedValue: 0,
-    orphanCount: 0, orphanWholesaleCount: 0, orphanWholesaleValue: 0,
+    orphanCount: 0, orphanWholesaleCount: 0, orphanWholesaleValue: 0, repMismatchCount: 0,
     twinStrong: 0, twinWeak: 0, twinAmbiguous: 0, twinValue: 0,
   };
 
@@ -235,6 +255,9 @@ export function reconcile(
       }
     }
 
+    const mismatch = !!m && !sameRep(s.repCode, m["Rep Code"]);
+    if (mismatch) summary.repMismatchCount++;
+
     rows.push({
       placeId: s.placeId || s.id,
       name: s.name,
@@ -247,6 +270,7 @@ export function reconcile(
       imsChannel: m?.["Store Channel"] ?? null,
       imsRepCode: m?.["Rep Code"] ?? null,
       imsClosed: closedOf(m),
+      repMismatch: mismatch,
       twin,
     });
   }
