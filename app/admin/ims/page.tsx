@@ -88,6 +88,10 @@ export default function ImsReconciliationPage() {
   const [search, setSearch] = useState("");
   const [applying, setApplying] = useState(false);
   const [applyResult, setApplyResult] = useState<Record<string, unknown> | null>(null);
+  const [snapshot, setSnapshot] = useState<Record<string, unknown> | null>(null);
+  const [snapshotting, setSnapshotting] = useState(false);
+  const [backfill, setBackfill] = useState<Record<string, unknown> | null>(null);
+  const [backfilling, setBackfilling] = useState(false);
   // Biggest sales first, which is what the API already returns.
   const sort = useTableSort("sixMonthSales", "desc", ["sixMonthSales"]);
   const sortProps = sort;
@@ -127,6 +131,32 @@ export default function ImsReconciliationPage() {
 
   // Filter, THEN sort, THEN the table caps the display at 500. Sorting after the
   // cap would only ever order the first 500 rows and quietly hide the real top.
+  const refreshSnapshot = async () => {
+    setSnapshotting(true);
+    setSnapshot(null);
+    try {
+      const res = await fetch("/api/ims/snapshot", { method: "POST" });
+      setSnapshot(await res.json());
+    } catch (e) {
+      setSnapshot({ error: String(e) });
+    } finally {
+      setSnapshotting(false);
+    }
+  };
+
+  const runBackfill = async (mode: "preview" | "apply") => {
+    setBackfilling(true);
+    setBackfill(null);
+    try {
+      const res = await fetch(`/api/ims/backfill?mode=${mode}`, { method: "POST" });
+      setBackfill(await res.json());
+    } catch (e) {
+      setBackfill({ error: String(e) });
+    } finally {
+      setBackfilling(false);
+    }
+  };
+
   const rows = useMemo(() => {
     if (!data) return [];
     const q = search.trim().toUpperCase();
@@ -328,6 +358,57 @@ export default function ImsReconciliationPage() {
             {applyResult && <ApplyReport result={applyResult} />}
           </div>
 
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+              <h2 className="text-sm font-semibold text-gray-900">IMS snapshot for the Stores page</h2>
+              <p className="mt-1 text-xs text-gray-500">
+                The Map Status column reads a cached snapshot, because building it costs three SQL queries
+                and roughly twenty seconds. Refresh it after a store edit or when IMS has moved on.
+              </p>
+              <button
+                onClick={refreshSnapshot}
+                disabled={snapshotting}
+                className="mt-3 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                {snapshotting ? "Building..." : "Refresh snapshot"}
+              </button>
+              {snapshot && (
+                <p className={`mt-3 rounded-lg p-3 text-xs ${snapshot.error ? "bg-red-50 text-red-800" : "bg-green-50 text-green-900"}`}>
+                  {snapshot.error
+                    ? String(snapshot.error)
+                    : `Rebuilt. ${(snapshot.totals as { appStores: number })?.appStores?.toLocaleString("en-ZA")} stores mapped, ${(snapshot.totals as { ghosts: number })?.ghosts?.toLocaleString("en-ZA")} IMS-only outlets.`}
+                </p>
+              )}
+            </div>
+
+            <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+              <h2 className="text-sm font-semibold text-gray-900">Fill blank channel and province from IMS</h2>
+              <p className="mt-1 text-xs text-gray-500">
+                Only fills a field that is <strong>blank</strong>. A channel the app already holds is never
+                replaced, because routes and call frequencies are built on it. Channels are matched by name,
+                never created.
+              </p>
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={() => runBackfill("preview")}
+                  disabled={backfilling}
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {backfilling ? "Working..." : "Preview"}
+                </button>
+                <button
+                  onClick={() => runBackfill("apply")}
+                  disabled={backfilling || !backfill || !!backfill.error || backfill.applied === true}
+                  className="rounded-lg bg-clippa-red px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                  title={!backfill ? "Preview first" : ""}
+                >
+                  Apply
+                </button>
+              </div>
+              {backfill && <BackfillReport result={backfill} />}
+            </div>
+          </div>
+
           <div className="flex flex-wrap items-center gap-2">
             {(["all", "selling", "dormant", "dark", "absent", "orphans"] as Tab[]).map((t) => (
               <button
@@ -491,6 +572,30 @@ function OrphanTable({ rows, sort }: { rows: OrphanRow[]; sort: TableSort }) {
   );
 }
 
+
+function BackfillReport({ result }: { result: Record<string, unknown> }) {
+  if (result.error) {
+    return <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-800">{String(result.error)}</p>;
+  }
+  const n = (k: string) => Number(result[k] ?? 0).toLocaleString("en-ZA");
+  const unmapped = (result.unmappedChannels ?? []) as { name: string; count: number }[];
+  return (
+    <div className={`mt-3 rounded-lg p-3 text-xs ${result.applied ? "bg-green-50 text-green-900" : "bg-gray-50 text-gray-700"}`}>
+      <p className="font-medium">
+        {result.applied ? "Applied." : "Preview only, nothing written."} {n("storesTouched")} stores would
+        change: {n("channelCount")} channels and {n("provinceCount")} provinces filled.
+      </p>
+      {unmapped.length > 0 && (
+        <p className="mt-2">
+          <strong>{unmapped.length}</strong> IMS channel{unmapped.length === 1 ? "" : "s"} have no match in
+          this app, so those stores keep a blank channel. Create the channel here first if you want them
+          filled: {unmapped.slice(0, 6).map((u) => `${u.name} (${u.count})`).join(", ")}
+          {unmapped.length > 6 ? ", ..." : ""}
+        </p>
+      )}
+    </div>
+  );
+}
 
 function ApplyReport({ result }: { result: Record<string, unknown> }) {
   if (result.error) {

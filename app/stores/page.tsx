@@ -6,6 +6,7 @@ import { useSession } from "@/components/SessionProvider";
 import StoreImportModal from "@/components/StoreImportModal";
 import { useTableSort, useSortedRows, SortableTh } from "@/components/TableSort";
 import { useColumnWidths } from "@/components/useColumnWidths";
+import { MAP_STATUS_LABEL, MAP_STATUS_HINT, FLAG_LABEL, type MapRow, type MapStatus, type MapFlags } from "@/lib/mapStatus";
 import { rankStores, salesForRanking } from "@/lib/storeRanking";
 import type { SortValue } from "@/lib/tableSort";
 
@@ -18,6 +19,91 @@ const WEEKS = ["", "Wk1", "Wk2", "Wk3", "Wk4", "Wk5"];
  * ocean is visible in the grid instead of only on the map.
  */
 const SA_BOUNDS = { latMin: -35.0, latMax: -22.0, lngMin: 16.0, lngMax: 33.0 };
+
+const MAP_STATUS_STYLE: Record<MapStatus, string> = {
+  matched: "bg-green-100 text-green-800",
+  matched_gaps: "bg-amber-100 text-amber-800",
+  rr_only: "bg-purple-100 text-purple-800",
+  ims_only: "bg-blue-100 text-blue-800",
+  ims_only_no_rep: "bg-red-100 text-red-800",
+};
+
+/**
+ * Where a store sits across the two systems, plus anything else true about it.
+ *
+ * Flags are separate chips rather than more statuses: a store can be matched,
+ * silent, AND owned by a different rep in IMS, and folding those into one label
+ * would need a word for every combination.
+ */
+function MapStatusCell({ row }: { row?: MapRow }) {
+  if (!row) {
+    return (
+      <td className="px-3 py-2">
+        <span className="text-gray-300" title="No IMS snapshot has been taken yet">&mdash;</span>
+      </td>
+    );
+  }
+  const flags = (Object.keys(row.flags) as (keyof MapFlags)[]).filter((k) => row.flags[k]);
+  return (
+    <td className="px-3 py-2 align-top">
+      <span
+        title={MAP_STATUS_HINT[row.status]}
+        className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${MAP_STATUS_STYLE[row.status]}`}
+      >
+        {MAP_STATUS_LABEL[row.status]}
+      </span>
+      {flags.length > 0 && (
+        <span className="mt-0.5 block space-x-1">
+          {flags.map((k) => (
+            <span
+              key={k}
+              title={k === "duplicateAccount" && row.twinCode ? `Sales look like they go to ${row.twinCode}` : undefined}
+              className="inline-block rounded bg-gray-100 px-1 text-[9px] text-gray-600"
+            >
+              {FLAG_LABEL[k]}
+            </span>
+          ))}
+        </span>
+      )}
+    </td>
+  );
+}
+
+/**
+ * An outlet IMS invoices that has no store in the router.
+ *
+ * Read-only on purpose: there is nothing here to edit, because the row does not
+ * exist in this app. It is shown so the grid can answer "what is Clippa selling
+ * that nobody visits" without a second screen.
+ */
+function GhostRow({ row }: { row: MapRow }) {
+  const money = (n: number | null) =>
+    n === null ? "" : "R " + n.toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return (
+    <tr className="bg-blue-50/30 text-gray-500 italic">
+      <td className="px-3 py-2 font-mono">{row.placeId}</td>
+      <td className="px-3 py-2 truncate" title={row.imsName || ""}>{row.imsName || "—"}</td>
+      <MapStatusCell row={row} />
+      <td className="px-3 py-2 truncate">{row.imsChannel || "—"}</td>
+      <td className="px-3 py-2 truncate">{row.imsProvince || "—"}</td>
+      <td className="px-3 py-2">{"—"}</td>
+      <td className="px-3 py-2">{"—"}</td>
+      <td className="px-3 py-2">{"—"}</td>
+      <td className="px-3 py-2 truncate">{row.imsRepCode || "—"}</td>
+      <td className="px-3 py-2 text-right whitespace-nowrap truncate">{"—"}</td>
+      <td className="px-3 py-2 text-right whitespace-nowrap truncate">{money(row.sixMonthSales)}</td>
+      <td className="px-3 py-2 text-center">{"—"}</td>
+      <td className="px-3 py-2 text-center">{"—"}</td>
+      <td className="px-3 py-2 text-center">{"—"}</td>
+      <td className="px-3 py-2">{"—"}</td>
+      <td className="px-3 py-2 text-right">{"—"}</td>
+      <td className="px-3 py-2">{"—"}</td>
+      <td className="px-3 py-2">{"—"}</td>
+      <td className="px-3 py-2 text-right text-[10px]">not in the router</td>
+    </tr>
+  );
+}
+
 
 type CoordCheck = { lat: number; lng: number; ok: boolean; problem: string };
 
@@ -280,10 +366,34 @@ export default function StoresPage() {
 
   const cols = useColumnWidths("stores-grid-widths");
 
+  // The IMS map is a cached snapshot, not a live query: building it costs three
+  // SQL round trips and this is the busiest page in the app.
+  const [imsMap, setImsMap] = useState<Record<string, MapRow>>({});
+  const [ghosts, setGhosts] = useState<MapRow[]>([]);
+  const [imsFetchedAt, setImsFetchedAt] = useState<string | null>(null);
+  const [showGhosts, setShowGhosts] = useState(false);
+
+  useEffect(() => {
+    // Deliberately not awaited with the store load. The grid is useful without
+    // it, and this must never be what keeps the page blank.
+    fetch("/api/ims/snapshot", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!d?.built) return;
+        setImsMap(d.rows || {});
+        setGhosts(d.ghosts || []);
+        setImsFetchedAt(d.fetchedAt || null);
+      })
+      .catch(() => {
+        // No snapshot, or it could not be read. Map Status simply stays blank.
+      });
+  }, []);
+
   // Defaults chosen so the money columns fit "R 4 211 993,85" on ONE line.
   const COLUMNS: { key: string; label: string; w: number; align?: "left" | "right" | "center" }[] = [
     { key: "placeId", label: "Place ID", w: 90 },
     { key: "name", label: "Store Name", w: 210 },
+    { key: "mapStatus", label: "Map Status", w: 150 },
     { key: "channel", label: "Channel", w: 130 },
     { key: "province", label: "Province", w: 110 },
     { key: "region", label: "Region", w: 110 },
@@ -311,6 +421,8 @@ export default function StoresPage() {
   const sortAccessors = useMemo<Record<string, (s: Store) => SortValue>>(() => ({
     placeId: (s) => s.placeId,
     name: (s) => s.name,
+    // Sorts by status, so every "In IMS only" row groups together.
+    mapStatus: (s) => imsMap[String(s.placeId || s.id).trim().toUpperCase()]?.status ?? null,
     channel: (s) => channelMap.get(s.channelId)?.name || s.channelId,
     province: (s) => s.province || null,
     region: (s) => s.region || null,
@@ -326,9 +438,20 @@ export default function StoresPage() {
     duration: (s) => s.duration ?? null,
     dayOfWeek: (s) => (s.dayOfWeek ? DAYS.indexOf(s.dayOfWeek) : null),
     weekNumber: (s) => s.weekNumber || null,
-  }), [channelMap, repMap]);
+  }), [channelMap, repMap, imsMap]);
 
   const sorted = useSortedRows(filtered, sortAccessors, sort);
+
+  // Ghosts follow the search box but not the other filters: province, channel and
+  // rep all filter on fields these rows do not have in this app.
+  const visibleGhosts = useMemo(() => {
+    if (!showGhosts) return [];
+    const q = search.trim().toUpperCase();
+    const rows = q
+      ? ghosts.filter((g) => g.placeId.includes(q) || (g.imsName || "").toUpperCase().includes(q))
+      : ghosts;
+    return [...rows].sort((a, b) => (b.sixMonthSales ?? 0) - (a.sixMonthSales ?? 0));
+  }, [ghosts, showGhosts, search]);
 
   const badCoordCount = useMemo(
     () => stores.filter((s) => !checkCoords(s.gpsLat, s.gpsLng).ok).length,
@@ -546,6 +669,22 @@ export default function StoresPage() {
           <h1 className="text-xl font-bold text-gray-900">Stores</h1>
           <p className="text-sm text-gray-500">
             {filtered.length} of {stores.length} stores
+            {ghosts.length > 0 && (
+              <label className="ml-3 inline-flex items-center gap-1.5 text-xs font-normal text-gray-500">
+                <input
+                  type="checkbox"
+                  checked={showGhosts}
+                  onChange={(e) => setShowGhosts(e.target.checked)}
+                  className="rounded border-gray-300"
+                />
+                Show {ghosts.length.toLocaleString("en-ZA")} IMS-only outlets
+              </label>
+            )}
+            {imsFetchedAt && (
+              <span className="ml-3 text-xs font-normal text-gray-400">
+                IMS snapshot {new Date(imsFetchedAt).toLocaleString("en-ZA")}
+              </span>
+            )}
             {cols.customised && (
               <button
                 onClick={cols.reset}
@@ -736,6 +875,7 @@ export default function StoresPage() {
                     <td className="px-3 py-2 font-medium text-gray-900 max-w-[200px] truncate" title={store.name}>
                       {store.name}
                     </td>
+                    <MapStatusCell row={imsMap[String(store.placeId || store.id).trim().toUpperCase()]} />
 
                     {isEditing ? (
                       <>
@@ -954,6 +1094,8 @@ export default function StoresPage() {
                   </tr>
                 );
               })}
+              {showGhosts &&
+                visibleGhosts.map((g) => <GhostRow key={"ghost-" + g.placeId} row={g} />)}
             </tbody>
           </table>
         </div>
