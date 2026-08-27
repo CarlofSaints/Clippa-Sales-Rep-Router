@@ -80,6 +80,7 @@ export function SortableTh({
   sort,
   className = "",
   align = "left",
+  onResize,
 }: {
   children: React.ReactNode;
   /** Omit to render a plain, unsortable header. */
@@ -87,11 +88,28 @@ export function SortableTh({
   sort?: TableSort;
   className?: string;
   align?: "left" | "right" | "center";
+  /** Supply to show a drag handle on the column's right edge. */
+  onResize?: (e: React.MouseEvent) => void;
 }) {
   const alignCls = align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
 
+  // The handle is absolutely positioned, so the cell must be a containing block.
+  const handle = onResize ? (
+    <span
+      onMouseDown={onResize}
+      onClick={(e) => e.stopPropagation()}
+      title="Drag to resize this column"
+      className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize select-none hover:bg-gray-300 active:bg-gray-400"
+    />
+  ) : null;
+
   if (!sortId || !sort) {
-    return <th className={`${alignCls} ${className}`}>{children}</th>;
+    return (
+      <th className={`${alignCls} ${onResize ? "relative" : ""} ${className}`}>
+        {children}
+        {handle}
+      </th>
+    );
   }
 
   const active = sort.sortKey === sortId;
@@ -100,7 +118,7 @@ export function SortableTh({
       onClick={() => sort.toggleSort(sortId)}
       aria-sort={active ? (sort.sortDir === "asc" ? "ascending" : "descending") : "none"}
       title="Sort by this column"
-      className={`${alignCls} cursor-pointer select-none hover:text-gray-900 ${
+      className={`${alignCls} relative cursor-pointer select-none hover:text-gray-900 ${
         active ? "text-gray-900" : ""
       } ${className}`}
     >
@@ -108,6 +126,7 @@ export function SortableTh({
       <span className={`ml-1 text-[10px] ${active ? "" : "opacity-30"}`}>
         {active ? (sort.sortDir === "asc" ? "▲" : "▼") : "↕"}
       </span>
+      {handle}
     </th>
   );
 }

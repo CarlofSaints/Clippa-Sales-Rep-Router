@@ -5,6 +5,7 @@ import { Store, Channel, Rep, Team, FREQUENCY_OPTIONS, FrequencyType, getFrequen
 import { useSession } from "@/components/SessionProvider";
 import StoreImportModal from "@/components/StoreImportModal";
 import { useTableSort, useSortedRows, SortableTh } from "@/components/TableSort";
+import { useColumnWidths } from "@/components/useColumnWidths";
 import { rankStores, salesForRanking } from "@/lib/storeRanking";
 import type { SortValue } from "@/lib/tableSort";
 
@@ -277,6 +278,30 @@ export default function StoresPage() {
     });
   }, [stores, search, filterChannels, filterReps, filterTeamManagers, filterProvinces, filterRegions, filterFrequencies, repTeamMap]);
 
+  const cols = useColumnWidths("stores-grid-widths");
+
+  // Defaults chosen so the money columns fit "R 4 211 993,85" on ONE line.
+  const COLUMNS: { key: string; label: string; w: number; align?: "left" | "right" | "center" }[] = [
+    { key: "placeId", label: "Place ID", w: 90 },
+    { key: "name", label: "Store Name", w: 210 },
+    { key: "channel", label: "Channel", w: 130 },
+    { key: "province", label: "Province", w: 110 },
+    { key: "region", label: "Region", w: 110 },
+    { key: "gpsLat", label: "Latitude", w: 100 },
+    { key: "gpsLng", label: "Longitude", w: 100 },
+    { key: "rep", label: "Rep", w: 130 },
+    { key: "monthlySales", label: "Avg Monthly Sales", w: 130, align: "right" },
+    { key: "sixMonthSales", label: "6-Month Sales", w: 130, align: "right" },
+    { key: "rankOverall", label: "Rank Overall", w: 90, align: "center" },
+    { key: "rankRep", label: "Rank/Rep", w: 80, align: "center" },
+    { key: "rankChannel", label: "Rank/Channel", w: 95, align: "center" },
+    { key: "frequency", label: "Frequency", w: 110 },
+    { key: "duration", label: "Duration", w: 80, align: "right" },
+    { key: "dayOfWeek", label: "Day", w: 90 },
+    { key: "weekNumber", label: "Week", w: 70 },
+    { key: "actions", label: "Actions", w: 150, align: "right" },
+  ];
+
   const sort = useTableSort("name", "asc", [
     "monthlySales", "sixMonthSales", "duration",
   ]);
@@ -501,8 +526,10 @@ export default function StoresPage() {
     load();
   };
 
+  // Non-breaking space: with a plain one the "R" wraps onto its own line the
+  // moment the column is a little narrow.
   const fmt = (n: number) =>
-    "R " + (n ?? 0).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    "R\u00A0" + (n ?? 0).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   if (loading) {
     return (
@@ -519,6 +546,14 @@ export default function StoresPage() {
           <h1 className="text-xl font-bold text-gray-900">Stores</h1>
           <p className="text-sm text-gray-500">
             {filtered.length} of {stores.length} stores
+            {cols.customised && (
+              <button
+                onClick={cols.reset}
+                className="ml-3 text-xs text-gray-400 underline hover:text-gray-600"
+              >
+                Reset column widths
+              </button>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -659,31 +694,26 @@ export default function StoresPage() {
             scroll and a bounded height — otherwise the page scrolls instead and
             the header leaves with it. */}
         <div className="overflow-auto max-h-[calc(100vh-22rem)]">
-          <table className="w-full text-xs">
+          <table className="w-full table-fixed text-xs" style={{ minWidth: COLUMNS.reduce((t, c) => t + cols.width(c.key, c.w), 0) }}>
+            <colgroup>
+              {COLUMNS.map((c) => (
+                <col key={c.key} style={{ width: cols.width(c.key, c.w) }} />
+              ))}
+            </colgroup>
             <thead className="sticky top-0 z-20">
               <tr className="bg-gray-50 text-left text-[10px] text-gray-500 uppercase tracking-wider shadow-[inset_0_-1px_0_0_rgb(229,231,235)]">
-                <SortableTh sortId="placeId" sort={sort} className="px-3 py-2 bg-gray-50">Place ID</SortableTh>
-                <SortableTh sortId="name" sort={sort} className="px-3 py-2 bg-gray-50">Store Name</SortableTh>
-                <SortableTh sortId="channel" sort={sort} className="px-3 py-2 bg-gray-50">Channel</SortableTh>
-                <SortableTh sortId="province" sort={sort} className="px-3 py-2 bg-gray-50">Province</SortableTh>
-                <SortableTh sortId="region" sort={sort} className="px-3 py-2 bg-gray-50">Region</SortableTh>
-                <SortableTh sortId="gpsLat" sort={sort} className="px-3 py-2 bg-gray-50">Latitude</SortableTh>
-                <SortableTh sortId="gpsLng" sort={sort} className="px-3 py-2 bg-gray-50">Longitude</SortableTh>
-                <SortableTh sortId="rep" sort={sort} className="px-3 py-2 bg-gray-50">Rep</SortableTh>
-                <SortableTh sortId="monthlySales" sort={sort} align="right" className="px-3 py-2 bg-gray-50" >
-                  Avg Monthly Sales
-                </SortableTh>
-                <SortableTh sortId="sixMonthSales" sort={sort} align="right" className="px-3 py-2 bg-gray-50">
-                  6-Month Sales
-                </SortableTh>
-                <SortableTh sortId="rankOverall" sort={sort} align="center" className="px-3 py-2 bg-gray-50">Rank Overall</SortableTh>
-                <SortableTh sortId="rankRep" sort={sort} align="center" className="px-3 py-2 bg-gray-50">Rank/Rep</SortableTh>
-                <SortableTh sortId="rankChannel" sort={sort} align="center" className="px-3 py-2 bg-gray-50">Rank/Channel</SortableTh>
-                <SortableTh sortId="frequency" sort={sort} className="px-3 py-2 bg-gray-50">Frequency</SortableTh>
-                <SortableTh sortId="duration" sort={sort} align="right" className="px-3 py-2 bg-gray-50">Duration</SortableTh>
-                <SortableTh sortId="dayOfWeek" sort={sort} className="px-3 py-2 bg-gray-50">Day</SortableTh>
-                <SortableTh sortId="weekNumber" sort={sort} className="px-3 py-2 bg-gray-50">Week</SortableTh>
-                <th className="px-3 py-2 bg-gray-50 text-right">Actions</th>
+                {COLUMNS.map((c) => (
+                  <SortableTh
+                    key={c.key}
+                    sortId={c.key === "actions" ? undefined : c.key}
+                    sort={sort}
+                    align={c.align}
+                    onResize={cols.startResize(c.key, c.w)}
+                    className="px-3 py-2 bg-gray-50"
+                  >
+                    {c.label}
+                  </SortableTh>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -775,9 +805,9 @@ export default function StoresPage() {
                             ))}
                           </select>
                         </td>
-                        <td className="px-3 py-2 text-right text-gray-600">{fmt(store.monthlySales)}</td>
+                        <td className="px-3 py-2 text-right text-gray-600 whitespace-nowrap truncate">{fmt(store.monthlySales)}</td>
                         {/* Absent means never supplied, which is a different thing from zero. */}
-                        <td className="px-3 py-2 text-right text-gray-500">
+                        <td className="px-3 py-2 text-right text-gray-500 whitespace-nowrap truncate">
                           {store.sixMonthSales == null ? <span className="text-gray-300">—</span> : fmt(store.sixMonthSales)}
                         </td>
                         <td className="px-3 py-2 text-center text-gray-400">{rankings.overallRank.get(store.id) ?? "—"}</td>
@@ -865,9 +895,9 @@ export default function StoresPage() {
                           {store.gpsLng?.trim() || "—"}
                         </td>
                         <td className="px-3 py-2 text-gray-600">{rep?.name || store.repCode}</td>
-                        <td className="px-3 py-2 text-right text-gray-600">{fmt(store.monthlySales)}</td>
+                        <td className="px-3 py-2 text-right text-gray-600 whitespace-nowrap truncate">{fmt(store.monthlySales)}</td>
                         {/* Absent means never supplied, which is a different thing from zero. */}
-                        <td className="px-3 py-2 text-right text-gray-500">
+                        <td className="px-3 py-2 text-right text-gray-500 whitespace-nowrap truncate">
                           {store.sixMonthSales == null ? <span className="text-gray-300">—</span> : fmt(store.sixMonthSales)}
                         </td>
                         <td className="px-3 py-2 text-center">
