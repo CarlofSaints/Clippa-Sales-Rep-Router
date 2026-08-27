@@ -16,6 +16,7 @@ import {
   suffixOf,
   sameRep,
   looksWholesale,
+  compareCells,
   type ImsStore,
 } from "../lib/imsReconCore";
 import type { Store } from "../lib/types";
@@ -254,6 +255,35 @@ ok("a bare CMR code does not match everything", !sameRep("GAU086", "CMRMP"));
   ok("a CMR-suffix rep is not reported as a mismatch", r.rows.find((x) => x.placeId === "A-1")!.repMismatch === false);
   ok("a different rep IS reported as a mismatch", r.rows.find((x) => x.placeId === "A-2")!.repMismatch === true);
   ok("the summary counts only real mismatches", r.summary.repMismatchCount === 1);
+}
+
+// ── compareCells: what the sortable grid actually does ──────────────────────
+{
+  const asc = (a: string | number | null, b: string | number | null) => compareCells(a, b, "asc");
+  const desc = (a: string | number | null, b: string | number | null) => compareCells(a, b, "desc");
+
+  ok("numbers sort numerically ascending", asc(2, 10) < 0);
+  ok("numbers sort numerically descending", desc(2, 10) > 0);
+  ok("numbers are not compared as strings", asc(9, 100) < 0, "'9' vs '100' as text would invert this");
+  ok("strings sort alphabetically", asc("ALPHA", "BETA") < 0);
+  ok("string compare is numeric-aware", asc("S2", "S10") < 0, "Place IDs are shaped this way");
+  ok("string compare ignores case", asc("alpha", "ALPHA") === 0);
+
+  ok("null sinks in an ASCENDING sort", asc(null, 5) > 0);
+  ok("null sinks in a DESCENDING sort too", desc(null, 5) > 0,
+    "a store with no figure must never top the list in either direction");
+  ok("an empty string sinks like null", asc("", "ANYTHING") > 0 && desc("", "ANYTHING") > 0);
+  ok("two empties tie", asc(null, "") === 0);
+  ok("zero is a VALUE and does not sink", asc(0, 5) < 0 && desc(0, 5) > 0,
+    "0 sold is not the same as no figure");
+}
+
+// The grid must sort the WHOLE list, not just the page it shows.
+{
+  const many = Array.from({ length: 600 }, (_, i) => ({ v: i }));
+  const sorted = [...many].sort((a, b) => compareCells(a.v, b.v, "desc"));
+  ok("the top row after sorting is the true maximum", sorted[0].v === 599,
+    "sorting after a 500-row slice would give 499 here");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
