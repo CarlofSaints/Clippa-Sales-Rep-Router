@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStores, saveStores, getChannels, saveChannels, getReps, saveReps, getStoreOverrides } from "@/lib/data";
 import { overriddenStoreIds } from "@/lib/channelDefaults";
+import { uploadScope } from "@/lib/uploadScope";
 import { Store, Channel, Rep } from "@/lib/types";
 import { getSession } from "@/lib/auth";
 import { logActivity } from "@/lib/activityLog";
@@ -46,16 +47,16 @@ export async function POST(request: NextRequest) {
     // Detect file headers for diagnostics
     const fileHeaders = rows.length > 0 ? Object.keys(rows[0]).map((h) => h.trim()) : [];
     let skippedRows = 0;
+    // Rows the file left blank in a column it DOES carry. Those keep whatever the
+    // store already had, and the counts say so rather than leaving it a mystery.
+    let blankChannelCells = 0;
+    let blankGpsCells = 0;
 
-    // Whether the file carries a sales column at all. Presence decides scope:
-    // absent means leave the figure alone, which is what makes a stores-only
-    // sheet safe. Writing an unconditional `existing.monthlySales = sales` zeroed
-    // the figure on every row of any file that did not carry the column, and once
-    // sales arrive from IMS rather than from a spreadsheet, that stops being an
-    // inconvenience and becomes a wipe of data nobody can retype.
-    const hasSalesColumn = fileHeaders.some((h) =>
-      ["MONTHLY AVERAGE", "VALUE", "Value", "Monthly Average", "Sales", "SIX MONTH SALES", "6 MONTH SALES"].includes(h)
-    );
+    // Which fields this file is allowed to touch. Presence of the COLUMN decides
+    // scope: absent means leave the field alone. See lib/uploadScope.ts for why
+    // this is not inline any more.
+    const { hasSales: hasSalesColumn, hasChannel: hasChannelColumn, hasGps: hasGpsColumns } =
+      uploadScope(fileHeaders);
 
     // Detect format: Repsly Places export has "ID" + "Name" + "Representative ID" columns
     // (Tags column is optional — some Repsly exports omit it)
@@ -137,9 +138,16 @@ export async function POST(request: NextRequest) {
 
         // defaults with it, unless a manager has pinned it with an override.
 
-        const movedChannel = existing.channelId !== channelId;
+        // A channel is only written when the file actually carries the column AND
+        // the name resolved to a real channel. An unmatched name is reported, not
+        // written as a blank — the alternative silently unclassifies the store and
+        // drops it out of every channel-driven report.
+        const writeChannel = hasChannelColumn && !!channel;
+        const movedChannel = writeChannel && existing.channelId !== channelId;
+
         existing.name = storeName;
-        existing.channelId = channelId;
+        if (writeChannel) existing.channelId = channelId;
+        if (hasChannelColumn && !channelName) blankChannelCells++;
 
         if (movedChannel && channel && !pinnedStoreIds.has(existing.id)) {
 
@@ -149,8 +157,17 @@ export async function POST(request: NextRequest) {
 
         }
         existing.repCode = repCode;
-        existing.gpsLat = lat;
-        existing.gpsLng = lng;
+        // Coordinates move as a pair, and only when the file carries them.
+        if (hasGpsColumns) {
+          // A blank pair in a file that HAS the columns is still "no value here",
+          // so it must not erase coordinates the store already carries.
+          if (lat && lng) {
+            existing.gpsLat = lat;
+            existing.gpsLng = lng;
+          } else {
+            blankGpsCells++;
+          }
+        }
         if (hasSalesColumn) existing.monthlySales = sales;
         if (region) existing.region = region;
         updatedCount++;
@@ -195,6 +212,11 @@ export async function POST(request: NextRequest) {
       rowsInFile: rows.length,
       skippedRows,
       fileHeaders,
+      // What the file was allowed to touch, and what it left alone. Without this
+      // a sheet that silently skipped a column looks identical to one that wrote it.
+      scope: { channel: hasChannelColumn, gps: hasGpsColumns, sales: hasSalesColumn },
+      blankChannelCells,
+      blankGpsCells,
     });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
