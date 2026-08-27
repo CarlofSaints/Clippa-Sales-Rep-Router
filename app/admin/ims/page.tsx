@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
-import { compareCells, type SortDir } from "@/lib/imsReconCore";
+import { useTableSort, useSortedRows, SortableTh, type TableSort } from "@/components/TableSort";
+import { compareCells } from "@/lib/tableSort";
 import type { ReconResult, ReconRow, OrphanRow, MatchStatus } from "@/lib/imsReconCore";
 
 /**
@@ -87,21 +88,9 @@ export default function ImsReconciliationPage() {
   const [search, setSearch] = useState("");
   const [applying, setApplying] = useState(false);
   const [applyResult, setApplyResult] = useState<Record<string, unknown> | null>(null);
-  // Default: biggest sales first, which is what the API already returns.
-  const [sortKey, setSortKey] = useState("sixMonthSales");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
-
-  const toggleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDir(sortDir === "asc" ? "desc" : "asc");
-    } else {
-      setSortKey(key);
-      // Money and status read best worst-first; names and codes read A to Z.
-      setSortDir(key === "sixMonthSales" ? "desc" : "asc");
-    }
-  };
-
-  const sortProps: SortProps = { sortKey, sortDir, onSort: toggleSort };
+  // Biggest sales first, which is what the API already returns.
+  const sort = useTableSort("sixMonthSales", "desc", ["sixMonthSales"]);
+  const sortProps = sort;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -144,18 +133,18 @@ export default function ImsReconciliationPage() {
     const match = (t: string | null) => !!t && t.toUpperCase().includes(q);
 
     if (tab === "orphans") {
-      const get = ORPHAN_SORT[sortKey] ?? ORPHAN_SORT.sixMonthSales;
+      const get = ORPHAN_SORT[sort.sortKey] ?? ORPHAN_SORT.sixMonthSales;
       return data.orphans
         .filter((o) => !q || match(o.placeId) || match(o.imsName) || match(o.imsRepCode) || match(o.imsProvince))
-        .sort((a, b) => compareCells(get(a), get(b), sortDir));
+        .sort((a, b) => compareCells(get(a), get(b), sort.sortDir));
     }
 
-    const get = STORE_SORT[sortKey] ?? STORE_SORT.sixMonthSales;
+    const get = STORE_SORT[sort.sortKey] ?? STORE_SORT.sixMonthSales;
     return data.rows
       .filter((r) => tab === "all" || r.status === tab)
       .filter((r) => !q || match(r.placeId) || match(r.name) || match(r.imsName) || match(r.repCode) || match(r.twin?.code ?? null))
-      .sort((a, b) => compareCells(get(a), get(b), sortDir));
-  }, [data, tab, search, sortKey, sortDir]);
+      .sort((a, b) => compareCells(get(a), get(b), sort.sortDir));
+  }, [data, tab, search, sort.sortKey, sort.sortDir]);
 
   const exportExcel = () => {
     if (!data) return;
@@ -409,18 +398,18 @@ function Tile({ label, value, sub, tone }: { label: string; value: number; sub: 
   );
 }
 
-function StoreTable({ rows, sort }: { rows: ReconRow[]; sort: SortProps }) {
+function StoreTable({ rows, sort }: { rows: ReconRow[]; sort: TableSort }) {
   return (
     <table className="min-w-full text-sm">
       <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
         <tr>
-          <Th sortId="placeId" sort={sort}>Place ID</Th>
-          <Th sortId="name" sort={sort}>Store (router)</Th>
-          <Th sortId="imsName" sort={sort}>Store (IMS)</Th>
-          <Th sortId="repCode" sort={sort}>Rep</Th>
-          <Th sortId="status" sort={sort}>Status</Th>
-          <Th sortId="sixMonthSales" sort={sort} right>6-month sales</Th>
-          <Th sortId="twin" sort={sort}>Likely same store as</Th>
+          <SortableTh sortId="placeId" sort={sort}>Place ID</SortableTh>
+          <SortableTh sortId="name" sort={sort}>Store (router)</SortableTh>
+          <SortableTh sortId="imsName" sort={sort}>Store (IMS)</SortableTh>
+          <SortableTh sortId="repCode" sort={sort}>Rep</SortableTh>
+          <SortableTh sortId="status" sort={sort}>Status</SortableTh>
+          <SortableTh sortId="sixMonthSales" sort={sort} align="right">6-month sales</SortableTh>
+          <SortableTh sortId="twin" sort={sort}>Likely same store as</SortableTh>
         </tr>
       </thead>
       <tbody className="divide-y divide-gray-100">
@@ -470,17 +459,17 @@ function StoreTable({ rows, sort }: { rows: ReconRow[]; sort: SortProps }) {
   );
 }
 
-function OrphanTable({ rows, sort }: { rows: OrphanRow[]; sort: SortProps }) {
+function OrphanTable({ rows, sort }: { rows: OrphanRow[]; sort: TableSort }) {
   return (
     <table className="min-w-full text-sm">
       <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
         <tr>
-          <Th sortId="placeId" sort={sort}>Place ID</Th>
-          <Th sortId="imsName" sort={sort}>Store (IMS)</Th>
-          <Th sortId="imsProvince" sort={sort}>Province</Th>
-          <Th sortId="imsChannel" sort={sort}>Channel</Th>
-          <Th sortId="imsRepCode" sort={sort}>Rep (IMS)</Th>
-          <Th sortId="sixMonthSales" sort={sort} right>6-month sales</Th>
+          <SortableTh sortId="placeId" sort={sort}>Place ID</SortableTh>
+          <SortableTh sortId="imsName" sort={sort}>Store (IMS)</SortableTh>
+          <SortableTh sortId="imsProvince" sort={sort}>Province</SortableTh>
+          <SortableTh sortId="imsChannel" sort={sort}>Channel</SortableTh>
+          <SortableTh sortId="imsRepCode" sort={sort}>Rep (IMS)</SortableTh>
+          <SortableTh sortId="sixMonthSales" sort={sort} align="right">6-month sales</SortableTh>
         </tr>
       </thead>
       <tbody className="divide-y divide-gray-100">
@@ -502,48 +491,6 @@ function OrphanTable({ rows, sort }: { rows: OrphanRow[]; sort: SortProps }) {
   );
 }
 
-interface SortProps {
-  sortKey: string;
-  sortDir: SortDir;
-  onSort: (key: string) => void;
-}
-
-/**
- * A sortable header cell.
- *
- * The arrow only renders on the active column, so the header row does not turn
- * into a wall of identical glyphs. `aria-sort` carries the same fact for anything
- * not reading the arrow.
- */
-function Th({
-  children,
-  right,
-  sortId,
-  sort,
-}: {
-  children: React.ReactNode;
-  right?: boolean;
-  sortId?: string;
-  sort?: SortProps;
-}) {
-  if (!sortId || !sort) {
-    return <th className={`px-4 py-2 font-medium ${right ? "text-right" : ""}`}>{children}</th>;
-  }
-  const active = sort.sortKey === sortId;
-  return (
-    <th
-      onClick={() => sort.onSort(sortId)}
-      aria-sort={active ? (sort.sortDir === "asc" ? "ascending" : "descending") : "none"}
-      title="Sort by this column"
-      className={`cursor-pointer select-none px-4 py-2 font-medium hover:text-gray-900 ${
-        right ? "text-right" : ""
-      } ${active ? "text-gray-900" : ""}`}
-    >
-      {children}
-      <span className="ml-1 text-[10px]">{active ? (sort.sortDir === "asc" ? "▲" : "▼") : "↕"}</span>
-    </th>
-  );
-}
 
 function ApplyReport({ result }: { result: Record<string, unknown> }) {
   if (result.error) {

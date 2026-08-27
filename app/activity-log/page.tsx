@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useSession } from "@/components/SessionProvider";
+import { useTableSort, useSortedRows, SortableTh } from "@/components/TableSort";
 
 interface LogEntry {
   id: string;
@@ -13,8 +14,6 @@ interface LogEntry {
   details?: string;
 }
 
-type SortKey = "timestamp" | "actorName" | "action" | "summary";
-type SortDir = "asc" | "desc";
 
 export default function ActivityLogPage() {
   const { session } = useSession();
@@ -25,8 +24,8 @@ export default function ActivityLogPage() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   });
   const [search, setSearch] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("timestamp");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  // Newest first: an audit trail is read from the top.
+  const sort = useTableSort("timestamp", "desc", ["timestamp"]);
 
   useEffect(() => {
     if (!session) return;
@@ -51,30 +50,16 @@ export default function ActivityLogPage() {
     );
   }, [entries, search]);
 
-  const sorted = useMemo(() => {
-    const arr = [...filtered];
-    arr.sort((a, b) => {
-      const av = a[sortKey] || "";
-      const bv = b[sortKey] || "";
-      const cmp = av.localeCompare(bv);
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-    return arr;
-  }, [filtered, sortKey, sortDir]);
+  // Uses the shared comparator: the private one here compared everything with
+  // localeCompare, which put blanks above real values and would mis-order any
+  // numeric column added later.
+  const sorted = useSortedRows(filtered, {
+    timestamp: (e) => e.timestamp,
+    actorName: (e) => e.actorName || null,
+    action: (e) => e.action,
+    summary: (e) => e.summary || null,
+  }, sort);
 
-  function toggleSort(key: SortKey) {
-    if (sortKey === key) {
-      setSortDir(sortDir === "asc" ? "desc" : "asc");
-    } else {
-      setSortKey(key);
-      setSortDir(key === "timestamp" ? "desc" : "asc");
-    }
-  }
-
-  function arrow(key: SortKey) {
-    if (sortKey !== key) return "";
-    return sortDir === "asc" ? " \u25B2" : " \u25BC";
-  }
 
   // Build month options: current month + 11 previous
   const monthOptions: string[] = [];
@@ -149,30 +134,10 @@ export default function ActivityLogPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  <th
-                    onClick={() => toggleSort("timestamp")}
-                    className="text-left px-4 py-3 font-semibold text-gray-600 cursor-pointer hover:text-gray-900 whitespace-nowrap"
-                  >
-                    Time{arrow("timestamp")}
-                  </th>
-                  <th
-                    onClick={() => toggleSort("actorName")}
-                    className="text-left px-4 py-3 font-semibold text-gray-600 cursor-pointer hover:text-gray-900 whitespace-nowrap"
-                  >
-                    User{arrow("actorName")}
-                  </th>
-                  <th
-                    onClick={() => toggleSort("action")}
-                    className="text-left px-4 py-3 font-semibold text-gray-600 cursor-pointer hover:text-gray-900 whitespace-nowrap"
-                  >
-                    Action{arrow("action")}
-                  </th>
-                  <th
-                    onClick={() => toggleSort("summary")}
-                    className="text-left px-4 py-3 font-semibold text-gray-600 cursor-pointer hover:text-gray-900"
-                  >
-                    Summary{arrow("summary")}
-                  </th>
+                  <SortableTh sortId="timestamp" sort={sort} className="px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">Time</SortableTh>
+                  <SortableTh sortId="actorName" sort={sort} className="px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">User</SortableTh>
+                  <SortableTh sortId="action" sort={sort} className="px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">Action</SortableTh>
+                  <SortableTh sortId="summary" sort={sort} className="px-4 py-3 font-semibold text-gray-600">Summary</SortableTh>
                 </tr>
               </thead>
               <tbody>

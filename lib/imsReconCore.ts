@@ -342,31 +342,7 @@ export function applySalesToStores(
   return { stores: next, updated, unchanged, untouched };
 }
 
-export type SortDir = "asc" | "desc";
-
-/**
- * Compare two table cells.
- *
- * ⚠️ Rows with no value always sink to the BOTTOM, in both directions. A store
- * with no sales figure is not a store that sold zero, and letting it ride to the
- * top of an ascending sort would say exactly that on screen.
- *
- * Strings compare numerically-aware, so `S2` sorts before `S10` rather than
- * after it, which is how every Place ID in this system is shaped.
- */
-export function compareCells(
-  a: string | number | null,
-  b: string | number | null,
-  dir: SortDir
-): number {
-  const aEmpty = a === null || a === undefined || a === "";
-  const bEmpty = b === null || b === undefined || b === "";
-  if (aEmpty && bEmpty) return 0;
-  if (aEmpty) return 1;
-  if (bEmpty) return -1;
-  const cmp =
-    typeof a === "number" && typeof b === "number"
-      ? a - b
-      : String(a).localeCompare(String(b), "en", { numeric: true, sensitivity: "base" });
-  return dir === "asc" ? cmp : -cmp;
-}
+// Table sorting lives in lib/tableSort.ts so every grid in the app shares one
+// comparator. Re-exported here because the reconciliation page and its
+// assertions already import it from this module.
+export { compareCells, type SortDir } from "./tableSort";

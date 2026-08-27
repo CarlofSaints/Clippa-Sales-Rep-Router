@@ -4,6 +4,9 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { Store, Channel, Rep, Team, FREQUENCY_OPTIONS, FrequencyType, getFrequencyLabel, SA_PROVINCES } from "@/lib/types";
 import { useSession } from "@/components/SessionProvider";
 import StoreImportModal from "@/components/StoreImportModal";
+import { useTableSort, useSortedRows, SortableTh } from "@/components/TableSort";
+import { rankStores, salesForRanking } from "@/lib/storeRanking";
+import type { SortValue } from "@/lib/tableSort";
 
 const DAYS = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 const WEEKS = ["", "Wk1", "Wk2", "Wk3", "Wk4", "Wk5"];
@@ -195,38 +198,9 @@ export default function StoresPage() {
 
   useEffect(() => { load(); }, []);
 
-  // Rankings
-  const rankings = useMemo(() => {
-    const sorted = [...stores].sort((a, b) => (b.monthlySales ?? 0) - (a.monthlySales ?? 0));
-    const overallRank = new Map<string, number>();
-    sorted.forEach((s, i) => overallRank.set(s.id, i + 1));
-
-    const repRank = new Map<string, number>();
-    const byRep = new Map<string, Store[]>();
-    stores.forEach((s) => {
-      const arr = byRep.get(s.repCode) || [];
-      arr.push(s);
-      byRep.set(s.repCode, arr);
-    });
-    byRep.forEach((arr) => {
-      arr.sort((a, b) => (b.monthlySales ?? 0) - (a.monthlySales ?? 0));
-      arr.forEach((s, i) => repRank.set(s.id, i + 1));
-    });
-
-    const channelRank = new Map<string, number>();
-    const byCh = new Map<string, Store[]>();
-    stores.forEach((s) => {
-      const arr = byCh.get(s.channelId) || [];
-      arr.push(s);
-      byCh.set(s.channelId, arr);
-    });
-    byCh.forEach((arr) => {
-      arr.sort((a, b) => (b.monthlySales ?? 0) - (a.monthlySales ?? 0));
-      arr.forEach((s, i) => channelRank.set(s.id, i + 1));
-    });
-
-    return { overallRank, repRank, channelRank };
-  }, [stores]);
+  // Ranks are driven by the rolling six-month IMS figure. A store with no figure
+  // is UNRANKED rather than ranked as though it had sold zero.
+  const rankings = useMemo(() => rankStores(stores), [stores]);
 
   const channelMap = useMemo(() => new Map(channels.map((c) => [c.id, c])), [channels]);
   const repMap = useMemo(() => new Map(reps.map((r) => [r.code, r])), [reps]);
@@ -302,6 +276,34 @@ export default function StoresPage() {
       return true;
     });
   }, [stores, search, filterChannels, filterReps, filterTeamManagers, filterProvinces, filterRegions, filterFrequencies, repTeamMap]);
+
+  const sort = useTableSort("name", "asc", [
+    "monthlySales", "sixMonthSales", "duration",
+  ]);
+
+  // Sorting a rank means sorting by the sales behind it, so an unranked store
+  // sinks instead of landing at position 1 with a blank cell.
+  const sortAccessors = useMemo<Record<string, (s: Store) => SortValue>>(() => ({
+    placeId: (s) => s.placeId,
+    name: (s) => s.name,
+    channel: (s) => channelMap.get(s.channelId)?.name || s.channelId,
+    province: (s) => s.province || null,
+    region: (s) => s.region || null,
+    gpsLat: (s) => (s.gpsLat?.trim() ? Number(s.gpsLat) : null),
+    gpsLng: (s) => (s.gpsLng?.trim() ? Number(s.gpsLng) : null),
+    rep: (s) => repMap.get(s.repCode)?.name || s.repCode,
+    monthlySales: (s) => s.monthlySales ?? null,
+    sixMonthSales: (s) => s.sixMonthSales ?? null,
+    rankOverall: (s) => salesForRanking(s),
+    rankRep: (s) => salesForRanking(s),
+    rankChannel: (s) => salesForRanking(s),
+    frequency: (s) => getFrequencyLabel(s.frequency),
+    duration: (s) => s.duration ?? null,
+    dayOfWeek: (s) => (s.dayOfWeek ? DAYS.indexOf(s.dayOfWeek) : null),
+    weekNumber: (s) => s.weekNumber || null,
+  }), [channelMap, repMap]);
+
+  const sorted = useSortedRows(filtered, sortAccessors, sort);
 
   const badCoordCount = useMemo(
     () => stores.filter((s) => !checkCoords(s.gpsLat, s.gpsLng).ok).length,
@@ -660,32 +662,32 @@ export default function StoresPage() {
           <table className="w-full text-xs">
             <thead className="sticky top-0 z-20">
               <tr className="bg-gray-50 text-left text-[10px] text-gray-500 uppercase tracking-wider shadow-[inset_0_-1px_0_0_rgb(229,231,235)]">
-                <th className="px-3 py-2 bg-gray-50">Place ID</th>
-                <th className="px-3 py-2 bg-gray-50">Store Name</th>
-                <th className="px-3 py-2 bg-gray-50">Channel</th>
-                <th className="px-3 py-2 bg-gray-50">Province</th>
-                <th className="px-3 py-2 bg-gray-50">Region</th>
-                <th className="px-3 py-2 bg-gray-50">Latitude</th>
-                <th className="px-3 py-2 bg-gray-50">Longitude</th>
-                <th className="px-3 py-2 bg-gray-50">Rep</th>
-                <th className="px-3 py-2 bg-gray-50 text-right" title="Rolling six months of in-market sales, divided by six">
+                <SortableTh sortId="placeId" sort={sort} className="px-3 py-2 bg-gray-50">Place ID</SortableTh>
+                <SortableTh sortId="name" sort={sort} className="px-3 py-2 bg-gray-50">Store Name</SortableTh>
+                <SortableTh sortId="channel" sort={sort} className="px-3 py-2 bg-gray-50">Channel</SortableTh>
+                <SortableTh sortId="province" sort={sort} className="px-3 py-2 bg-gray-50">Province</SortableTh>
+                <SortableTh sortId="region" sort={sort} className="px-3 py-2 bg-gray-50">Region</SortableTh>
+                <SortableTh sortId="gpsLat" sort={sort} className="px-3 py-2 bg-gray-50">Latitude</SortableTh>
+                <SortableTh sortId="gpsLng" sort={sort} className="px-3 py-2 bg-gray-50">Longitude</SortableTh>
+                <SortableTh sortId="rep" sort={sort} className="px-3 py-2 bg-gray-50">Rep</SortableTh>
+                <SortableTh sortId="monthlySales" sort={sort} align="right" className="px-3 py-2 bg-gray-50" >
                   Avg Monthly Sales
-                </th>
-                <th className="px-3 py-2 bg-gray-50 text-right" title="Rolling six months of in-market sales, as supplied by IMS">
+                </SortableTh>
+                <SortableTh sortId="sixMonthSales" sort={sort} align="right" className="px-3 py-2 bg-gray-50">
                   6-Month Sales
-                </th>
-                <th className="px-3 py-2 bg-gray-50 text-center">Rank Overall</th>
-                <th className="px-3 py-2 bg-gray-50 text-center">Rank/Rep</th>
-                <th className="px-3 py-2 bg-gray-50 text-center">Rank/Channel</th>
-                <th className="px-3 py-2 bg-gray-50">Frequency</th>
-                <th className="px-3 py-2 bg-gray-50 text-right">Duration</th>
-                <th className="px-3 py-2 bg-gray-50">Day</th>
-                <th className="px-3 py-2 bg-gray-50">Week</th>
+                </SortableTh>
+                <SortableTh sortId="rankOverall" sort={sort} align="center" className="px-3 py-2 bg-gray-50">Rank Overall</SortableTh>
+                <SortableTh sortId="rankRep" sort={sort} align="center" className="px-3 py-2 bg-gray-50">Rank/Rep</SortableTh>
+                <SortableTh sortId="rankChannel" sort={sort} align="center" className="px-3 py-2 bg-gray-50">Rank/Channel</SortableTh>
+                <SortableTh sortId="frequency" sort={sort} className="px-3 py-2 bg-gray-50">Frequency</SortableTh>
+                <SortableTh sortId="duration" sort={sort} align="right" className="px-3 py-2 bg-gray-50">Duration</SortableTh>
+                <SortableTh sortId="dayOfWeek" sort={sort} className="px-3 py-2 bg-gray-50">Day</SortableTh>
+                <SortableTh sortId="weekNumber" sort={sort} className="px-3 py-2 bg-gray-50">Week</SortableTh>
                 <th className="px-3 py-2 bg-gray-50 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {filtered.map((store) => {
+              {sorted.map((store) => {
                 const isEditing = editing === store.id;
                 const coords = checkCoords(store.gpsLat, store.gpsLng);
                 // While editing, check-on-map follows what has been TYPED, not
@@ -778,9 +780,9 @@ export default function StoresPage() {
                         <td className="px-3 py-2 text-right text-gray-500">
                           {store.sixMonthSales == null ? <span className="text-gray-300">—</span> : fmt(store.sixMonthSales)}
                         </td>
-                        <td className="px-3 py-2 text-center text-gray-400">{rankings.overallRank.get(store.id)}</td>
-                        <td className="px-3 py-2 text-center text-gray-400">{rankings.repRank.get(store.id)}</td>
-                        <td className="px-3 py-2 text-center text-gray-400">{rankings.channelRank.get(store.id)}</td>
+                        <td className="px-3 py-2 text-center text-gray-400">{rankings.overallRank.get(store.id) ?? "—"}</td>
+                        <td className="px-3 py-2 text-center text-gray-400">{rankings.repRank.get(store.id) ?? "—"}</td>
+                        <td className="px-3 py-2 text-center text-gray-400">{rankings.channelRank.get(store.id) ?? "—"}</td>
                         <td className="px-3 py-2">
                           <select
                             value={editData.frequency || "monthly"}
@@ -869,19 +871,31 @@ export default function StoresPage() {
                           {store.sixMonthSales == null ? <span className="text-gray-300">—</span> : fmt(store.sixMonthSales)}
                         </td>
                         <td className="px-3 py-2 text-center">
-                          <span className="inline-flex items-center justify-center w-7 h-5 rounded bg-blue-50 text-blue-700 font-medium">
-                            {rankings.overallRank.get(store.id)}
-                          </span>
+                          {rankings.overallRank.has(store.id) ? (
+                            <span className="inline-flex items-center justify-center w-7 h-5 rounded bg-blue-50 text-blue-700 font-medium">
+                              {rankings.overallRank.get(store.id)}
+                            </span>
+                          ) : (
+                            <span className="text-gray-300" title="No sales figure, so this store is not ranked">—</span>
+                          )}
                         </td>
                         <td className="px-3 py-2 text-center">
-                          <span className="inline-flex items-center justify-center w-7 h-5 rounded bg-green-50 text-green-700 font-medium">
-                            {rankings.repRank.get(store.id)}
-                          </span>
+                          {rankings.repRank.has(store.id) ? (
+                            <span className="inline-flex items-center justify-center w-7 h-5 rounded bg-green-50 text-green-700 font-medium">
+                              {rankings.repRank.get(store.id)}
+                            </span>
+                          ) : (
+                            <span className="text-gray-300" title="No sales figure, so this store is not ranked">—</span>
+                          )}
                         </td>
                         <td className="px-3 py-2 text-center">
-                          <span className="inline-flex items-center justify-center w-7 h-5 rounded bg-purple-50 text-purple-700 font-medium">
-                            {rankings.channelRank.get(store.id)}
-                          </span>
+                          {rankings.channelRank.has(store.id) ? (
+                            <span className="inline-flex items-center justify-center w-7 h-5 rounded bg-purple-50 text-purple-700 font-medium">
+                              {rankings.channelRank.get(store.id)}
+                            </span>
+                          ) : (
+                            <span className="text-gray-300" title="No sales figure, so this store is not ranked">—</span>
+                          )}
                         </td>
                         <td className="px-3 py-2 text-gray-600">{getFrequencyLabel(store.frequency)}</td>
                         <td className="px-3 py-2 text-right text-gray-600">{store.duration}m</td>

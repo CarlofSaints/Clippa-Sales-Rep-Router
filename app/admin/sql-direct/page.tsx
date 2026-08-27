@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTableSort, useSortedRows, SortableTh } from "@/components/TableSort";
 
 /**
  * SQL Direct — reconnaissance, not an importer.
@@ -58,6 +59,8 @@ export default function SqlDirectPage() {
   const [query, setQuery] = useState("clippa_ims_place_sales");
   const [client, setClient] = useState("CLIPPA SALES");
   const [monthsBack, setMonthsBack] = useState(6);
+  // Emptiest column first: this table is read to find what SQL has not filled in.
+  const colSort = useTableSort("populated", "asc", []);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
 
@@ -77,6 +80,12 @@ export default function SqlDirectPage() {
       setRunning(false);
     }
   };
+
+  const sortedColumns = useSortedRows<ColumnProfile>(result?.columns ?? [], {
+    name: (c) => c.name,
+    populated: (c) => c.populatedPercent,
+    sample: (c) => c.sample,
+  }, colSort);
 
   const m = result?.match;
 
@@ -283,13 +292,13 @@ export default function SqlDirectPage() {
                   <table className="w-full text-left text-xs">
                     <thead className="bg-gray-50">
                       <tr className="text-[10px] uppercase tracking-wide text-gray-500">
-                        <th className="px-4 py-2 font-medium">Column</th>
-                        <th className="px-4 py-2 font-medium text-right">Populated</th>
-                        <th className="px-4 py-2 font-medium">Example value</th>
+                        <SortableTh sortId="name" sort={colSort} className="px-4 py-2 font-medium">Column</SortableTh>
+                        <SortableTh sortId="populated" sort={colSort} align="right" className="px-4 py-2 font-medium">Populated</SortableTh>
+                        <SortableTh sortId="sample" sort={colSort} className="px-4 py-2 font-medium">Example value</SortableTh>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {result.columns.map((c) => (
+                      {sortedColumns.map((c) => (
                         <tr key={c.name} className="hover:bg-gray-50">
                           <td className="px-4 py-2 font-mono text-gray-800">{c.name}</td>
                           <td

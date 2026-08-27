@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useTableSort, useSortedRows, SortableTh } from "@/components/TableSort";
 
 interface Region {
   id: string;
@@ -9,6 +10,8 @@ interface Region {
 
 export default function RegionsPage() {
   const [regions, setRegions] = useState<Region[]>([]);
+  const sort = useTableSort("name", "asc");
+  const sortedRegions = useSortedRows<Region>(regions, { name: (r) => r.name }, sort);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -162,12 +165,12 @@ export default function RegionsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-                <th className="px-6 py-3 text-left">Region Name</th>
+                <SortableTh sortId="name" sort={sort} className="px-6 py-3">Region Name</SortableTh>
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {regions.map((region) => (
+              {sortedRegions.map((region) => (
                 <tr key={region.id} className="hover:bg-gray-50">
                   <td className="px-6 py-3">
                     {editing === region.id ? (

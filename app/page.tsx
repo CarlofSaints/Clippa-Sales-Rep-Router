@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { Channel, Rep, Store, Team, RepslyVisit } from "@/lib/types";
+import { compareCells, type SortValue } from "@/lib/tableSort";
 
 type SortDir = "asc" | "desc";
 
@@ -18,17 +19,16 @@ function useSortable<T>(data: T[], defaultKey: string, defaultDir: SortDir = "de
     }
   };
 
+  // Shared comparator. The version that used to live here stringified nulls to
+  // "", which floated every blank to the TOP of an ascending sort.
   const sorted = useMemo(() => {
-    return [...data].sort((a, b) => {
-      const av = (a as Record<string, unknown>)[sortKey];
-      const bv = (b as Record<string, unknown>)[sortKey];
-      if (typeof av === "number" && typeof bv === "number") {
-        return sortDir === "asc" ? av - bv : bv - av;
-      }
-      const as = String(av ?? "");
-      const bs = String(bv ?? "");
-      return sortDir === "asc" ? as.localeCompare(bs) : bs.localeCompare(as);
-    });
+    return [...data].sort((a, b) =>
+      compareCells(
+        (a as Record<string, SortValue>)[sortKey],
+        (b as Record<string, SortValue>)[sortKey],
+        sortDir
+      )
+    );
   }, [data, sortKey, sortDir]);
 
   return { sorted, sortKey, sortDir, onToggle: toggle };

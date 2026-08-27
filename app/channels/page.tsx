@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Channel, FREQUENCY_OPTIONS, FrequencyType, getFrequencyLabel } from "@/lib/types";
+import { useTableSort, useSortedRows, SortableTh } from "@/components/TableSort";
 
 export default function ChannelsPage() {
   const [channels, setChannels] = useState<Channel[]>([]);
+  const sort = useTableSort("name", "asc", ["duration"]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<string | null>(null);
   const [editData, setEditData] = useState<Partial<Channel>>({});
@@ -147,9 +149,15 @@ export default function ChannelsPage() {
     load();
   };
 
-  const filtered = channels.filter((ch) =>
+  const filteredChannels = channels.filter((ch) =>
     ch.name.toLowerCase().includes(search.trim().toLowerCase())
   );
+
+  const filtered = useSortedRows<Channel>(filteredChannels, {
+    name: (c) => c.name,
+    frequency: (c) => getFrequencyLabel(c.frequency),
+    duration: (c) => c.duration ?? null,
+  }, sort);
 
   const allVisibleSelected =
     filtered.length > 0 && filtered.every((ch) => selected.has(ch.id));
@@ -485,9 +493,9 @@ export default function ChannelsPage() {
                   />
                 </th>
                 <th className="px-6 py-3 w-8">#</th>
-                <th className="px-6 py-3">Channel Name</th>
-                <th className="px-6 py-3">Default Frequency</th>
-                <th className="px-6 py-3 text-right">Duration (min)</th>
+                <SortableTh sortId="name" sort={sort} className="px-6 py-3">Channel Name</SortableTh>
+                <SortableTh sortId="frequency" sort={sort} className="px-6 py-3">Default Frequency</SortableTh>
+                <SortableTh sortId="duration" sort={sort} align="right" className="px-6 py-3">Duration (min)</SortableTh>
                 <th className="px-6 py-3 text-right">Actions</th>
               </tr>
             </thead>

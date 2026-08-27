@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useSession } from "@/components/SessionProvider";
+import { useTableSort, useSortedRows, SortableTh } from "@/components/TableSort";
 
 interface UnmatchedRepCode {
   repCode: string;
@@ -77,6 +78,24 @@ export default function CoveragePage() {
   }, []);
 
   const worstFirst = useMemo(() => data?.unmatched ?? [], [data]);
+
+  // Worst offender first: this table exists to show which unknown rep code is
+  // stranding the most stores.
+  const missingSort = useTableSort("storeCount", "desc", ["storeCount", "badGps"]);
+  const sortedMissing = useSortedRows<UnmatchedRepCode>(worstFirst, {
+    repCode: (u) => u.repCode,
+    storeCount: (u) => u.storeCount,
+    badGps: (u) => u.storesWithBadGps,
+    provinces: (u) => u.provinces.join(", ") || null,
+    regions: (u) => u.regions.join(", ") || null,
+  }, missingSort);
+
+  const idleSort = useTableSort("code", "asc");
+  const sortedIdle = useSortedRows<IdleRep>(data?.idleReps ?? [], {
+    code: (r) => r.code,
+    name: (r) => r.name,
+    email: (r) => r.email || null,
+  }, idleSort);
 
   if (loading) {
     return (
@@ -178,15 +197,15 @@ export default function CoveragePage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-left">
               <tr className="text-[11px] uppercase tracking-wide text-gray-500">
-                <th className="px-4 py-2 font-medium">Rep code</th>
-                <th className="px-4 py-2 font-medium text-right">Stores</th>
-                <th className="px-4 py-2 font-medium text-right">Bad GPS</th>
-                <th className="px-4 py-2 font-medium">Provinces</th>
-                <th className="px-4 py-2 font-medium">Regions on the store list</th>
+                <SortableTh sortId="repCode" sort={missingSort} className="px-4 py-2 font-medium">Rep code</SortableTh>
+                <SortableTh sortId="storeCount" sort={missingSort} align="right" className="px-4 py-2 font-medium">Stores</SortableTh>
+                <SortableTh sortId="badGps" sort={missingSort} align="right" className="px-4 py-2 font-medium">Bad GPS</SortableTh>
+                <SortableTh sortId="provinces" sort={missingSort} className="px-4 py-2 font-medium">Provinces</SortableTh>
+                <SortableTh sortId="regions" sort={missingSort} className="px-4 py-2 font-medium">Regions on the store list</SortableTh>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {worstFirst.map((u) => (
+              {sortedMissing.map((u) => (
                 <tr key={u.repCode} className="hover:bg-gray-50">
                   <td className="px-4 py-2.5 font-mono font-semibold text-gray-900">{u.repCode}</td>
                   <td className="px-4 py-2.5 text-right font-semibold text-gray-900">
@@ -226,13 +245,13 @@ export default function CoveragePage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-left">
               <tr className="text-[11px] uppercase tracking-wide text-gray-500">
-                <th className="px-4 py-2 font-medium">Rep code</th>
-                <th className="px-4 py-2 font-medium">Name</th>
-                <th className="px-4 py-2 font-medium">Email</th>
+                <SortableTh sortId="code" sort={idleSort} className="px-4 py-2 font-medium">Rep code</SortableTh>
+                <SortableTh sortId="name" sort={idleSort} className="px-4 py-2 font-medium">Name</SortableTh>
+                <SortableTh sortId="email" sort={idleSort} className="px-4 py-2 font-medium">Email</SortableTh>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {data.idleReps.map((r) => (
+              {sortedIdle.map((r) => (
                 <tr key={r.id} className="hover:bg-gray-50">
                   <td className="px-4 py-2.5 font-mono text-gray-900">{r.code}</td>
                   <td className="px-4 py-2.5 text-gray-700">{r.name || "—"}</td>

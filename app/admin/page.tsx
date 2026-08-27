@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useSession } from "@/components/SessionProvider";
 import { UserRole, RolePermission, ROLE_DEFINITIONS, ALL_PERMISSIONS } from "@/lib/types";
+import { useTableSort, useSortedRows, SortableTh } from "@/components/TableSort";
 
 interface UserData {
   id: string;
@@ -38,6 +39,14 @@ const ROLE_DOTS: Record<UserRole, string> = {
 
 export default function AdminPage() {
   const [users, setUsers] = useState<UserData[]>([]);
+  const userSort = useTableSort("name", "asc");
+  const sortedUsers = useSortedRows<UserData>(users, {
+    name: (u) => u.name,
+    email: (u) => u.email,
+    role: (u) => u.role,
+    // Accounts still owing a password change sort together.
+    status: (u) => (u.forcePasswordChange ? 1 : 0),
+  }, userSort);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [newUser, setNewUser] = useState({ name: "", email: "", password: "", role: "viewer" as UserRole });
@@ -471,15 +480,15 @@ export default function AdminPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wider">
-                <th className="px-6 py-3">Name</th>
-                <th className="px-6 py-3">Email</th>
-                <th className="px-6 py-3">Role</th>
-                <th className="px-6 py-3">Status</th>
+                <SortableTh sortId="name" sort={userSort} className="px-6 py-3">Name</SortableTh>
+                <SortableTh sortId="email" sort={userSort} className="px-6 py-3">Email</SortableTh>
+                <SortableTh sortId="role" sort={userSort} className="px-6 py-3">Role</SortableTh>
+                <SortableTh sortId="status" sort={userSort} className="px-6 py-3">Status</SortableTh>
                 <th className="px-6 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {users.map((user) => (
+              {sortedUsers.map((user) => (
                 <tr key={user.id} className="hover:bg-gray-50">
                   {editing === user.id ? (
                     <>

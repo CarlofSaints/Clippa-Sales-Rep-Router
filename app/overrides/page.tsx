@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { useTableSort, useSortedRows, SortableTh } from "@/components/TableSort";
 import {
   Store,
   Channel,
@@ -65,6 +66,14 @@ export default function OverridesPage() {
   }, []);
 
   const channelMap = useMemo(() => new Map(channels.map((c) => [c.id, c])), [channels]);
+
+  const sort = useTableSort("storeName", "asc");
+  const sortedOverrides = useSortedRows<StoreOverride>(overrides, {
+    storeName: (o) => o.storeName,
+    override: (o) => o.duration ?? null,
+    channelDefault: (o) => o.defaultDuration ?? null,
+    status: (o) => o.approvalStatus,
+  }, sort);
   const overrideByStore = useMemo(
     () => new Map(overrides.map((o) => [o.storeId, o])),
     [overrides]
@@ -379,15 +388,15 @@ export default function OverridesPage() {
             <table className="w-full text-sm">
               <thead className="text-xs text-gray-500 border-b border-gray-100">
                 <tr>
-                  <th className="text-left px-4 py-2 font-medium">Store</th>
-                  <th className="text-left px-4 py-2 font-medium">Override</th>
-                  <th className="text-left px-4 py-2 font-medium">Channel default</th>
-                  <th className="text-left px-4 py-2 font-medium">Status</th>
+                  <SortableTh sortId="storeName" sort={sort} className="px-4 py-2 font-medium">Store</SortableTh>
+                  <SortableTh sortId="override" sort={sort} className="px-4 py-2 font-medium">Override</SortableTh>
+                  <SortableTh sortId="channelDefault" sort={sort} className="px-4 py-2 font-medium">Channel default</SortableTh>
+                  <SortableTh sortId="status" sort={sort} className="px-4 py-2 font-medium">Status</SortableTh>
                   <th className="px-4 py-2"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {overrides.map((o) => (
+                {sortedOverrides.map((o) => (
                   <tr key={o.id}>
                     <td className="px-4 py-2">
                       <div className="font-medium text-gray-800">{o.storeName}</div>

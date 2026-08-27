@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useTableSort, useSortedRows, SortableTh } from "@/components/TableSort";
 
 interface Channel {
   id: string;
@@ -17,6 +18,12 @@ interface Rep {
 export default function RepChannelsPage() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [reps, setReps] = useState<Rep[]>([]);
+  // Only the rep axis is sortable. The other axis is one column per channel.
+  const sort = useTableSort("name", "asc");
+  const sortedReps = useSortedRows<Rep>(reps, {
+    name: (r) => r.name,
+    code: (r) => r.code,
+  }, sort);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
@@ -173,9 +180,9 @@ export default function RepChannelsPage() {
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-20">
               <tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-                <th className="px-6 py-3 text-left sticky left-0 bg-gray-50 z-30">
+                <SortableTh sortId="name" sort={sort} className="px-6 py-3 sticky left-0 bg-gray-50 z-30">
                   Rep
-                </th>
+                </SortableTh>
                 {channels.map((ch) => (
                   <th key={ch.id} className="px-4 py-3 text-center min-w-[100px] bg-gray-50">
                     {ch.name}
@@ -184,7 +191,7 @@ export default function RepChannelsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {reps.map((rep) => {
+              {sortedReps.map((rep) => {
                 const assigned = matrix[rep.id] || new Set();
                 return (
                   <tr key={rep.id} className="hover:bg-gray-50">

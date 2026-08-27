@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useTableSort, useSortedRows, SortableTh } from "@/components/TableSort";
 
 interface DupRecord {
   id: string;
@@ -26,6 +27,14 @@ interface DupResponse {
 
 export default function DuplicatesPage() {
   const [data, setData] = useState<DupResponse | null>(null);
+  // Groups sort as units. Sorting the flattened records would scatter each
+  // duplicate cluster and blank the labels, which only render on a group's
+  // first row.
+  const sort = useTableSort("storeName", "asc");
+  const sortedGroups = useSortedRows<DupGroup>(data?.groups ?? [], {
+    storeName: (g) => g.storeName,
+    repCode: (g) => g.repCode,
+  }, sort);
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
   const [msg, setMsg] = useState<{ text: string; type: "success" | "error" } | null>(null);
@@ -138,8 +147,10 @@ export default function DuplicatesPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wider">
-                  <th className="px-3 py-2">Store</th>
-                  <th className="px-3 py-2">Rep</th>
+                  <SortableTh sortId="storeName" sort={sort} className="px-3 py-2">Store</SortableTh>
+                  <SortableTh sortId="repCode" sort={sort} className="px-3 py-2">Rep</SortableTh>
+                  {/* Place ID, Channel, GPS and Status vary WITHIN a group, so
+                      sorting on them would have to break the groups apart. */}
                   <th className="px-3 py-2">Place ID</th>
                   <th className="px-3 py-2">Channel</th>
                   <th className="px-3 py-2">GPS</th>
@@ -147,7 +158,7 @@ export default function DuplicatesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {data?.groups.flatMap((g) =>
+                {sortedGroups.flatMap((g) =>
                   g.records.map((r, idx) => (
                     <tr key={r.id} className={r.keep ? "bg-green-50/40" : ""}>
                       <td className="px-3 py-2 font-medium text-gray-900">{idx === 0 ? g.storeName : ""}</td>

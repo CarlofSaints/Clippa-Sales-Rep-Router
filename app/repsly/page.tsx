@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { RepslySyncLogEntry } from "@/lib/types";
+import { useTableSort, useSortedRows, SortableTh } from "@/components/TableSort";
 
 interface SyncConfig {
   apiKey: string;
@@ -25,6 +26,17 @@ const SYNC_TYPES: { type: SyncType; label: string; description: string }[] = [
 export default function RepslyPage() {
   const [config, setConfig] = useState<SyncConfig | null>(null);
   const [logs, setLogs] = useState<RepslySyncLogEntry[]>([]);
+
+  // Newest run first by default: a sync log is read to answer "did the last one
+  // work", not to browse history alphabetically.
+  const sort = useTableSort("timestamp", "desc", ["timestamp", "imported", "skipped"]);
+  const sortedLogs = useSortedRows<RepslySyncLogEntry>(logs, {
+    timestamp: (e) => e.timestamp,
+    type: (e) => e.type,
+    imported: (e) => e.recordsImported ?? null,
+    skipped: (e) => e.recordsSkipped ?? null,
+    status: (e) => (e.error ? 1 : 0),
+  }, sort);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -307,15 +319,15 @@ export default function RepslyPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-                  <th className="px-4 py-2 text-left">Time</th>
-                  <th className="px-4 py-2 text-left">Type</th>
-                  <th className="px-4 py-2 text-right">Imported</th>
-                  <th className="px-4 py-2 text-right">Skipped</th>
-                  <th className="px-4 py-2 text-left">Status</th>
+                  <SortableTh sortId="timestamp" sort={sort} className="px-4 py-2">Time</SortableTh>
+                  <SortableTh sortId="type" sort={sort} className="px-4 py-2">Type</SortableTh>
+                  <SortableTh sortId="imported" sort={sort} align="right" className="px-4 py-2">Imported</SortableTh>
+                  <SortableTh sortId="skipped" sort={sort} align="right" className="px-4 py-2">Skipped</SortableTh>
+                  <SortableTh sortId="status" sort={sort} className="px-4 py-2">Status</SortableTh>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {logs.map((entry, i) => (
+                {sortedLogs.map((entry, i) => (
                   <tr key={i} className="hover:bg-gray-50">
                     <td className="px-4 py-2 text-gray-600 whitespace-nowrap">{fmtDate(entry.timestamp)}</td>
                     <td className="px-4 py-2">

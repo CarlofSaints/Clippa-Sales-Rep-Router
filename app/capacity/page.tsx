@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useSession } from "@/components/SessionProvider";
 import { Team } from "@/lib/types";
+import { useTableSort, useSortedRows, SortableTh } from "@/components/TableSort";
 
 interface RepCapacity {
   repCode: string;
@@ -165,10 +166,31 @@ export default function CapacityPage() {
 
   const outlierCount = (repCode: string) => outliers?.perRep?.[repCode] ?? 0;
 
-  const sorted = useMemo(
-    () => [...reps].sort((a, b) => b.utilization - a.utilization),
-    [reps]
-  );
+  // Busiest rep first: this page is read to find who is over capacity.
+  const sort = useTableSort("utilization", "desc", [
+    "storeCount", "callsPerMonth", "scheduledHours", "utilization", "spareHours", "unassignedStores",
+  ]);
+  const sorted = useSortedRows<RepCapacity>(reps, {
+    repName: (r) => r.repName,
+    team: (r) => teamName(r.teamId) || null,
+    storeCount: (r) => r.storeCount,
+    callsPerMonth: (r) => r.callsPerMonth,
+    scheduledHours: (r) => r.scheduledHours,
+    utilization: (r) => r.utilization,
+    spareHours: (r) => r.spareHours,
+    unassignedStores: (r) => r.unassignedStores,
+    flags: (r) => (r.hasRoute ? 0 : 1),
+  }, sort);
+
+  const outlierSort = useTableSort("distanceKm", "desc", ["distanceKm"]);
+
+  const sortedOutliers = useSortedRows(groupedOutliers, {
+    repName: (g) => g.repName,
+    storeName: (g) => g.storeName,
+    channel: (g) => g.channel || null,
+    province: (g) => g.province || null,
+    distanceKm: (g) => g.distanceKm,
+  }, outlierSort);
 
   const roll = useMemo(() => {
     const routed = reps.filter((r) => r.hasRoute);
@@ -301,15 +323,15 @@ export default function CapacityPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wider">
-                <th className="px-4 py-3">Rep</th>
-                {isAdmin && <th className="px-4 py-3">Team</th>}
-                <th className="px-4 py-3 text-right">Stores</th>
-                <th className="px-4 py-3 text-right">Calls/mo</th>
-                <th className="px-4 py-3 text-right">Hrs used / avail</th>
-                <th className="px-4 py-3 w-48">Utilisation</th>
-                <th className="px-4 py-3 text-right">Spare (h)</th>
-                <th className="px-4 py-3 text-right">Out of range</th>
-                <th className="px-4 py-3">Flags</th>
+                <SortableTh sortId="repName" sort={sort} className="px-4 py-3">Rep</SortableTh>
+                {isAdmin && <SortableTh sortId="team" sort={sort} className="px-4 py-3">Team</SortableTh>}
+                <SortableTh sortId="storeCount" sort={sort} align="right" className="px-4 py-3">Stores</SortableTh>
+                <SortableTh sortId="callsPerMonth" sort={sort} align="right" className="px-4 py-3">Calls/mo</SortableTh>
+                <SortableTh sortId="scheduledHours" sort={sort} align="right" className="px-4 py-3">Hrs used / avail</SortableTh>
+                <SortableTh sortId="utilization" sort={sort} className="px-4 py-3 w-48">Utilisation</SortableTh>
+                <SortableTh sortId="spareHours" sort={sort} align="right" className="px-4 py-3">Spare (h)</SortableTh>
+                <SortableTh sortId="unassignedStores" sort={sort} align="right" className="px-4 py-3">Out of range</SortableTh>
+                <SortableTh sortId="flags" sort={sort} className="px-4 py-3">Flags</SortableTh>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -440,16 +462,16 @@ export default function CapacityPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wider">
-                <th className="px-4 py-3">Rep</th>
-                <th className="px-4 py-3">Store</th>
-                <th className="px-4 py-3">Channel</th>
-                <th className="px-4 py-3">Location</th>
-                <th className="px-4 py-3 text-right">Distance from area</th>
+                <SortableTh sortId="repName" sort={outlierSort} className="px-4 py-3">Rep</SortableTh>
+                <SortableTh sortId="storeName" sort={outlierSort} className="px-4 py-3">Store</SortableTh>
+                <SortableTh sortId="channel" sort={outlierSort} className="px-4 py-3">Channel</SortableTh>
+                <SortableTh sortId="province" sort={outlierSort} className="px-4 py-3">Location</SortableTh>
+                <SortableTh sortId="distanceKm" sort={outlierSort} align="right" className="px-4 py-3">Distance from area</SortableTh>
                 <th className="px-4 py-3 text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {groupedOutliers.map((g) => (
+              {sortedOutliers.map((g) => (
                 <tr key={g.storeIds[0]} className="hover:bg-gray-50">
                   <td className="px-4 py-3 text-gray-700">{g.repName}</td>
                   <td className="px-4 py-3 font-medium text-gray-900">

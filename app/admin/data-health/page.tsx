@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useSession } from "@/components/SessionProvider";
+import { useTableSort, useSortedRows, SortableTh } from "@/components/TableSort";
 
 type Severity = "blocking" | "warning" | "info";
 
@@ -35,6 +36,48 @@ const TONE: Record<Severity, { chip: string; bar: string; label: string }> = {
   warning: { chip: "bg-amber-100 text-amber-800", bar: "bg-amber-400", label: "Warning" },
   info: { chip: "bg-gray-100 text-gray-600", bar: "bg-gray-300", label: "Info" },
 };
+
+/**
+ * One issue's rows.
+ *
+ * Its own component because each issue declares its own columns, so each needs
+ * its own sort state — a single hook at page level would make every table on the
+ * page jump when one header was clicked.
+ *
+ * Rows are positional arrays, so a column sorts on its INDEX.
+ */
+function IssueTable({ columns, rows }: { columns: string[]; rows: (string | number)[][] }) {
+  const sort = useTableSort("0", "asc");
+  const accessors = Object.fromEntries(
+    columns.map((_, i) => [String(i), (row: (string | number)[]) => row[i] ?? null])
+  );
+  const sorted = useSortedRows(rows, accessors, sort);
+
+  return (
+    <table className="w-full text-xs">
+      <thead className="bg-gray-50 text-left">
+        <tr className="text-[10px] uppercase tracking-wide text-gray-500">
+          {columns.map((c, i) => (
+            <SortableTh key={c} sortId={String(i)} sort={sort} className="px-3 py-2 font-medium whitespace-nowrap">
+              {c}
+            </SortableTh>
+          ))}
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-gray-100">
+        {sorted.map((row, i) => (
+          <tr key={i} className="hover:bg-gray-50">
+            {row.map((cell, j) => (
+              <td key={j} className="px-3 py-1.5 text-gray-700 whitespace-nowrap">
+                {cell === "" ? <span className="text-gray-300">-</span> : String(cell)}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
 
 function Stat({ label, value, tone }: { label: string; value: string | number; tone?: "bad" | "good" }) {
   return (
@@ -189,30 +232,12 @@ export default function DataHealthPage() {
                     {issue.action}
                   </p>
                   <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead className="bg-gray-50 text-left">
-                        <tr className="text-[10px] uppercase tracking-wide text-gray-500">
-                          {issue.columns.map((c) => (
-                            <th key={c} className="px-3 py-2 font-medium whitespace-nowrap">{c}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {issue.rows.map((row, i) => (
-                          <tr key={i} className="hover:bg-gray-50">
-                            {row.map((cell, j) => (
-                              <td key={j} className="px-3 py-1.5 text-gray-700 whitespace-nowrap">
-                                {cell === "" ? <span className="text-gray-300">-</span> : String(cell)}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    <IssueTable columns={issue.columns} rows={issue.rows} />
                   </div>
                   {issue.truncated && (
                     <p className="px-4 py-2 text-[11px] text-gray-500 bg-gray-50">
-                      Showing the first {issue.rows.length} of {issue.count.toLocaleString()}. The export has
+                      Sorting orders these rows only. Showing the first {issue.rows.length} of{" "}
+                      {issue.count.toLocaleString()}. The export has
                       every one.
                     </p>
                   )}

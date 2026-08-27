@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Rep } from "@/lib/types";
 import { useSession } from "@/components/SessionProvider";
+import { useTableSort, useSortedRows, SortableTh } from "@/components/TableSort";
 
 interface GeocodeOutcome {
   repId: string;
@@ -119,6 +120,20 @@ export default function RepsPage() {
   const [editData, setEditData] = useState<Partial<Rep>>({});
   const [saving, setSaving] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const sort = useTableSort("code", "asc", ["workingHoursPerDay"]);
+  const sortedReps = useSortedRows<Rep>(reps, {
+    code: (r) => r.code,
+    name: (r) => r.name,
+    email: (r) => r.email || null,
+    cell: (r) => r.cell || null,
+    homeAddress: (r) => r.homeAddress || null,
+    // Sorts by whether a real home anchor exists, so the reps still falling back
+    // to a store centroid group together.
+    startsDayAt: (r) => (hasHomeGps(r) ? 1 : 0),
+    login: (r) => (repIdsWithLogin.has(r.id) ? 2 : hasUsableEmail(r) ? 1 : 0),
+    workingHoursPerDay: (r) => r.workingHoursPerDay ?? null,
+  }, sort);
+
   const [newRep, setNewRep] = useState<Partial<Rep>>({ code: "", name: "", email: "", cell: "", homeAddress: "", workingHoursPerDay: 8.5 });
   const [error, setError] = useState("");
   const [geocoding, setGeocoding] = useState(false);
@@ -697,19 +712,19 @@ export default function RepsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wider">
-                <th className="px-6 py-3">Code</th>
-                <th className="px-6 py-3">Name</th>
-                <th className="px-6 py-3">Email</th>
-                <th className="px-6 py-3">Cell</th>
-                <th className="px-6 py-3">Home Address</th>
-                <th className="px-6 py-3">Starts Day At</th>
-                <th className="px-6 py-3">Login</th>
-                <th className="px-6 py-3 text-center">Hours/Day</th>
+                <SortableTh sortId="code" sort={sort} className="px-6 py-3">Code</SortableTh>
+                <SortableTh sortId="name" sort={sort} className="px-6 py-3">Name</SortableTh>
+                <SortableTh sortId="email" sort={sort} className="px-6 py-3">Email</SortableTh>
+                <SortableTh sortId="cell" sort={sort} className="px-6 py-3">Cell</SortableTh>
+                <SortableTh sortId="homeAddress" sort={sort} className="px-6 py-3">Home Address</SortableTh>
+                <SortableTh sortId="startsDayAt" sort={sort} className="px-6 py-3">Starts Day At</SortableTh>
+                <SortableTh sortId="login" sort={sort} className="px-6 py-3">Login</SortableTh>
+                <SortableTh sortId="workingHoursPerDay" sort={sort} align="center" className="px-6 py-3">Hours/Day</SortableTh>
                 <th className="px-6 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {reps.map((rep) => (
+              {sortedReps.map((rep) => (
                 <tr key={rep.id} className="hover:bg-gray-50">
                   {editing === rep.id ? (
                     <>
