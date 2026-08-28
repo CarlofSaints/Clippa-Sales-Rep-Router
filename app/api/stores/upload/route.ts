@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStores, saveStores, getChannels, saveChannels, getReps, saveReps, getStoreOverrides } from "@/lib/data";
+import { getStores, saveStores, getChannels, saveChannels, getReps, saveReps, getStoreOverrides, getAllocationSettings } from "@/lib/data";
 import { overriddenStoreIds } from "@/lib/channelDefaults";
 import { uploadScope } from "@/lib/uploadScope";
 import { Store, Channel, Rep } from "@/lib/types";
@@ -37,6 +37,11 @@ export async function POST(request: NextRequest) {
     const existingChannels = await getChannels();
     const existingReps = await getReps();
     const existingStores = await getStores();
+    // IMS as the authority makes rep code read-only to an upload. A NEW store
+    // still takes the rep the file gives it, because IMS has no opinion on a
+    // store this app has never seen.
+    const allocation = await getAllocationSettings();
+    const repWritable = allocation.source !== "ims";
     const channelMap = new Map(existingChannels.map((c) => [c.name, c]));
     const repMap = new Map(existingReps.map((r) => [r.code, r]));
 
@@ -67,6 +72,7 @@ export async function POST(request: NextRequest) {
     let blankChannelCells = 0;
     let blankGpsCells = 0;
     let blankRepCells = 0;
+    let repCellsIgnored = 0;
     // What the file actually claims, gathered as the rows are read. Replace mode
     // needs both: the reps it is speaking for, and the stores it lists for them.
     const repCodesInFile = new Set<string>();
@@ -183,8 +189,15 @@ export async function POST(request: NextRequest) {
         }
         // Guarded like its three siblings above. A blank cell in a column that
         // IS present is "no value here", not "belongs to nobody".
-        if (hasRepColumn && repCode) existing.repCode = repCode;
-        else if (hasRepColumn) blankRepCells++;
+        //
+        // ⚠️ And guarded again by the allocation source. When IMS is the
+        // authority, a Places export must not be able to take a store back off
+        // the rep IMS says owns it. Without this half, an IMS allocation
+        // survives exactly until somebody loads a spreadsheet.
+        if (hasRepColumn && repCode) {
+          if (repWritable) existing.repCode = repCode;
+          else repCellsIgnored++;
+        } else if (hasRepColumn) blankRepCells++;
         // Coordinates move as a pair, and only when the file carries them.
         if (hasGpsColumns) {
           // A blank pair in a file that HAS the columns is still "no value here",
@@ -299,6 +312,8 @@ export async function POST(request: NextRequest) {
       blankChannelCells,
       blankGpsCells,
       blankRepCells,
+      repCellsIgnored,
+      allocationSource: allocation.source,
       replaceAllocation,
       repCodesInFile: Array.from(repCodesInFile).sort(),
       unassignedCount: unassigned.length,

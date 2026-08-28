@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import AllocationSourceCard from "@/components/AllocationSourceCard";
 import * as XLSX from "xlsx";
 import { useTableSort, useSortedRows, SortableTh, type TableSort } from "@/components/TableSort";
 import { compareCells } from "@/lib/tableSort";
@@ -357,6 +358,8 @@ export default function ImsReconciliationPage() {
             </div>
             {applyResult && <ApplyReport result={applyResult} />}
           </div>
+
+          <AllocationSourceCard />
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">

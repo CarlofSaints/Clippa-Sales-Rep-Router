@@ -2,6 +2,7 @@ import { put, list, get } from "@vercel/blob";
 import { Channel, Rep, Store, User, Team, RoutePlanDocument, RolePermission, ROLE_DEFINITIONS, ALL_PERMISSIONS, CallCycleType, DEFAULT_CALL_CYCLE_TYPES, Region, StoreOverride } from "./types";
 import type { PasswordResetRecord } from "./passwordReset";
 import { DEFAULT_COMMISSION, type CommissionSettings } from "./commission";
+import { DEFAULT_ALLOCATION, type AllocationSettings } from "./allocationSource";
 import fs from "fs";
 import path from "path";
 
@@ -299,4 +300,14 @@ export async function getCommissionSettings(): Promise<CommissionSettings> {
 
 export async function saveCommissionSettings(settings: CommissionSettings): Promise<void> {
   await writeJSON("config/commission", settings);
+}
+
+// ---------- Store allocation source ----------
+export async function getAllocationSettings(): Promise<AllocationSettings> {
+  const stored = await readJSON<Partial<AllocationSettings>>("config/allocation", {});
+  return { ...DEFAULT_ALLOCATION, ...stored };
+}
+
+export async function saveAllocationSettings(settings: AllocationSettings): Promise<void> {
+  await writeJSON("config/allocation", settings);
 }
