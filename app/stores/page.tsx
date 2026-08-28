@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { Store, Channel, Rep, Team, FREQUENCY_OPTIONS, FrequencyType, getFrequencyLabel, SA_PROVINCES } from "@/lib/types";
 import { useSession } from "@/components/SessionProvider";
 import StoreImportModal from "@/components/StoreImportModal";
@@ -304,6 +304,14 @@ export default function StoresPage() {
   const [filterRegions, setFilterRegions] = useState<Set<string>>(new Set());
   const [filterFrequencies, setFilterFrequencies] = useState<Set<string>>(new Set());
   const [onlyBadCoords, setOnlyBadCoords] = useState(false);
+  const [imsMap, setImsMap] = useState<Record<string, MapRow>>({});
+  const [ghosts, setGhosts] = useState<MapRow[]>([]);
+  // Two controls, not one, because they combine differently: a store has exactly
+  // one status but any number of flags, so folding them together would make
+  // "Matched" and "Rep mismatch" look like alternatives when they are both true
+  // of the same row.
+  const [filterMapStatus, setFilterMapStatus] = useState<Set<string>>(new Set());
+  const [filterMapFlags, setFilterMapFlags] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<string | null>(null);
   const [editData, setEditData] = useState<Partial<Store>>({});
   const [saving, setSaving] = useState(false);
@@ -404,6 +412,42 @@ export default function StoresPage() {
   // Map repCode → teamId for filtering
   const repTeamMap = useMemo(() => new Map(reps.map((r) => [r.code, r.teamId])), [reps]);
 
+
+  /** The store's row in the IMS snapshot, or undefined if there is no snapshot. */
+  const rowFor = useCallback(
+    (s: Store) => imsMap[String(s.placeId || s.id).trim().toUpperCase()],
+    [imsMap]
+  );
+
+  /**
+   * Both dropdowns carry live counts, because the useful question is almost
+   * always "how many" and reading it off the option saves filtering to find out.
+   *
+   * Statuses cover the ghost rows too, so the filter means the same thing
+   * whether or not IMS-only outlets are being shown.
+   */
+  const mapStatusOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    const bump = (k: string) => counts.set(k, (counts.get(k) ?? 0) + 1);
+    for (const r of Object.values(imsMap)) bump(r.status);
+    for (const g of ghosts) bump(g.status);
+    return (Object.keys(MAP_STATUS_LABEL) as MapStatus[])
+      .filter((k) => counts.has(k))
+      .map((k) => ({ value: k, label: `${MAP_STATUS_LABEL[k]} (${(counts.get(k) ?? 0).toLocaleString("en-ZA")})` }));
+  }, [imsMap, ghosts]);
+
+  const mapFlagOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of Object.values(imsMap)) {
+      for (const k of Object.keys(r.flags) as (keyof MapFlags)[]) {
+        if (r.flags[k]) counts.set(k, (counts.get(k) ?? 0) + 1);
+      }
+    }
+    return (Object.keys(FLAG_LABEL) as (keyof MapFlags)[])
+      .filter((k) => counts.has(k))
+      .map((k) => ({ value: k, label: `${FLAG_LABEL[k]} (${(counts.get(k) ?? 0).toLocaleString("en-ZA")})` }));
+  }, [imsMap]);
+
   const filtered = useMemo(() => {
     return stores.filter((s) => {
       if (search && !s.name.toLowerCase().includes(search.toLowerCase()) && !s.placeId.toLowerCase().includes(search.toLowerCase())) return false;
@@ -426,16 +470,28 @@ export default function StoresPage() {
       }
       if (filterFrequencies.size > 0 && !filterFrequencies.has(s.frequency)) return false;
       if (onlyBadCoords && checkCoords(s.gpsLat, s.gpsLng).ok) return false;
+      if (filterMapStatus.size > 0 || filterMapFlags.size > 0) {
+        const row = rowFor(s);
+        // No snapshot means no status and no flags, which is not the same as a
+        // store that has been looked at and found clean. It cannot satisfy
+        // either filter, so it drops out rather than being counted as a match.
+        if (!row) return false;
+        if (filterMapStatus.size > 0 && !filterMapStatus.has(row.status)) return false;
+        // Any one of the chosen flags is enough; a row carrying several still
+        // appears once.
+        if (filterMapFlags.size > 0) {
+          const hit = Array.from(filterMapFlags).some((k) => row.flags[k as keyof MapFlags]);
+          if (!hit) return false;
+        }
+      }
       return true;
     });
-  }, [stores, search, filterChannels, filterReps, filterTeamManagers, filterProvinces, filterRegions, filterFrequencies, repTeamMap]);
+  }, [stores, search, filterChannels, filterReps, filterTeamManagers, filterProvinces, filterRegions, filterFrequencies, onlyBadCoords, filterMapStatus, filterMapFlags, rowFor, repTeamMap]);
 
   const cols = useColumnWidths("stores-grid-widths");
 
   // The IMS map is a cached snapshot, not a live query: building it costs three
   // SQL round trips and this is the busiest page in the app.
-  const [imsMap, setImsMap] = useState<Record<string, MapRow>>({});
-  const [ghosts, setGhosts] = useState<MapRow[]>([]);
   const [imsFetchedAt, setImsFetchedAt] = useState<string | null>(null);
   const [showGhosts, setShowGhosts] = useState(false);
 
@@ -516,18 +572,23 @@ export default function StoresPage() {
   const visibleGhosts = useMemo(() => {
     if (!showGhosts) return [];
     const q = search.trim().toUpperCase();
-    const rows = q
+    let rows = q
       ? ghosts.filter((g) => g.placeId.includes(q) || (g.imsName || "").toUpperCase().includes(q))
       : ghosts;
+    // Map Status is the one filter that DOES apply to a ghost, because the two
+    // IMS-only statuses are the whole reason these rows exist. A flag filter
+    // hides them all: nothing in the router flags a row that is not in it.
+    if (filterMapStatus.size > 0) rows = rows.filter((g) => filterMapStatus.has(g.status));
+    if (filterMapFlags.size > 0) rows = [];
     return [...rows].sort((a, b) => (b.sixMonthSales ?? 0) - (a.sixMonthSales ?? 0));
-  }, [ghosts, showGhosts, search]);
+  }, [ghosts, showGhosts, search, filterMapStatus, filterMapFlags]);
 
   const badCoordCount = useMemo(
     () => stores.filter((s) => !checkCoords(s.gpsLat, s.gpsLng).ok).length,
     [stores]
   );
 
-  const hasFilters = !!search || filterChannels.size > 0 || filterReps.size > 0 || filterTeamManagers.size > 0 || filterProvinces.size > 0 || filterRegions.size > 0 || filterFrequencies.size > 0 || onlyBadCoords;
+  const hasFilters = !!search || filterChannels.size > 0 || filterReps.size > 0 || filterTeamManagers.size > 0 || filterProvinces.size > 0 || filterRegions.size > 0 || filterFrequencies.size > 0 || onlyBadCoords || filterMapStatus.size > 0 || filterMapFlags.size > 0;
 
   const clearAllFilters = () => {
     setSearch("");
@@ -538,6 +599,8 @@ export default function StoresPage() {
     setFilterRegions(new Set());
     setFilterFrequencies(new Set());
     setOnlyBadCoords(false);
+    setFilterMapStatus(new Set());
+    setFilterMapFlags(new Set());
   };
 
   /**
@@ -566,8 +629,12 @@ export default function StoresPage() {
     if (filterFrequencies.size)
       out.push(`Frequency: ${named(filterFrequencies, (f) => getFrequencyLabel(f as FrequencyType))}`);
     if (onlyBadCoords) out.push("GPS problems only");
+    if (filterMapStatus.size)
+      out.push(`Map Status: ${named(filterMapStatus, (k) => MAP_STATUS_LABEL[k as MapStatus] || k)}`);
+    if (filterMapFlags.size)
+      out.push(`IMS Flags: ${named(filterMapFlags, (k) => FLAG_LABEL[k as keyof MapFlags] || k)}`);
     return out;
-  }, [search, filterChannels, filterReps, filterTeamManagers, filterProvinces, filterRegions, filterFrequencies, onlyBadCoords, channelMap, repMap, teams]);
+  }, [search, filterChannels, filterReps, filterTeamManagers, filterProvinces, filterRegions, filterFrequencies, onlyBadCoords, filterMapStatus, filterMapFlags, channelMap, repMap, teams]);
 
   /**
    * Export what is on screen.
@@ -845,6 +912,24 @@ export default function StoresPage() {
           selected={filterFrequencies}
           onChange={setFilterFrequencies}
         />
+        {/* Only offered once a snapshot exists. Without one every option would
+            read zero and select nothing, which looks broken rather than empty. */}
+        {mapStatusOptions.length > 0 && (
+          <FilterDropdown
+            label="Map Status"
+            options={mapStatusOptions}
+            selected={filterMapStatus}
+            onChange={setFilterMapStatus}
+          />
+        )}
+        {mapFlagOptions.length > 0 && (
+          <FilterDropdown
+            label="IMS Flags"
+            options={mapFlagOptions}
+            selected={filterMapFlags}
+            onChange={setFilterMapFlags}
+          />
+        )}
         <button
           onClick={() => setOnlyBadCoords((prev) => !prev)}
           title="Blank, unparseable, swapped, or outside South Africa"
