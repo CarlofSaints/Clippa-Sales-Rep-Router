@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, getSession } from "@/lib/auth";
-import { getRepslyConfig, saveRepslyConfig, getRepslyVisits, saveRepslyVisits, getRepslyWorkingTime, saveRepslyWorkingTime, appendSyncLog } from "@/lib/repslyData";
+import { getRepslyConfig, saveRepslyConfig, getRepslyVisits, saveRepslyVisits, getRepslyWorkingTime, saveRepslyWorkingTime, getRepslySchedules, saveRepslySchedules, appendSyncLog } from "@/lib/repslyData";
 import { getStores, getReps, saveStores, saveReps } from "@/lib/data";
-import { fetchAllVisits, fetchAllClients, fetchAllDailyWorkingTime, fetchAllReps } from "@/lib/repslyApi";
+import { fetchAllVisits, fetchAllClients, fetchAllDailyWorkingTime, fetchAllReps, fetchVisitSchedules } from "@/lib/repslyApi";
 import { logActivity } from "@/lib/activityLog";
 import { RepslySyncConfig, RepslySyncLogEntry } from "@/lib/types";
 
@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
   }
 
   const { type, mode } = await request.json();
-  if (!["clients", "visits", "working_time", "reps"].includes(type)) {
+  if (!["clients", "visits", "working_time", "reps", "call_cycles"].includes(type)) {
     return NextResponse.json({ error: "Invalid sync type" }, { status: 400 });
   }
   if (!["test", "import"].includes(mode)) {
@@ -108,6 +108,102 @@ async function syncVisits(config: RepslySyncConfig, mode: string) {
     recordsImported: imported,
     recordsSkipped: skipped,
     totalStored: existing.length,
+  });
+}
+
+// ---------- Sync: Call Cycles (Repsly's visit schedules) ----------
+
+/**
+ * How far either side of today to ask for.
+ *
+ * The schedules endpoint takes a date RANGE rather than a "since" cursor, so
+ * unlike the other three this sync cannot be incremental. A fixed window is
+ * honest about that: it always fetches the same span and replaces what it holds,
+ * so the stored set is a snapshot of the current cycle, never a growing pile.
+ */
+const SCHEDULE_DAYS_BACK = 30;
+const SCHEDULE_DAYS_FORWARD = 60;
+
+async function syncCallCycles(config: RepslySyncConfig, mode: string) {
+  const now = new Date();
+  const begin = new Date(now);
+  begin.setDate(begin.getDate() - SCHEDULE_DAYS_BACK);
+  const end = new Date(now);
+  end.setDate(end.getDate() + SCHEDULE_DAYS_FORWARD);
+
+  const { schedules, rawSample, envelope, url } = await fetchVisitSchedules(
+    config.apiKey,
+    config.apiPasscode,
+    begin,
+    end
+  );
+
+  // ⚠️ Zero rows has two very different causes and they must not look the same:
+  // no schedules exist in the window, or the response came back in a shape this
+  // parser does not recognise. `envelope` separates them, and Test reports both.
+  const unrecognised = envelope === null;
+
+  if (mode === "test") {
+    return NextResponse.json({
+      mode: "test",
+      type: "call_cycles",
+      recordsFound: schedules.length,
+      sample: schedules.slice(0, 5),
+      // Everything needed to diagnose a first run that returns nothing, without
+      // anybody having to add logging and try again.
+      diagnostics: {
+        url,
+        envelope,
+        unrecognised,
+        rawSample,
+        window: { from: begin.toISOString().substring(0, 10), to: end.toISOString().substring(0, 10) },
+      },
+    });
+  }
+
+  if (unrecognised) {
+    throw new Error(
+      `Repsly answered ${url} but the rows were not under any expected key. Press Test to see the raw response before importing.`
+    );
+  }
+
+  // Replace, not append: this is a snapshot of a moving window, and merging
+  // would keep schedules that Repsly has since moved or cancelled.
+  const previous = await getRepslySchedules();
+  const seen = new Set<string>();
+  const deduped = schedules.filter((s) => {
+    if (seen.has(s.scheduleId)) return false;
+    seen.add(s.scheduleId);
+    return true;
+  });
+  await saveRepslySchedules(deduped);
+
+  config.lastCallCycleSync = new Date().toISOString();
+  await saveRepslyConfig(config);
+
+  const logEntry: RepslySyncLogEntry = {
+    timestamp: new Date().toISOString(),
+    type: "call_cycles",
+    recordsImported: deduped.length,
+    recordsSkipped: schedules.length - deduped.length,
+  };
+  await appendSyncLog(logEntry);
+
+  const session = await getSession();
+  logActivity({
+    action: "Synced Repsly call cycles",
+    actor: session?.email || "unknown",
+    actorName: session?.name || "Unknown",
+    summary: `Synced Repsly call cycles: ${deduped.length} scheduled visits (replaced ${previous.length})`,
+  });
+
+  return NextResponse.json({
+    mode: "import",
+    type: "call_cycles",
+    recordsImported: deduped.length,
+    recordsSkipped: schedules.length - deduped.length,
+    totalStored: deduped.length,
+    replaced: previous.length,
   });
 }
 

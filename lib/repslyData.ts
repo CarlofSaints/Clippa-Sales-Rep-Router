@@ -1,5 +1,5 @@
 import { put, get } from "@vercel/blob";
-import { RepslyVisit, RepslyWorkingTime, RepslySyncConfig, RepslySyncLogEntry } from "./types";
+import { RepslyVisit, RepslyWorkingTime, RepslyVisitSchedule, RepslySyncConfig, RepslySyncLogEntry } from "./types";
 import fs from "fs";
 import path from "path";
 
@@ -56,10 +56,15 @@ const DEFAULT_CONFIG: RepslySyncConfig = {
   lastVisitSync: null,
   lastWorkingTimeSync: null,
   lastRepSync: null,
+  lastCallCycleSync: null,
 };
 
 export async function getRepslyConfig(): Promise<RepslySyncConfig> {
-  return readJSON<RepslySyncConfig>("config/repsly-api", DEFAULT_CONFIG);
+  // Spread over the defaults rather than returning the stored object as-is: a
+  // config written before a field existed would otherwise come back missing it,
+  // and every new sync type adds one.
+  const stored = await readJSON<Partial<RepslySyncConfig>>("config/repsly-api", {});
+  return { ...DEFAULT_CONFIG, ...stored };
 }
 
 export async function saveRepslyConfig(config: RepslySyncConfig): Promise<void> {
@@ -84,6 +89,16 @@ export async function getRepslyWorkingTime(): Promise<RepslyWorkingTime[]> {
 
 export async function saveRepslyWorkingTime(records: RepslyWorkingTime[]): Promise<void> {
   await writeJSON("repsly-working-time", records);
+}
+
+// ---------- Repsly Visit Schedules (their call cycle) ----------
+
+export async function getRepslySchedules(): Promise<RepslyVisitSchedule[]> {
+  return readJSON<RepslyVisitSchedule[]>("repsly-visit-schedules", []);
+}
+
+export async function saveRepslySchedules(records: RepslyVisitSchedule[]): Promise<void> {
+  await writeJSON("repsly-visit-schedules", records);
 }
 
 // ---------- Sync Log ----------

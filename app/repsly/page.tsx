@@ -12,15 +12,17 @@ interface SyncConfig {
   lastVisitSync: string | null;
   lastWorkingTimeSync: string | null;
   lastRepSync: string | null;
+  lastCallCycleSync: string | null;
 }
 
-type SyncType = "clients" | "visits" | "working_time" | "reps";
+type SyncType = "clients" | "visits" | "working_time" | "reps" | "call_cycles";
 
 const SYNC_TYPES: { type: SyncType; label: string; description: string }[] = [
   { type: "visits", label: "Visits", description: "Actual field visits from Repsly" },
   { type: "clients", label: "Clients", description: "Match Repsly clients to stores, update GPS" },
   { type: "working_time", label: "Working Time", description: "Daily hours, mileage, time at client" },
   { type: "reps", label: "Reps", description: "Match and update rep names/contact" },
+  { type: "call_cycles", label: "Call Cycles", description: "Repsly's scheduled visits, to compare against this app's plan" },
 ];
 
 export default function RepslyPage() {
@@ -127,10 +129,19 @@ export default function RepslyPage() {
       if (!res.ok) {
         setSyncResult({ type, ok: false, msg: data.error || "Sync failed" });
       } else if (mode === "test") {
+        // Zero rows from Call Cycles means one of two things, and the difference
+        // matters: an empty window, or a response shape the parser did not
+        // recognise. Say which, rather than leaving a bare "Found 0".
+        const d = data.diagnostics;
+        const detail = d
+          ? d.unrecognised
+            ? ` — ⚠ Repsly answered but no rows were found under any expected key. Raw first row: ${JSON.stringify(d.rawSample)?.slice(0, 300) || "(empty response)"}`
+            : ` under "${d.envelope}", ${d.window.from} to ${d.window.to}`
+          : "";
         setSyncResult({
           type,
           ok: true,
-          msg: `Found ${data.recordsFound} records`,
+          msg: `Found ${data.recordsFound} records${detail}`,
         });
       } else {
         setSyncResult({
@@ -164,6 +175,7 @@ export default function RepslyPage() {
     if (type === "clients") return config.lastClientSync;
     if (type === "working_time") return config.lastWorkingTimeSync;
     if (type === "reps") return config.lastRepSync;
+    if (type === "call_cycles") return config.lastCallCycleSync;
     return null;
   };
 

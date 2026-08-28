@@ -1,4 +1,4 @@
-import { RepslyVisit, RepslyWorkingTime } from "./types";
+import { RepslyVisit, RepslyWorkingTime, RepslyVisitSchedule } from "./types";
 
 const BASE_URL = "https://api.repsly.com/v3";
 
@@ -276,4 +276,111 @@ export async function fetchAllDailyWorkingTime(
   }
 
   return results;
+}
+
+// ---------- Visit Schedules (the call cycle Repsly holds) ----------
+
+/**
+ * ⚠️ This endpoint has never been called against a live Repsly account from
+ * here, so its exact response shape is unverified.
+ *
+ * Everything below is therefore written to survive being slightly wrong rather
+ * than to assume it is right: the envelope key is looked for under several
+ * names, every field is read case-insensitively, and `fetchVisitSchedules`
+ * hands back the raw first row alongside the parsed rows so the Test button can
+ * show what actually arrived. A parser that silently returned zero rows would
+ * be indistinguishable from a rep with no schedule.
+ */
+
+export interface RepslyScheduleFetch {
+  schedules: RepslyVisitSchedule[];
+  /** What Repsly actually sent, first row only, for the Test view. */
+  rawSample: unknown;
+  /** The envelope key the rows were found under, or null if none matched. */
+  envelope: string | null;
+  /** The URL that was called, so a 404 can be told from an empty week. */
+  url: string;
+}
+
+/** Repsly's date path segments are plain YYYY-MM-DD. */
+export function ymd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Field lookup that does not care how Repsly cased or spaced the key. */
+export function pick(row: Record<string, unknown>, ...names: string[]): string {
+  const entries = Object.entries(row).map(([k, v]) => [k.trim().toLowerCase(), v] as const);
+  for (const n of names) {
+    const hit = entries.find(([k]) => k === n.trim().toLowerCase());
+    if (hit && hit[1] !== null && hit[1] !== undefined && hit[1] !== "") return String(hit[1]).trim();
+  }
+  return "";
+}
+
+export const SCHEDULE_ENVELOPES = ["VisitSchedules", "VisitSchedule", "Schedules", "Visitschedules"];
+
+export async function fetchVisitSchedules(
+  apiKey: string,
+  apiPasscode: string,
+  beginDate: Date,
+  endDate: Date
+): Promise<RepslyScheduleFetch> {
+  const url = `${BASE_URL}/export/visitschedules/${ymd(beginDate)}/${ymd(endDate)}`;
+  const res = await fetch(url, { headers: authHeaders(apiKey, apiPasscode) });
+  if (res.status === 401) throw new Error("Invalid API key or passcode");
+  if (!res.ok) throw new Error(`Repsly visit schedules API returned ${res.status} for ${url}`);
+  const data = await res.json();
+  const { schedules, rawSample, envelope } = parseVisitSchedules(data);
+  return { schedules, rawSample, envelope, url };
+}
+
+/**
+ * Envelope detection and row mapping, split out from the fetch so it can be
+ * asserted without a live Repsly account. This endpoint has never run against
+ * the real API from here, so the parser is the part most likely to be wrong and
+ * the part that most needs a test.
+ */
+export function parseVisitSchedules(data: unknown): {
+  schedules: RepslyVisitSchedule[];
+  rawSample: unknown;
+  envelope: string | null;
+} {
+  let envelope: string | null = null;
+  let raw: Record<string, unknown>[] = [];
+  if (Array.isArray(data)) {
+    envelope = "(bare array)";
+    raw = data as Record<string, unknown>[];
+  } else if (data && typeof data === "object") {
+    for (const key of SCHEDULE_ENVELOPES) {
+      const found = (data as Record<string, unknown>)[key];
+      if (Array.isArray(found)) {
+        envelope = key;
+        raw = found as Record<string, unknown>[];
+        break;
+      }
+    }
+  }
+
+  const schedules: RepslyVisitSchedule[] = raw.map((r) => {
+    const date = pick(r, "ScheduleDate", "DueDate", "Date", "DateAndTime");
+    const repCode = pick(r, "RepresentativeCode", "RepCode");
+    const clientCode = pick(r, "ClientCode", "ClientID");
+    // Repsly does not always issue a schedule id. Rep + client + day identifies
+    // the call well enough to deduplicate on, and a composite key is honest
+    // about being derived.
+    const given = pick(r, "ScheduleCode", "VisitScheduleID", "ScheduleID", "ID");
+    return {
+      scheduleId: given || [repCode, clientCode, date.substring(0, 10)].join("|"),
+      date: date.substring(0, 10),
+      repCode,
+      repName: pick(r, "RepresentativeName", "RepName"),
+      clientCode,
+      clientName: pick(r, "ClientName", "PlaceName"),
+      dateTimeStart: pick(r, "DateTimeStart", "TimeStart", "DateAndTime"),
+      dateTimeEnd: pick(r, "DateTimeEnd", "TimeEnd"),
+      note: pick(r, "VisitNote", "Note", "Description"),
+    };
+  });
+
+  return { schedules, rawSample: raw[0] ?? null, envelope };
 }

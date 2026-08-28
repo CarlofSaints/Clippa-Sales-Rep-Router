@@ -435,6 +435,30 @@ export interface RepslyWorkingTime {
   timeAtTravel: number; // minutes
 }
 
+/**
+ * A visit Repsly has SCHEDULED — the call cycle as the field app holds it.
+ *
+ * Not the same thing as a RepslyVisit, which is a call that actually happened,
+ * and not the same thing as this app's own route plan. Three separate views of
+ * the same intention, and the reason for pulling this one is to see where they
+ * disagree.
+ *
+ * Read-only. Nothing in this app writes a schedule back to Repsly.
+ */
+export interface RepslyVisitSchedule {
+  /** Repsly's own id where it gives one; otherwise a composite of rep+client+date. */
+  scheduleId: string;
+  date: string; // YYYY-MM-DD
+  repCode: string;
+  repName: string;
+  clientCode: string;
+  clientName: string;
+  /** Local time as Repsly returns it, "" when the schedule is a whole-day one. */
+  dateTimeStart: string;
+  dateTimeEnd: string;
+  note: string;
+}
+
 export interface RepslySyncConfig {
   apiKey: string;
   apiPasscode: string;
@@ -443,11 +467,12 @@ export interface RepslySyncConfig {
   lastVisitSync: string | null;
   lastWorkingTimeSync: string | null;
   lastRepSync: string | null;
+  lastCallCycleSync: string | null;
 }
 
 export interface RepslySyncLogEntry {
   timestamp: string; // ISO datetime
-  type: "clients" | "visits" | "working_time" | "reps";
+  type: "clients" | "visits" | "working_time" | "reps" | "call_cycles";
   recordsImported: number;
   recordsSkipped: number;
   error?: string;
