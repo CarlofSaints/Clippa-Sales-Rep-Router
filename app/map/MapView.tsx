@@ -137,6 +137,19 @@ export default function MapView({
   const fmt = (n: number) =>
     "R " + (n ?? 0).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+  /**
+   * Six-month IMS sales, which may genuinely be absent.
+   *
+   * Absent is not zero: it means the client's invoicing system has never given
+   * us a figure for this outlet, and 44% of the base is in that position. A dash
+   * says so; running it through `fmt` would print R 0,00 and assert that the
+   * shop bought nothing.
+   */
+  const fmt6 = (n: number | null | undefined) => (n == null ? "—" : fmt(n));
+
+  /** Route stops carry only a storeId, so the sales come from the store behind it. */
+  const storeById = useMemo(() => new Map(stores.map((s) => [s.id, s])), [stores]);
+
   // Per-day polyline colors (cycle through for multi-day views)
   const lineColors = ["#DC2626", "#2563EB", "#16A34A", "#D97706", "#7C3AED", "#0891B2", "#DB2777", "#65A30D"];
 
@@ -188,7 +201,11 @@ export default function MapView({
                   <p className="font-bold text-sm">{store.name}</p>
                   <p><span className="text-gray-500">Channel:</span> {ch?.name || store.channelId}</p>
                   <p><span className="text-gray-500">Rep:</span> {rep?.name || store.repCode}</p>
-                  <p><span className="text-gray-500">Sales:</span> {fmt(store.monthlySales)}</p>
+                  {/* Labelled "Avg monthly", because it is sixMonthSales/6 and
+                      an unqualified "Sales" beside a six-month figure reads as a
+                      contradiction. */}
+                  <p><span className="text-gray-500">Avg monthly:</span> {fmt(store.monthlySales)}</p>
+                  <p><span className="text-gray-500">6-month sales:</span> {fmt6(store.sixMonthSales)}</p>
                   <p><span className="text-gray-500">ID:</span> {store.placeId}</p>
                 </div>
               </Popup>
@@ -241,6 +258,9 @@ export default function MapView({
                   {stop.distanceFromPrev > 0 && (
                     <p><span className="text-gray-500">Distance:</span> {stop.distanceFromPrev} km</p>
                   )}
+                  {/* In route view the plain store pins are dimmed to 0.2, so this
+                      is the only card most stops will ever show. */}
+                  <p><span className="text-gray-500">6-month sales:</span> {fmt6(storeById.get(stop.storeId)?.sixMonthSales)}</p>
                 </div>
               </Popup>
             </Marker>

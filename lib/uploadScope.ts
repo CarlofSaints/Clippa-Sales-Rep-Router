@@ -23,6 +23,18 @@ export interface UploadScope {
   hasChannel: boolean;
   /** The file carries BOTH coordinate columns, so GPS may be written. */
   hasGps: boolean;
+  /**
+   * The file carries a rep column, so the store's rep may be written.
+   *
+   * The fourth sibling in the same write block, and the one left behind when the
+   * other three were fixed. Unguarded, a sheet with no rep column set every
+   * store it touched to `repCode: ""`, which does not look like damage anywhere:
+   * the store keeps its name, channel, sales and coordinates, and simply stops
+   * belonging to anybody. It then disappears from that rep's map, their routes
+   * and every capacity figure, and Data Health reports it under a heading about
+   * rep codes rather than about the upload.
+   */
+  hasRep: boolean;
 }
 
 const SALES_HEADERS = [
@@ -31,6 +43,9 @@ const SALES_HEADERS = [
 ];
 
 const CHANNEL_HEADERS = ["CHANNEL", "Channel", "CHANNEL NAME", "Channel Name", "Tags"];
+
+/** Every spelling the route already accepts when it reads the rep off a row. */
+const REP_HEADERS = ["REPRESENTATIVE ID", "REP CODE", "Rep Code", "Representative ID"];
 
 const LAT_HEADERS = ["GPS LATITUDE", "Gps latitude", "Gps Latitude", "GPS_LATITUDE", "Latitude"];
 const LNG_HEADERS = ["GPS LONGITUDE", "Gps longitude", "Gps Longitude", "GPS_LONGITUDE", "Longitude"];
@@ -50,5 +65,6 @@ export function uploadScope(fileHeaders: string[]): UploadScope {
     // half-updated store, it is a broken one, and coordinates move as a pair
     // everywhere else in this app.
     hasGps: present(fileHeaders, LAT_HEADERS) && present(fileHeaders, LNG_HEADERS),
+    hasRep: present(fileHeaders, REP_HEADERS),
   };
 }

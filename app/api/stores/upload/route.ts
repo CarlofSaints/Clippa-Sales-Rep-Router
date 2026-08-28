@@ -13,6 +13,21 @@ export async function POST(request: NextRequest) {
     const file = formData.get("file") as File | null;
     if (!file) return NextResponse.json({ error: "No file" }, { status: 400 });
 
+    /**
+     * "merge" (the default, and what this route has always done) adds and
+     * updates, and never takes anything away. So a rep's store list is the union
+     * of every file ever loaded for them, which is how a rep ends up carrying
+     * stores nobody remembers loading.
+     *
+     * "replace" makes the file authoritative FOR THE REPS IT NAMES: a store
+     * currently carrying one of those rep codes, that the file does not list, is
+     * un-assigned. Deliberately scoped to the rep codes in the file, so loading
+     * one rep's round can never touch another's.
+     */
+    const replaceAllocation = String(formData.get("mode") || "merge") === "replace";
+    /** Report what would change and save nothing. Always run this first. */
+    const dryRun = String(formData.get("dryRun") || "") === "true";
+
     const buffer = Buffer.from(await file.arrayBuffer());
     const wb = XLSX.read(buffer, { type: "buffer" });
     const ws = wb.Sheets[wb.SheetNames[0]];
@@ -51,11 +66,16 @@ export async function POST(request: NextRequest) {
     // store already had, and the counts say so rather than leaving it a mystery.
     let blankChannelCells = 0;
     let blankGpsCells = 0;
+    let blankRepCells = 0;
+    // What the file actually claims, gathered as the rows are read. Replace mode
+    // needs both: the reps it is speaking for, and the stores it lists for them.
+    const repCodesInFile = new Set<string>();
+    const placeIdsInFile = new Set<string>();
 
     // Which fields this file is allowed to touch. Presence of the COLUMN decides
     // scope: absent means leave the field alone. See lib/uploadScope.ts for why
     // this is not inline any more.
-    const { hasSales: hasSalesColumn, hasChannel: hasChannelColumn, hasGps: hasGpsColumns } =
+    const { hasSales: hasSalesColumn, hasChannel: hasChannelColumn, hasGps: hasGpsColumns, hasRep: hasRepColumn } =
       uploadScope(fileHeaders);
 
     // Detect format: Repsly Places export has "ID" + "Name" + "Representative ID" columns
@@ -99,6 +119,11 @@ export async function POST(request: NextRequest) {
       const sales = Number((rawSales || "").replace(/[^0-9.\-]/g, "") || 0);
 
       if (!placeId || !storeName) { skippedRows++; continue; }
+
+      // Recorded for every valid row, whatever the mode, so a dry run reports the
+      // same scope the real run would act on. A skipped row claims nothing.
+      placeIdsInFile.add(placeId.trim().toUpperCase());
+      if (repCode) repCodesInFile.add(repCode.trim().toUpperCase());
 
       // Auto-create channel
       if (channelName && !channelMap.has(channelName)) {
@@ -156,7 +181,10 @@ export async function POST(request: NextRequest) {
           existing.duration = channel.duration;
 
         }
-        existing.repCode = repCode;
+        // Guarded like its three siblings above. A blank cell in a column that
+        // IS present is "no value here", not "belongs to nobody".
+        if (hasRepColumn && repCode) existing.repCode = repCode;
+        else if (hasRepColumn) blankRepCells++;
         // Coordinates move as a pair, and only when the file carries them.
         if (hasGpsColumns) {
           // A blank pair in a file that HAS the columns is still "no value here",
@@ -195,12 +223,65 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // ── Replace mode: un-assign what the file left out ──────────────────
+    //
+    // Un-assigned, not deleted. The store keeps its name, coordinates, channel
+    // and sales, so nothing is lost and the decision is reversible by loading a
+    // file that claims it again. Data Health lists them under "Stores with no
+    // rep code at all", so they surface rather than quietly ceasing to exist.
+    const unassigned: { placeId: string; name: string; repCode: string }[] = [];
+    if (replaceAllocation) {
+      if (!hasRepColumn) {
+        return NextResponse.json(
+          { error: "Replace mode needs a rep column. This file has none, so there is no way to tell which rep's list it is replacing." },
+          { status: 400 }
+        );
+      }
+      for (const store of storeMap.values()) {
+        const rc = (store.repCode || "").trim().toUpperCase();
+        if (!rc || !repCodesInFile.has(rc)) continue;
+        if (placeIdsInFile.has((store.placeId || "").trim().toUpperCase())) continue;
+        unassigned.push({ placeId: store.placeId, name: store.name, repCode: store.repCode });
+        if (!dryRun) store.repCode = "";
+      }
+      unassigned.sort((a, b) => a.repCode.localeCompare(b.repCode) || a.name.localeCompare(b.name));
+    }
+
+    if (dryRun) {
+      return NextResponse.json({
+        ok: true,
+        dryRun: true,
+        added: newCount,
+        updated: updatedCount,
+        total: storeMap.size,
+        rowsInFile: rows.length,
+        skippedRows,
+        fileHeaders,
+        scope: { channel: hasChannelColumn, gps: hasGpsColumns, sales: hasSalesColumn, rep: hasRepColumn },
+        blankChannelCells,
+        blankGpsCells,
+        blankRepCells,
+        replaceAllocation,
+        repCodesInFile: Array.from(repCodesInFile).sort(),
+        unassignedCount: unassigned.length,
+        unassigned: unassigned.slice(0, 200),
+      });
+    }
+
     await saveChannels(Array.from(channelMap.values()));
     await saveReps(Array.from(repMap.values()));
     await saveStores(Array.from(storeMap.values()));
 
     const session = await getSession();
-    logActivity({ action: "Uploaded stores", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Uploaded ${file.name}: ${newCount} added, ${updatedCount} updated (${storeMap.size} total)` });
+    logActivity({
+      action: "Uploaded stores",
+      actor: session?.email || "unknown",
+      actorName: session?.name || "Unknown",
+      summary: `Uploaded ${file.name}: ${newCount} added, ${updatedCount} updated${replaceAllocation ? `, ${unassigned.length} un-assigned` : ""} (${storeMap.size} total)`,
+      details: replaceAllocation
+        ? `Replace mode for ${Array.from(repCodesInFile).sort().join(", ")}. Un-assigned: ${unassigned.map((u) => u.placeId).join(", ") || "none"}`
+        : undefined,
+    });
 
     return NextResponse.json({
       ok: true,
@@ -214,9 +295,14 @@ export async function POST(request: NextRequest) {
       fileHeaders,
       // What the file was allowed to touch, and what it left alone. Without this
       // a sheet that silently skipped a column looks identical to one that wrote it.
-      scope: { channel: hasChannelColumn, gps: hasGpsColumns, sales: hasSalesColumn },
+      scope: { channel: hasChannelColumn, gps: hasGpsColumns, sales: hasSalesColumn, rep: hasRepColumn },
       blankChannelCells,
       blankGpsCells,
+      blankRepCells,
+      replaceAllocation,
+      repCodesInFile: Array.from(repCodesInFile).sort(),
+      unassignedCount: unassigned.length,
+      unassigned: unassigned.slice(0, 200),
     });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });

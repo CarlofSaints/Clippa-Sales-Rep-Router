@@ -33,6 +33,7 @@ function ok(label: string, condition: boolean, detail = "") {
   ok("a full export may write sales", s.hasSales);
   ok("a full export may write channel", s.hasChannel);
   ok("a full export may write GPS", s.hasGps);
+  ok("a full export may write the rep", s.hasRep);
 }
 
 // The sheet that caused the damage: names and reps only.
@@ -43,6 +44,8 @@ function ok(label: string, condition: boolean, detail = "") {
     "this is what blanked every CPT store's channel");
   ok("a thin sheet may NOT write GPS", !s.hasGps,
     "this is what blanked their coordinates");
+  ok("a thin sheet WITH a rep column may write the rep", s.hasRep,
+    "the whole point of this sheet is the allocation");
 }
 
 // GPS needs BOTH halves.
@@ -82,8 +85,23 @@ function ok(label: string, condition: boolean, detail = "") {
 {
   const s = uploadScope([]);
   ok("an empty header list authorises nothing",
-    !s.hasSales && !s.hasChannel && !s.hasGps,
+    !s.hasSales && !s.hasChannel && !s.hasGps && !s.hasRep,
     "an unreadable file must not be treated as an instruction to clear everything");
+}
+
+// The rep code: the fourth sibling in the same write block, guarded last.
+{
+  ok("a sheet with no rep column may NOT write the rep",
+    !uploadScope(["PLACE ID", "PLACE NAME", "CHANNEL"]).hasRep,
+    "unguarded, this set every store it touched to an empty rep code, which reads as belonging to nobody");
+  ok("a GPS-only correction sheet may NOT write the rep",
+    !uploadScope(["PLACE ID", "GPS LATITUDE", "GPS LONGITUDE"]).hasRep,
+    "the round trip for the 1 901 bad coordinates must not un-assign every store it fixes");
+  ok("REP CODE is recognised", uploadScope(["REP CODE"]).hasRep);
+  ok("the Repsly spelling is recognised", uploadScope(["Representative ID"]).hasRep);
+  ok("case and padding do not matter", uploadScope(["  rep code  "]).hasRep);
+  ok("'Rep Name' alone is not a rep-code column", !uploadScope(["Rep Name"]).hasRep,
+    "a name cannot address a rep, and substring matching here would re-create the bug");
 }
 
 // A near-miss header must not be mistaken for the real one.
