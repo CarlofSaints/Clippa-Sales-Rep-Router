@@ -70,13 +70,55 @@ function MapStatusCell({ row }: { row?: MapRow }) {
 }
 
 /**
+ * Who IMS thinks calls on this store, beside who the router says.
+ *
+ * The code is what IMS actually holds — `tblStores` has no rep name — so the
+ * code is what is shown, with the router's name for it in the tooltip where the
+ * two systems happen to use the same code.
+ *
+ * Always rendered, never omitted: a dash is a fact here, and it means one of
+ * three different things, which is why each gets its own tooltip.
+ */
+function ImsRepCell({ row, repName }: { row?: MapRow; repName: (code: string) => string }) {
+  const dash = (title: string) => (
+    <td className="px-3 py-2">
+      <span className="text-gray-300" title={title}>&mdash;</span>
+    </td>
+  );
+  if (!row) return dash("No IMS snapshot has been taken yet");
+  const code = (row.imsRepCode || "").trim();
+  if (!code) {
+    return dash(
+      row.status === "rr_only"
+        ? "IMS has no record of this store code at all"
+        : "IMS holds this store but names no rep against it"
+    );
+  }
+  const name = repName(code);
+  const mismatch = row.flags.repMismatch;
+  return (
+    <td
+      className={`px-3 py-2 font-mono truncate ${mismatch ? "text-amber-700 font-semibold" : "text-gray-500"}`}
+      title={
+        mismatch
+          ? `IMS says ${code}${name ? ` (${name})` : ""} calls here. The router says someone else.`
+          : name || `IMS rep code ${code}`
+      }
+    >
+      {code}
+      {mismatch && <span className="ml-1" aria-label="rep mismatch">&#9888;</span>}
+    </td>
+  );
+}
+
+/**
  * An outlet IMS invoices that has no store in the router.
  *
  * Read-only on purpose: there is nothing here to edit, because the row does not
  * exist in this app. It is shown so the grid can answer "what is Clippa selling
  * that nobody visits" without a second screen.
  */
-function GhostRow({ row }: { row: MapRow }) {
+function GhostRow({ row, repName }: { row: MapRow; repName: (code: string) => string }) {
   const money = (n: number | null) =>
     n === null ? "" : "R " + n.toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return (
@@ -89,7 +131,10 @@ function GhostRow({ row }: { row: MapRow }) {
       <td className="px-3 py-2">{"—"}</td>
       <td className="px-3 py-2">{"—"}</td>
       <td className="px-3 py-2">{"—"}</td>
-      <td className="px-3 py-2 truncate">{row.imsRepCode || "—"}</td>
+      {/* No store in the router, so the router names nobody. The IMS code moves
+          to its own column rather than posing as this app's rep. */}
+      <td className="px-3 py-2">{"—"}</td>
+      <ImsRepCell row={row} repName={repName} />
       <td className="px-3 py-2 text-right whitespace-nowrap truncate">{"—"}</td>
       <td className="px-3 py-2 text-right whitespace-nowrap truncate">{money(row.sixMonthSales)}</td>
       <td className="px-3 py-2 text-center">{"—"}</td>
@@ -292,6 +337,27 @@ export default function StoresPage() {
   const channelMap = useMemo(() => new Map(channels.map((c) => [c.id, c])), [channels]);
   const repMap = useMemo(() => new Map(reps.map((r) => [r.code, r])), [reps]);
 
+  /**
+   * A rep's name from a code, for IMS codes.
+   *
+   * Case-and-space insensitive, and the CMR suffix is stripped, because IMS
+   * carries a parallel spelling of the same person (CPT007 / CPT007CMR) — the
+   * same allowance `sameRep` makes when deciding whether the two systems
+   * actually disagree. Returns "" when the code belongs to nobody here, which
+   * is common: an IMS rep need not exist in the router at all.
+   */
+  const repNameForCode = useMemo(() => {
+    const byCode = new Map<string, string>();
+    for (const r of reps) {
+      const c = (r.code || "").trim().toUpperCase();
+      if (c) byCode.set(c, r.name);
+    }
+    return (code: string) => {
+      const c = (code || "").trim().toUpperCase();
+      return byCode.get(c) || byCode.get(c.replace(/CMR$/, "")) || "";
+    };
+  }, [reps]);
+
   // Filter options
   const channelOptions = useMemo(
     () => channels.map((c) => ({ value: c.id, label: c.name })),
@@ -399,7 +465,8 @@ export default function StoresPage() {
     { key: "region", label: "Region", w: 110 },
     { key: "gpsLat", label: "Latitude", w: 100 },
     { key: "gpsLng", label: "Longitude", w: 100 },
-    { key: "rep", label: "Rep", w: 130 },
+    { key: "rep", label: "RR Rep", w: 130 },
+    { key: "imsRep", label: "IMS Rep", w: 110 },
     { key: "monthlySales", label: "Avg Monthly Sales", w: 130, align: "right" },
     { key: "sixMonthSales", label: "6-Month Sales", w: 130, align: "right" },
     { key: "rankOverall", label: "Rank Overall", w: 90, align: "center" },
@@ -429,6 +496,8 @@ export default function StoresPage() {
     gpsLat: (s) => (s.gpsLat?.trim() ? Number(s.gpsLat) : null),
     gpsLng: (s) => (s.gpsLng?.trim() ? Number(s.gpsLng) : null),
     rep: (s) => repMap.get(s.repCode)?.name || s.repCode,
+    // The raw IMS code, so the mismatched rows group together under one owner.
+    imsRep: (s) => imsMap[String(s.placeId || s.id).trim().toUpperCase()]?.imsRepCode || null,
     monthlySales: (s) => s.monthlySales ?? null,
     sixMonthSales: (s) => s.sixMonthSales ?? null,
     rankOverall: (s) => salesForRanking(s),
@@ -869,13 +938,14 @@ export default function StoresPage() {
                 const mappable = !Number.isNaN(shown.lat) && !Number.isNaN(shown.lng);
                 const ch = channelMap.get(store.channelId);
                 const rep = repMap.get(store.repCode);
+                const imsRow = imsMap[String(store.placeId || store.id).trim().toUpperCase()];
                 return (
                   <tr key={store.id} className="hover:bg-gray-50">
                     <td className="px-3 py-2 font-mono text-gray-500">{store.placeId}</td>
                     <td className="px-3 py-2 font-medium text-gray-900 max-w-[200px] truncate" title={store.name}>
                       {store.name}
                     </td>
-                    <MapStatusCell row={imsMap[String(store.placeId || store.id).trim().toUpperCase()]} />
+                    <MapStatusCell row={imsRow} />
 
                     {isEditing ? (
                       <>
@@ -945,6 +1015,8 @@ export default function StoresPage() {
                             ))}
                           </select>
                         </td>
+                        {/* Read-only while editing: IMS is the client's system, nothing here writes to it. */}
+                        <ImsRepCell row={imsRow} repName={repNameForCode} />
                         <td className="px-3 py-2 text-right text-gray-600 whitespace-nowrap truncate">{fmt(store.monthlySales)}</td>
                         {/* Absent means never supplied, which is a different thing from zero. */}
                         <td className="px-3 py-2 text-right text-gray-500 whitespace-nowrap truncate">
@@ -1035,6 +1107,7 @@ export default function StoresPage() {
                           {store.gpsLng?.trim() || "—"}
                         </td>
                         <td className="px-3 py-2 text-gray-600">{rep?.name || store.repCode}</td>
+                        <ImsRepCell row={imsRow} repName={repNameForCode} />
                         <td className="px-3 py-2 text-right text-gray-600 whitespace-nowrap truncate">{fmt(store.monthlySales)}</td>
                         {/* Absent means never supplied, which is a different thing from zero. */}
                         <td className="px-3 py-2 text-right text-gray-500 whitespace-nowrap truncate">
@@ -1095,7 +1168,9 @@ export default function StoresPage() {
                 );
               })}
               {showGhosts &&
-                visibleGhosts.map((g) => <GhostRow key={"ghost-" + g.placeId} row={g} />)}
+                visibleGhosts.map((g) => (
+                  <GhostRow key={"ghost-" + g.placeId} row={g} repName={repNameForCode} />
+                ))}
             </tbody>
           </table>
         </div>
