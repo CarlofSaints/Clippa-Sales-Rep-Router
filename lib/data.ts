@@ -1,6 +1,7 @@
 import { put, list, get } from "@vercel/blob";
 import { Channel, Rep, Store, User, Team, RoutePlanDocument, RolePermission, ROLE_DEFINITIONS, ALL_PERMISSIONS, CallCycleType, DEFAULT_CALL_CYCLE_TYPES, Region, StoreOverride } from "./types";
 import type { PasswordResetRecord } from "./passwordReset";
+import { DEFAULT_COMMISSION, type CommissionSettings } from "./commission";
 import fs from "fs";
 import path from "path";
 
@@ -284,4 +285,18 @@ export async function saveRolePermissions(perms: RolePermission[]): Promise<void
   }
 
   await writeJSON("role-permissions", perms);
+}
+
+// ---------- Commission settings ----------
+//
+// Spread over the defaults, like the Repsly config: a settings blob written
+// before a field existed must not come back missing it, because a missing rate
+// reads as zero and silently pays nobody.
+export async function getCommissionSettings(): Promise<CommissionSettings> {
+  const stored = await readJSON<Partial<CommissionSettings>>("config/commission", {});
+  return { ...DEFAULT_COMMISSION, ...stored };
+}
+
+export async function saveCommissionSettings(settings: CommissionSettings): Promise<void> {
+  await writeJSON("config/commission", settings);
 }
