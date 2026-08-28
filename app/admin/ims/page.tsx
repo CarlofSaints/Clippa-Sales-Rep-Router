@@ -101,12 +101,36 @@ export default function ImsReconciliationPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/ims/reconcile", { cache: "no-store" });
-      const json = await res.json();
-      if (!res.ok) setError(json.error || "Could not load the reconciliation.");
-      else setData(json);
+      // This runs three live SQL queries, one of them the whole 40 000 row
+      // outlet master. When the IMS server is contended that can pass sixty
+      // seconds, and the function is then killed by the platform. Giving up
+      // first turns an eternal spinner into a sentence that says what happened.
+      const res = await fetch("/api/ims/reconcile", {
+        cache: "no-store",
+        signal: AbortSignal.timeout(58000),
+      });
+      if (!res.ok) {
+        // A timed-out function returns an HTML error page, so parsing it as
+        // JSON throws and the real cause is lost. Read the status first.
+        let detail = "";
+        try {
+          detail = (await res.json())?.error ?? "";
+        } catch {
+          detail =
+            res.status === 504
+              ? "The request passed the sixty second function limit. The IMS outlet master is roughly ten megabytes and slows down when that server is busy. Try again in a minute."
+              : `The server returned HTTP ${res.status}.`;
+        }
+        setError(detail || "Could not load the reconciliation.");
+      } else {
+        setData(await res.json());
+      }
     } catch (e) {
-      setError(String(e));
+      setError(
+        e instanceof DOMException && e.name === "TimeoutError"
+          ? "Gave up after fifty eight seconds. The IMS outlet master is slow to return when that server is busy, and the reconciliation cannot finish without it. Everything below that reads the cached snapshot still works."
+          : String(e)
+      );
     } finally {
       setLoading(false);
     }
@@ -285,6 +309,10 @@ export default function ImsReconciliationPage() {
         </div>
       )}
 
+      {/* Reads the cached snapshot, not live SQL, so it stays usable when the
+          reconciliation above times out. */}
+      <AllocationSourceCard />
+
       {s && (
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -358,8 +386,6 @@ export default function ImsReconciliationPage() {
             </div>
             {applyResult && <ApplyReport result={applyResult} />}
           </div>
-
-          <AllocationSourceCard />
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
