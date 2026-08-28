@@ -107,16 +107,17 @@ export default function CommissionPage() {
             How the threshold works
           </label>
           <div className="space-y-2">
+            {/* Clippa's actual deal is listed first. */}
             {([
               {
-                value: "excess" as ThresholdBasis,
-                title: "Pay on the amount above the threshold",
-                blurb: "Nothing is earned on the first R" + settings.thresholdMonthly.toLocaleString("en-ZA") + ". The rate applies to whatever is above it.",
+                value: "gate" as ThresholdBasis,
+                title: "Reach the threshold, then earn on the whole portfolio",
+                blurb: "Below R" + settings.thresholdMonthly.toLocaleString("en-ZA") + " the rep earns no commission at all, only their basic salary. At or above it, the rate applies to everything.",
               },
               {
-                value: "gate" as ThresholdBasis,
-                title: "Clear the threshold, then pay on everything",
-                blurb: "Below the threshold earns nothing at all. At or above it, the rate applies to the whole portfolio.",
+                value: "excess" as ThresholdBasis,
+                title: "Earn only on the amount above the threshold",
+                blurb: "Nothing is earned on the first R" + settings.thresholdMonthly.toLocaleString("en-ZA") + ". The rate applies only to whatever is above it.",
               },
             ]).map((opt) => (
               <label

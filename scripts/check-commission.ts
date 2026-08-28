@@ -46,6 +46,18 @@ const GATE: CommissionSettings = { ...EXCESS, basis: "gate" };
     "if these ever match, the setting has stopped doing anything");
 }
 
+// ── Clippa's actual deal, pinned ─────────────────────────────────────
+{
+  ok("the shipped default is the gate basis",
+    DEFAULT_COMMISSION.basis === "gate",
+    "a rep under the threshold earns no commission at all; once they reach it the rate applies to the whole portfolio");
+  ok("the shipped default rate is 3.25%", DEFAULT_COMMISSION.ratePercent === 3.25);
+  ok("the shipped default threshold is R550 000 a month", DEFAULT_COMMISSION.thresholdMonthly === 550000);
+  ok("an unsaved config therefore prices a real portfolio correctly",
+    near(computeCommission(750000, DEFAULT_COMMISSION).earning, 24375),
+    "nobody should have to open the settings page to make the grid right");
+}
+
 // ── The boundary. Off-by-one here is somebody's pay. ─────────────────
 {
   const at = computeCommission(550000, EXCESS);

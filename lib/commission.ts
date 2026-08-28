@@ -22,11 +22,16 @@ export interface CommissionSettings {
   /** Rands of portfolio revenue per month before anything is earned. */
   thresholdMonthly: number;
   /**
-   * ⚠️ Which of the two readings of "3.25% from R550k" applies.
+   * Which of the two readings of "3.25% from R550k" applies.
    *
-   * Settable rather than assumed, because the phrase is genuinely ambiguous and
-   * the two answers differ by a factor of three on a real portfolio. Getting it
-   * wrong is a payroll error, not a display bug.
+   * ✅ Settled for Clippa on 28 Aug 2026: "gate". A rep under the threshold
+   * earns no commission at all, only their basic salary, which this app does
+   * not model. Once they reach the threshold the rate applies to the WHOLE
+   * portfolio, not just the part above it.
+   *
+   * It stays a setting because the deal can change, and because the two answers
+   * differ by roughly threefold on a real portfolio. Getting it wrong is a
+   * payroll error, not a display bug.
    */
   basis: ThresholdBasis;
   /** Free text, so whoever changes the rate can say why and when. */
@@ -38,7 +43,7 @@ export interface CommissionSettings {
 export const DEFAULT_COMMISSION: CommissionSettings = {
   ratePercent: 3.25,
   thresholdMonthly: 550000,
-  basis: "excess",
+  basis: "gate",
   note: "",
   updatedAt: null,
   updatedBy: null,
