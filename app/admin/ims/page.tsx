@@ -193,7 +193,6 @@ export default function ImsReconciliationPage() {
     }
   };
 
-
   const runBackfill = async (mode: "preview" | "apply") => {
     setBackfilling(true);
     setBackfill(null);
@@ -353,7 +352,8 @@ export default function ImsReconciliationPage() {
       {needsBuild && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           No reconciliation has been cached yet. Press <strong>Refresh snapshot</strong> below to build it.
-          It takes about twenty seconds and is the only thing here that queries IMS directly.
+          Twenty seconds or so when IMS is responsive, a couple of minutes when that server is busy, and it
+          is the only thing on this page that queries IMS directly.
         </div>
       )}
 
@@ -361,12 +361,69 @@ export default function ImsReconciliationPage() {
         <p className="text-xs text-gray-500">
           {meta.cached ? "Cached reconciliation" : "Live from IMS"}
           {meta.fetchedAt && <> · built {new Date(meta.fetchedAt).toLocaleString("en-ZA")}</>}
-          {meta.cached && <> · rebuild it with <strong>Refresh snapshot</strong> below</>}
+          {meta.cached && <> · rebuild it with <strong>Refresh snapshot</strong></>}
         </p>
       )}
 
+      {/* OUTSIDE the `{s && ...}` gate on purpose. These two are admin actions,
+          not readings of the reconciliation, and Refresh snapshot is the button
+          that BUILDS the reconciliation. Gating it on there being a result hid it
+          exactly when it was needed: a fresh install showed "press Refresh
+          snapshot below" above a page with no such button on it. */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+          <h2 className="text-sm font-semibold text-gray-900">IMS snapshot for the Stores page</h2>
+          <p className="mt-1 text-xs text-gray-500">
+            Builds both caches on this page: the Map Status column on the Stores page AND the
+            reconciliation above. Both come out of the same three SQL queries, so they cost the same
+            twenty seconds together as either did alone. This is the only button here that touches IMS.
+          </p>
+          <button
+            onClick={refreshSnapshot}
+            disabled={snapshotting}
+            className="mt-3 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {snapshotting ? "Building..." : "Refresh snapshot"}
+          </button>
+          {snapshot && (
+            <p className={`mt-3 rounded-lg p-3 text-xs ${snapshot.error ? "bg-red-50 text-red-800" : "bg-green-50 text-green-900"}`}>
+              {snapshot.error
+                ? String(snapshot.error)
+                : `Rebuilt. ${(snapshot.totals as { appStores: number })?.appStores?.toLocaleString("en-ZA")} stores mapped, ${(snapshot.totals as { ghosts: number })?.ghosts?.toLocaleString("en-ZA")} IMS-only outlets, and the reconciliation above refreshed with them.`}
+            </p>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+          <h2 className="text-sm font-semibold text-gray-900">Fill blank channel and province from IMS</h2>
+          <p className="mt-1 text-xs text-gray-500">
+            Only fills a field that is <strong>blank</strong>. A channel the app already holds is never
+            replaced, because routes and call frequencies are built on it. Channels are matched by name,
+            never created.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={() => runBackfill("preview")}
+              disabled={backfilling}
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              {backfilling ? "Working..." : "Preview"}
+            </button>
+            <button
+              onClick={() => runBackfill("apply")}
+              disabled={backfilling || !backfill || !!backfill.error || backfill.applied === true}
+              className="rounded-lg bg-clippa-red px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              title={!backfill ? "Preview first" : ""}
+            >
+              Apply
+            </button>
+          </div>
+          {backfill && <BackfillReport result={backfill} />}
+        </div>
+      </div>
+
       {/* Reads the cached snapshot, not live SQL, so it stays usable when the
-          reconciliation above times out. */}
+          reconciliation below has never been built. */}
       <AllocationSourceCard />
 
       {s && (
@@ -441,58 +498,6 @@ export default function ImsReconciliationPage() {
               </button>
             </div>
             {applyResult && <ApplyReport result={applyResult} />}
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-              <h2 className="text-sm font-semibold text-gray-900">IMS snapshot for the Stores page</h2>
-              <p className="mt-1 text-xs text-gray-500">
-                Builds both caches on this page: the Map Status column on the Stores page AND the
-                reconciliation above. Both come out of the same three SQL queries, so they cost the same
-                twenty seconds together as either did alone. This is the only button here that touches IMS.
-              </p>
-              <button
-                onClick={refreshSnapshot}
-                disabled={snapshotting}
-                className="mt-3 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-              >
-                {snapshotting ? "Building..." : "Refresh snapshot"}
-              </button>
-              {snapshot && (
-                <p className={`mt-3 rounded-lg p-3 text-xs ${snapshot.error ? "bg-red-50 text-red-800" : "bg-green-50 text-green-900"}`}>
-                  {snapshot.error
-                    ? String(snapshot.error)
-                    : `Rebuilt. ${(snapshot.totals as { appStores: number })?.appStores?.toLocaleString("en-ZA")} stores mapped, ${(snapshot.totals as { ghosts: number })?.ghosts?.toLocaleString("en-ZA")} IMS-only outlets, and the reconciliation above refreshed with them.`}
-                </p>
-              )}
-            </div>
-
-            <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-              <h2 className="text-sm font-semibold text-gray-900">Fill blank channel and province from IMS</h2>
-              <p className="mt-1 text-xs text-gray-500">
-                Only fills a field that is <strong>blank</strong>. A channel the app already holds is never
-                replaced, because routes and call frequencies are built on it. Channels are matched by name,
-                never created.
-              </p>
-              <div className="mt-3 flex gap-2">
-                <button
-                  onClick={() => runBackfill("preview")}
-                  disabled={backfilling}
-                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                >
-                  {backfilling ? "Working..." : "Preview"}
-                </button>
-                <button
-                  onClick={() => runBackfill("apply")}
-                  disabled={backfilling || !backfill || !!backfill.error || backfill.applied === true}
-                  className="rounded-lg bg-clippa-red px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-                  title={!backfill ? "Preview first" : ""}
-                >
-                  Apply
-                </button>
-              </div>
-              {backfill && <BackfillReport result={backfill} />}
-            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -657,7 +662,6 @@ function OrphanTable({ rows, sort }: { rows: OrphanRow[]; sort: TableSort }) {
     </table>
   );
 }
-
 
 function BackfillReport({ result }: { result: Record<string, unknown> }) {
   if (result.error) {
