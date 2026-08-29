@@ -17,6 +17,7 @@ import {
   sameRep,
   looksWholesale,
   compareCells,
+  EMPTY_RECON,
   type ImsStore,
 } from "../lib/imsReconCore";
 import type { Store } from "../lib/types";
@@ -285,6 +286,32 @@ ok("a bare CMR code does not match everything", !sameRep("GAU086", "CMRMP"));
   ok("the top row after sorting is the true maximum", sorted[0].v === 599,
     "sorting after a 500-row slice would give 499 here");
 }
+
+// The "nothing cached yet" reply must still be SHAPED like a reconciliation.
+// It shipped once as { error, needsBuild } and nothing else, and the page went
+// straight to data.rows.filter(...) on undefined, taking out the whole screen.
+{
+  const empty = EMPTY_RECON;
+  ok("EMPTY_RECON carries a rows array", Array.isArray(empty.rows) && empty.rows.length === 0);
+  ok("EMPTY_RECON carries an orphans array", Array.isArray(empty.orphans) && empty.orphans.length === 0);
+
+  // Compared against a REAL result, so a summary field added later cannot be
+  // forgotten here and quietly render as undefined on the page.
+  const real = reconcile(
+    [store("A1"), store("A2", { repCode: "R2" })],
+    new Map([["A1", 100]]),
+    new Set(["A1"]),
+    new Map(),
+    6
+  );
+  const missing = Object.keys(real.summary).filter((k) => !(k in empty.summary));
+  ok("EMPTY_RECON.summary has every field a real summary has", missing.length === 0, missing.join(", "));
+  ok(
+    "every EMPTY_RECON summary field is a number, never undefined",
+    Object.values(empty.summary).every((v) => typeof v === "number")
+  );
+}
+
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

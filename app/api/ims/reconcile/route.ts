@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/auth";
 import { isSqlProxyConfigured } from "@/lib/sqlProxy";
 import { buildReconciliation } from "@/lib/imsRecon";
+import { EMPTY_RECON } from "@/lib/imsReconCore";
 import { getImsRecon } from "@/lib/imsSnapshot";
 
 /**
@@ -50,10 +51,18 @@ export async function GET(request: NextRequest) {
       }
       // Never built. Say so rather than silently falling through to the slow
       // path the cache exists to avoid.
+      //
+      // 🔴 Carries a full, empty ReconResult. This reply first shipped as
+      // `{ error, needsBuild }` alone, and a client that had not yet picked up
+      // the matching bundle went straight to `data.rows.filter(...)` and hit an
+      // error boundary. A 200 from this route must always be shaped like a
+      // reconciliation, whatever else it is also saying.
       return NextResponse.json(
         {
+          ...EMPTY_RECON,
+          monthsBack,
           error:
-            "No IMS reconciliation has been cached yet. Press Refresh from IMS to build it, which takes about twenty seconds.",
+            "No IMS reconciliation has been cached yet. Press Refresh snapshot below to build it, which takes about twenty seconds.",
           needsBuild: true,
         },
         { status: 200 }

@@ -202,7 +202,10 @@ export default function ImsReconciliationPage() {
   };
 
   const rows = useMemo(() => {
-    if (!data) return [];
+    // Guarded on the arrays, not just on `data`. A body that is truthy but not
+    // shaped like a reconciliation used to take this straight to .filter() on
+    // undefined and blow up the whole page rather than showing an empty table.
+    if (!data || !Array.isArray(data.rows) || !Array.isArray(data.orphans)) return [];
     const q = search.trim().toUpperCase();
     const match = (t: string | null) => !!t && t.toUpperCase().includes(q);
 

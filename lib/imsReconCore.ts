@@ -346,3 +346,40 @@ export function applySalesToStores(
 // comparator. Re-exported here because the reconciliation page and its
 // assertions already import it from this module.
 export { compareCells, type SortDir } from "./tableSort";
+
+/**
+ * A valid, empty reconciliation.
+ *
+ * 🔴 Exists so no route can ever answer with a 200 whose body is missing `rows`
+ * and `orphans`. The "nothing cached yet" reply used to be `{ error, needsBuild }`
+ * and nothing else, which reads as a ReconResult right up until the page does
+ * `data.rows.filter(...)` and dies on undefined. A caller that ignores the flag
+ * now renders zeros instead of an error boundary.
+ *
+ * Built from the type, so a new summary field cannot be forgotten here.
+ */
+export const EMPTY_RECON: ReconResult = {
+  summary: {
+    appStores: 0,
+    imsSalesCodes: 0,
+    imsMasterCodes: 0,
+    selling: 0,
+    dormant: 0,
+    dark: 0,
+    absent: 0,
+    totalValue: 0,
+    matchedValue: 0,
+    strandedValue: 0,
+    orphanCount: 0,
+    orphanWholesaleCount: 0,
+    orphanWholesaleValue: 0,
+    repMismatchCount: 0,
+    twinStrong: 0,
+    twinWeak: 0,
+    twinAmbiguous: 0,
+    twinValue: 0,
+  },
+  rows: [],
+  orphans: [],
+  monthsBack: 6,
+};
