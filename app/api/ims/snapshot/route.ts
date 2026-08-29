@@ -15,7 +15,11 @@ import { buildImsSnapshot, getImsSnapshot, saveImsSnapshot, saveImsRecon } from 
  * megabyte outlet master, which is what keeps every page render off it.
  */
 
-export const maxDuration = 60;
+// 300, not 60. This is the ONE request in the app that pulls the ten megabyte
+// outlet master, and that query was measured at 94 seconds when the client's
+// SQL server is contended. At 60 the platform killed the only button that can
+// build the cache, which left no way to escape the slow path at all.
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 export async function GET() {

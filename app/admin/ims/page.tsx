@@ -109,9 +109,13 @@ export default function ImsReconciliationPage() {
       // page is now a blob read rather than a ten megabyte query. Only the live
       // path below can hit the sixty second function limit, and it is never
       // reached unless somebody asks for it.
+      // A cached read is a blob fetch and should fail fast if something is
+      // wrong. The live pull is allowed the function's full budget, because
+      // giving up at 58 seconds on a query that takes 94 guaranteed a failure
+      // that was never the server's fault.
       const res = await fetch(`/api/ims/reconcile${live ? "?live=1" : ""}`, {
         cache: "no-store",
-        signal: AbortSignal.timeout(58000),
+        signal: AbortSignal.timeout(live ? 295000 : 30000),
       });
       if (!res.ok) {
         // A timed-out function returns an HTML error page, so parsing it as
@@ -122,7 +126,7 @@ export default function ImsReconciliationPage() {
         } catch {
           detail =
             res.status === 504
-              ? "The request passed the sixty second function limit. The IMS outlet master is roughly ten megabytes and slows down when that server is busy. Try again in a minute."
+              ? "The request passed the function time limit. The IMS outlet master is roughly ten megabytes and slows down when that server is busy. Try again in a minute."
               : `The server returned HTTP ${res.status}.`;
         }
         setError(detail || "Could not load the reconciliation.");
@@ -142,7 +146,9 @@ export default function ImsReconciliationPage() {
     } catch (e) {
       setError(
         e instanceof DOMException && e.name === "TimeoutError"
-          ? "Gave up after fifty eight seconds. That was the LIVE pull, which reads the whole IMS outlet master and is slow when that server is busy. The cached reconciliation is unaffected: reload the page to go back to it."
+          ? (live
+              ? "The live pull ran past five minutes. That reads the whole IMS outlet master and is slow when that server is busy. The cached reconciliation is unaffected: reload the page to go back to it."
+              : "The cached reconciliation did not come back within thirty seconds, which is unusual because it is only a file read. Try again.")
           : String(e)
       );
     } finally {
@@ -315,7 +321,7 @@ export default function ImsReconciliationPage() {
           <button
             onClick={() => load(true)}
             disabled={loading}
-            title="Ignores the cache and queries IMS directly. Slow, and it can time out when that server is busy."
+            title="Rarely what you want. Ignores the cache and queries IMS directly, which takes minutes. To refresh the figures, use Refresh snapshot lower down instead."
             className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
             Run live

@@ -25,7 +25,9 @@ import { getImsRecon } from "@/lib/imsSnapshot";
  * to trust and rebuilding the snapshot is not what you want.
  */
 
-export const maxDuration = 60;
+// Only the ?live=1 path can reach the slow query; the cached path is a blob
+// read. Same 300 as the snapshot route, for the same reason.
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
