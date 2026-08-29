@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, requireSession } from "@/lib/auth";
 import { isSqlProxyConfigured } from "@/lib/sqlProxy";
-import { buildImsSnapshot, getImsSnapshot, saveImsSnapshot } from "@/lib/imsSnapshot";
+import { buildImsSnapshot, getImsSnapshot, saveImsSnapshot, saveImsRecon } from "@/lib/imsSnapshot";
 
 /**
  * The cached IMS map.
@@ -9,6 +9,10 @@ import { buildImsSnapshot, getImsSnapshot, saveImsSnapshot } from "@/lib/imsSnap
  * GET is cheap and readable by any signed-in user, because the Stores page shows
  * Map Status to everyone who can see stores. POST rebuilds it from SQL, costs
  * about twenty seconds, and is gated behind the same permission as SQL Direct.
+ *
+ * POST now also rebuilds the cached RECONCILIATION, because both come out of the
+ * same three queries. This is the single place in the app that pays for the ten
+ * megabyte outlet master, which is what keeps every page render off it.
  */
 
 export const maxDuration = 60;
@@ -47,14 +51,17 @@ export async function POST(request: NextRequest) {
     const raw = Number(request.nextUrl.searchParams.get("monthsBack"));
     const monthsBack = Number.isFinite(raw) ? Math.min(Math.max(Math.trunc(raw), 1), 24) : 6;
 
-    const snapshot = await buildImsSnapshot(monthsBack);
-    await saveImsSnapshot(snapshot);
+    const { snapshot, recon } = await buildImsSnapshot(monthsBack);
+    // Written together. A map saved without its reconciliation would leave the
+    // two caches describing different instants while both claim the same age.
+    await Promise.all([saveImsSnapshot(snapshot), saveImsRecon(recon)]);
 
     return NextResponse.json({
       built: true,
       fetchedAt: snapshot.fetchedAt,
       monthsBack: snapshot.monthsBack,
       totals: snapshot.totals,
+      reconRows: recon.result.rows.length,
     });
   } catch (err) {
     const msg = String(err instanceof Error ? err.message : err);

@@ -2,7 +2,7 @@ import "server-only";
 import { get, put } from "@vercel/blob";
 import { sqlQuery } from "./sqlProxy";
 import { getStores } from "./data";
-import { norm, type ImsStore } from "./imsReconCore";
+import { norm, reconcile, type ImsStore, type ReconResult } from "./imsReconCore";
 import { buildStoreMap, type StoreMap } from "./mapStatus";
 
 /**
@@ -20,6 +20,17 @@ import { buildStoreMap, type StoreMap } from "./mapStatus";
 
 const KEY = "ims-map.json";
 
+/**
+ * The reconciliation, cached beside the map.
+ *
+ * Kept in its OWN blob rather than folded into the map. Both are computed from
+ * the same three queries, so building them together is free — but the map is
+ * read by the Stores page, the busiest screen in the app, and it has no use for
+ * six thousand reconciliation rows. Merging them would make every Stores page
+ * load carry roughly twice the bytes for data it never renders.
+ */
+const RECON_KEY = "ims-recon.json";
+
 export interface ImsSnapshot extends StoreMap {
   fetchedAt: string;
   monthsBack: number;
@@ -32,13 +43,32 @@ export interface ImsSnapshot extends StoreMap {
   };
 }
 
+export interface ImsReconSnapshot {
+  fetchedAt: string;
+  monthsBack: number;
+  result: ReconResult;
+}
+
 interface ImsSale {
   "Place ID": string;
   SalesValue: number;
 }
 
-/** Fetch from SQL and compute. Slow on purpose — call from a button or a cron. */
-export async function buildImsSnapshot(monthsBack = 6): Promise<ImsSnapshot> {
+/**
+ * Fetch from SQL and compute BOTH cached products in one pass.
+ *
+ * The map and the reconciliation were built by two separate routes that each ran
+ * the same three queries, so opening the reconciliation page cost a second full
+ * pull of the ten megabyte outlet master. They are derived from identical
+ * inputs, so that second pull was pure waste — and it was the one that ran on
+ * every page load, which is what made a slow IMS server look like a broken page.
+ *
+ * Slow on purpose: this is now the only thing that pays for SQL, and it is
+ * called from a button, never from a page render.
+ */
+export async function buildImsSnapshot(
+  monthsBack = 6
+): Promise<{ snapshot: ImsSnapshot; recon: ImsReconSnapshot }> {
   const [salesRes, sales12Res, masterRes, stores] = await Promise.all([
     sqlQuery<ImsSale>("clippa_ims_place_sales", { monthsBack }),
     sqlQuery<ImsSale>("clippa_ims_place_sales", { monthsBack: 12 }),
@@ -56,18 +86,27 @@ export async function buildImsSnapshot(monthsBack = 6): Promise<ImsSnapshot> {
   for (const r of masterRes.data ?? []) master.set(norm(r["Store Code"]), r);
 
   const map = buildStoreMap({ stores, sales, sales12, master });
+  const result = reconcile(stores, sales, sales12, master, monthsBack);
+
+  // One timestamp for both, because they describe the same instant. Two clocks
+  // would let the reconciliation page and the Stores grid disagree about how old
+  // the very same pull is.
+  const fetchedAt = new Date().toISOString();
 
   return {
-    ...map,
-    // Stamped so a stale snapshot is visible rather than silently believed.
-    fetchedAt: new Date().toISOString(),
-    monthsBack,
-    totals: {
-      appStores: stores.length,
-      imsSalesCodes: sales.size,
-      imsMasterCodes: master.size,
-      ghosts: map.ghosts.length,
+    snapshot: {
+      ...map,
+      // Stamped so a stale snapshot is visible rather than silently believed.
+      fetchedAt,
+      monthsBack,
+      totals: {
+        appStores: stores.length,
+        imsSalesCodes: sales.size,
+        imsMasterCodes: master.size,
+        ghosts: map.ghosts.length,
+      },
     },
+    recon: { fetchedAt, monthsBack, result },
   };
 }
 
@@ -75,6 +114,16 @@ export async function saveImsSnapshot(snapshot: ImsSnapshot): Promise<void> {
   await put(KEY, JSON.stringify(snapshot), {
     // PRIVATE, like every other blob this app writes. It holds outlet-level
     // client sales; a public blob URL is readable by anyone who learns it.
+    access: "private",
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    contentType: "application/json",
+  });
+}
+
+export async function saveImsRecon(recon: ImsReconSnapshot): Promise<void> {
+  await put(RECON_KEY, JSON.stringify(recon), {
+    // Private for the same reason as the map: outlet-level client sales.
     access: "private",
     addRandomSuffix: false,
     allowOverwrite: true,
@@ -94,4 +143,13 @@ export async function getImsSnapshot(): Promise<ImsSnapshot | null> {
   const text = await new Response(result.stream).text();
   if (!text.trim()) return null;
   return JSON.parse(text) as ImsSnapshot;
+}
+
+/** Read the cached reconciliation. Null when it has never been built. */
+export async function getImsRecon(): Promise<ImsReconSnapshot | null> {
+  const result = await get(RECON_KEY, { access: "private", useCache: false });
+  if (!result) return null;
+  const text = await new Response(result.stream).text();
+  if (!text.trim()) return null;
+  return JSON.parse(text) as ImsReconSnapshot;
 }

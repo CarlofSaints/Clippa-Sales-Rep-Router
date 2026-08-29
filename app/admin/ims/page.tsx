@@ -90,6 +90,9 @@ export default function ImsReconciliationPage() {
   const [applying, setApplying] = useState(false);
   const [applyResult, setApplyResult] = useState<Record<string, unknown> | null>(null);
   const [snapshot, setSnapshot] = useState<Record<string, unknown> | null>(null);
+  /** When the cached reconciliation was built, and whether this view came from it. */
+  const [meta, setMeta] = useState<{ cached: boolean; fetchedAt: string | null } | null>(null);
+  const [needsBuild, setNeedsBuild] = useState(false);
   const [snapshotting, setSnapshotting] = useState(false);
   const [backfill, setBackfill] = useState<Record<string, unknown> | null>(null);
   const [backfilling, setBackfilling] = useState(false);
@@ -97,15 +100,16 @@ export default function ImsReconciliationPage() {
   const sort = useTableSort("sixMonthSales", "desc", ["sixMonthSales"]);
   const sortProps = sort;
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (live = false) => {
     setLoading(true);
     setError(null);
+    setNeedsBuild(false);
     try {
-      // This runs three live SQL queries, one of them the whole 40 000 row
-      // outlet master. When the IMS server is contended that can pass sixty
-      // seconds, and the function is then killed by the platform. Giving up
-      // first turns an eternal spinner into a sentence that says what happened.
-      const res = await fetch("/api/ims/reconcile", {
+      // Reads the CACHED reconciliation and touches no SQL, so opening this
+      // page is now a blob read rather than a ten megabyte query. Only the live
+      // path below can hit the sixty second function limit, and it is never
+      // reached unless somebody asks for it.
+      const res = await fetch(`/api/ims/reconcile${live ? "?live=1" : ""}`, {
         cache: "no-store",
         signal: AbortSignal.timeout(58000),
       });
@@ -123,12 +127,22 @@ export default function ImsReconciliationPage() {
         }
         setError(detail || "Could not load the reconciliation.");
       } else {
-        setData(await res.json());
+        const body = await res.json();
+        if (body?.needsBuild) {
+          // Nothing cached yet. Not an error: it is a first run, and the fix is
+          // the button right there on the page.
+          setNeedsBuild(true);
+          setData(null);
+          setMeta(null);
+        } else {
+          setData(body);
+          setMeta({ cached: !!body.cached, fetchedAt: body.fetchedAt ?? null });
+        }
       }
     } catch (e) {
       setError(
         e instanceof DOMException && e.name === "TimeoutError"
-          ? "Gave up after fifty eight seconds. The IMS outlet master is slow to return when that server is busy, and the reconciliation cannot finish without it. Everything below that reads the cached snapshot still works."
+          ? "Gave up after fifty eight seconds. That was the LIVE pull, which reads the whole IMS outlet master and is slow when that server is busy. The cached reconciliation is unaffected: reload the page to go back to it."
           : String(e)
       );
     } finally {
@@ -161,13 +175,18 @@ export default function ImsReconciliationPage() {
     setSnapshot(null);
     try {
       const res = await fetch("/api/ims/snapshot", { method: "POST" });
-      setSnapshot(await res.json());
+      const body = await res.json();
+      setSnapshot(body);
+      // The rebuild wrote a fresh reconciliation too, so pick it up rather than
+      // leaving the page showing figures the button just superseded.
+      if (body?.built) await load();
     } catch (e) {
       setSnapshot({ error: String(e) });
     } finally {
       setSnapshotting(false);
     }
   };
+
 
   const runBackfill = async (mode: "preview" | "apply") => {
     setBackfilling(true);
@@ -284,11 +303,19 @@ export default function ImsReconciliationPage() {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={load}
+            onClick={() => load()}
             disabled={loading}
             className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
-            {loading ? "Loading..." : "Refresh"}
+            {loading ? "Loading..." : "Reload"}
+          </button>
+          <button
+            onClick={() => load(true)}
+            disabled={loading}
+            title="Ignores the cache and queries IMS directly. Slow, and it can time out when that server is busy."
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            Run live
           </button>
           <button
             onClick={exportExcel}
@@ -303,10 +330,30 @@ export default function ImsReconciliationPage() {
       {error && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
           {error}
-          <p className="mt-1 text-xs text-red-700">
-            A 400 naming an unknown query means Railway has not picked up the proxy change yet.
-          </p>
+          {/* Only shown when it can actually be the explanation. This hint used
+              to print under every error, including timeouts, and sent the reader
+              to look at a proxy that was working fine. */}
+          {error.includes("Unknown query") && (
+            <p className="mt-1 text-xs text-red-700">
+              A 400 naming an unknown query means Railway has not picked up the proxy change yet.
+            </p>
+          )}
         </div>
+      )}
+
+      {needsBuild && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          No reconciliation has been cached yet. Press <strong>Refresh snapshot</strong> below to build it.
+          It takes about twenty seconds and is the only thing here that queries IMS directly.
+        </div>
+      )}
+
+      {meta && (
+        <p className="text-xs text-gray-500">
+          {meta.cached ? "Cached reconciliation" : "Live from IMS"}
+          {meta.fetchedAt && <> · built {new Date(meta.fetchedAt).toLocaleString("en-ZA")}</>}
+          {meta.cached && <> · rebuild it with <strong>Refresh snapshot</strong> below</>}
+        </p>
       )}
 
       {/* Reads the cached snapshot, not live SQL, so it stays usable when the
@@ -391,8 +438,9 @@ export default function ImsReconciliationPage() {
             <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
               <h2 className="text-sm font-semibold text-gray-900">IMS snapshot for the Stores page</h2>
               <p className="mt-1 text-xs text-gray-500">
-                The Map Status column reads a cached snapshot, because building it costs three SQL queries
-                and roughly twenty seconds. Refresh it after a store edit or when IMS has moved on.
+                Builds both caches on this page: the Map Status column on the Stores page AND the
+                reconciliation above. Both come out of the same three SQL queries, so they cost the same
+                twenty seconds together as either did alone. This is the only button here that touches IMS.
               </p>
               <button
                 onClick={refreshSnapshot}
@@ -405,7 +453,7 @@ export default function ImsReconciliationPage() {
                 <p className={`mt-3 rounded-lg p-3 text-xs ${snapshot.error ? "bg-red-50 text-red-800" : "bg-green-50 text-green-900"}`}>
                   {snapshot.error
                     ? String(snapshot.error)
-                    : `Rebuilt. ${(snapshot.totals as { appStores: number })?.appStores?.toLocaleString("en-ZA")} stores mapped, ${(snapshot.totals as { ghosts: number })?.ghosts?.toLocaleString("en-ZA")} IMS-only outlets.`}
+                    : `Rebuilt. ${(snapshot.totals as { appStores: number })?.appStores?.toLocaleString("en-ZA")} stores mapped, ${(snapshot.totals as { ghosts: number })?.ghosts?.toLocaleString("en-ZA")} IMS-only outlets, and the reconciliation above refreshed with them.`}
                 </p>
               )}
             </div>
