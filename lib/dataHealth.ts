@@ -2,6 +2,7 @@ import { Channel, Rep, Store, StoreOverride } from "./types";
 import { computeOutliers } from "./outliers";
 import { buildDuplicateGroups } from "./duplicates";
 import { overriddenStoreIds } from "./channelDefaults";
+import { activeStores } from "./closedStores";
 
 /**
  * Every way this data can be wrong, in one place.
@@ -44,6 +45,14 @@ export interface DataHealthReport {
     blocking: number;
     /** Distinct stores touched by at least one BLOCKING check. */
     storesBlocked: number;
+    /**
+     * Closed stores, excluded from every check above.
+     *
+     * Shown rather than silently subtracted: "31 stores have no valid rep" and
+     * "7 do, and 24 are shut" are different reports, and only one of them is
+     * a list of work.
+     */
+    storesClosed: number;
   };
   issues: HealthIssue[];
 }
@@ -92,7 +101,21 @@ function issue(
 }
 
 export function buildDataHealthReport(input: HealthInput): DataHealthReport {
-  const { reps, stores, channels, overrides, outlierRadiusKm } = input;
+  const { reps, stores: allStores, channels, overrides, outlierRadiusKm } = input;
+
+  /**
+   * Closed stores are excluded from every store check below.
+   *
+   * A shut shop is never routed, so a missing rep code or blank GPS on one is
+   * not a problem to fix — it is a fact about a shop that no longer trades.
+   * Counting them made the blocking list read as 31 stores needing attention
+   * when 24 of them were deliberately closed and only 7 were real.
+   *
+   * Reported as its own count so the number is visible rather than silently
+   * subtracted, which is its own kind of lie.
+   */
+  const stores = activeStores(allStores);
+  const closedCount = allStores.length - stores.length;
 
   const repByCode = new Map(reps.map((r) => [code(r.code), r]));
   const channelById = new Map(channels.map((c) => [c.id, c]));
@@ -398,6 +421,7 @@ export function buildDataHealthReport(input: HealthInput): DataHealthReport {
       issueTypes: found.length,
       blocking: found.filter((i) => i.severity === "blocking").reduce((a, i) => a + i.count, 0),
       storesBlocked: blockedStoreIds.size,
+      storesClosed: closedCount,
     },
     // Worst first, then biggest. A clean check still ships, so the page can show
     // what was looked at and found nothing — silence is not the same as a pass.

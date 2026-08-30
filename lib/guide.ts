@@ -32,7 +32,7 @@ export interface GuideSection {
   blocks: Block[];
 }
 
-export const GUIDE_VERSION = "1.0";
+export const GUIDE_VERSION = "1.1";
 
 export const GUIDE: GuideSection[] = [
   // ─────────────────────────────────────────────────────────────────────
@@ -260,7 +260,17 @@ export const GUIDE: GuideSection[] = [
         kind: "note",
         tone: "danger",
         title: "A rep code that matches nobody makes stores disappear",
-        text: "Nothing checks the rep code on a store against the rep list. If a store names a rep who was never loaded, that store is dropped from the map, from every route and from all capacity figures, and no screen used to say so. Store Coverage exists for exactly this: it lists every rep code that has stores but no rep record, and the stores behind it. If you see a number there, add the missing reps and the stores attach themselves.",
+        text: "Nothing checks the rep code on a store against the rep list. If a store names a rep who was never loaded, that store is dropped from the map, from every route and from all capacity figures, and no planning screen says so. Two places tell you. Store Coverage lists every rep code that has stores but no rep record, with the stores behind it. Data Health raises the same thing as a blocking issue called Stores allocated to a rep who does not exist, and that one exports to Excel so you can work through it.",
+      },
+      {
+        kind: "steps",
+        items: [
+          { do: "Decide what the code actually is", detail: "A person who was never loaded, a branch or house account that is not a person at all, or a typo on the stores." },
+          { do: "If it is a person, add them on the Reps page", detail: "Add the rep with that exact code and every store carrying it attaches itself immediately. Nothing else is needed." },
+          { do: "If it is a typo, fix the rep code on the stores", detail: "Edit the rep on each row on the Stores page. Editing by hand always works, even when IMS has been made the source, because a person deciding outranks a spreadsheet." },
+          { do: "If the account is closed, close the stores instead", detail: "Do not invent a rep for it. Use Closed stores on IMS Reconciliation and they leave the call cycles without pretending to belong to anybody." },
+          { do: "Regenerate routes", detail: "Nothing you fix here reaches a rep until the plan is generated again." },
+        ],
       },
       {
         kind: "shot",
@@ -273,8 +283,102 @@ export const GUIDE: GuideSection[] = [
 
   // ─────────────────────────────────────────────────────────────────────
   {
-    id: "data-health",
+    id: "ims",
     number: "6",
+    title: "IMS: checking the router against the invoicing system",
+    blurb: "Who really owns a store, what is selling, and what has closed",
+    icon: "M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4",
+    blocks: [
+      {
+        kind: "lead",
+        text: "The Rep Router knows who is supposed to visit a store. Clippa's invoicing system, IMS, knows who actually bills it and what it has bought. Reconciliation puts the two side by side, and it is the fastest way to find stores nobody visits, reps who have lost their round, and shops that have quietly closed.",
+      },
+      { kind: "where", path: "Control Centre → IMS Reconciliation", text: "everything on this page" },
+      {
+        kind: "note",
+        tone: "info",
+        title: "One button on this page talks to IMS, and it is not the obvious one",
+        text: "Refresh snapshot from IMS runs three live queries against the client's SQL server, one of which is the full outlet master of roughly forty thousand rows, and saves the result. Everything else on the page reads that saved copy. Reload cached view re-reads the file and fetches nothing. Every button now carries a line underneath saying whether it touches IMS and whether it saves anything, so you never have to guess before pressing.",
+      },
+      {
+        kind: "steps",
+        items: [
+          { do: "Press Refresh snapshot from IMS first", detail: "Twenty seconds when the IMS server is responsive, up to two minutes when it is busy. Nothing else on the page is trustworthy until this is current." },
+          { do: "Read the four tiles", detail: "Selling, Dormant, No sales in twelve months, and Not in IMS at all. These describe the stores in the router, judged against the same six month window." },
+          { do: "Deal with anything the page holds back", detail: "The page refuses to act on a stale snapshot rather than acting on the wrong picture." },
+        ],
+      },
+      {
+        kind: "note",
+        tone: "warn",
+        title: "The snapshot is a moment in time and says so",
+        text: "Every reader of the snapshot shows its age. If you upload stores, close stores or re-assign reps, the snapshot no longer matches the store list and the page will tell you the counts disagree. Refresh it again. Actions that would write something are blocked while it disagrees, on purpose, because a plan computed from an old picture moves the wrong shops.",
+      },
+      {
+        kind: "shot",
+        slot: "ims-reconciliation",
+        caption: "IMS Reconciliation after a fresh snapshot",
+        capture: "Control Centre → IMS Reconciliation, showing the snapshot card, the four status tiles and the stranded value panel",
+      },
+
+      {
+        kind: "text",
+        text: "Four actions live on this page. Each previews before it writes, and each says what it is about to do.",
+      },
+      {
+        kind: "table",
+        head: ["Action", "What it changes", "When to use it"],
+        rows: [
+          ["Refresh snapshot from IMS", "Nothing in your data. Rebuilds the saved copy of what IMS holds.", "First, every time, and again after any change to the store list"],
+          ["Write sales to stores", "6-Month Sales and Avg Monthly Sales on every store IMS has a figure for", "After a refresh, to bring sales figures into the router"],
+          ["Fill the blank fields", "Blank channel and province only, never a value already held", "When stores arrived from a file that had no channel or province column"],
+          ["Close the stores", "Marks stores closed so they leave every call cycle", "When IMS says an account is shut"],
+        ],
+        caption: "The four IMS actions, and what each one touches",
+      },
+
+      {
+        kind: "note",
+        tone: "info",
+        title: "Who decides which rep owns a store",
+        text: "By default a Repsly Places export decides: whatever rep code the file carries is written to the store. You can hand that decision to IMS instead, on the card called Who decides which rep owns a store. Switching to IMS does two things, and the second is the one that makes it stick: it offers to move stores onto the rep IMS bills them through, and it stops any future upload from overwriting a rep code. Without that second half, an IMS allocation survives only until somebody loads a spreadsheet.",
+      },
+      {
+        kind: "note",
+        tone: "danger",
+        title: "IMS is not obeyed blindly, and the held-back number is the reason",
+        text: "IMS parks stores on codes that are not people at all: branch accounts, house accounts and closed accounts. A store whose rep code matches no rep vanishes from the map, from every route and from all capacity figures, and nothing on the planning screens says so. Any store that would land on such a code is held back rather than moved, and the codes are listed by name so you can decide whether each one is a real person who needs a rep record or a house account that should be left alone.",
+      },
+
+      {
+        kind: "text",
+        text: "IMS reuses the rep code field to park dead accounts. A store whose IMS rep code is ACCC is a closed account, not a store belonging to a rep called ACCC, which is why those stores turn up in the held-back list. IMS also carries its own separate Closed Status field, and the two do not agree with each other.",
+      },
+      {
+        kind: "note",
+        tone: "warn",
+        title: "Closing a store is reversible, and it is meant to be",
+        text: "A closed store keeps its name, its rep, its coordinates and its history. It is simply dropped from route generation and from the capacity figures, so nobody is sent to a shop that is not there. If IMS later stops calling it closed, the card offers to reopen it and it returns to the call cycles. A store you closed by hand is never reopened automatically, because a person decided that and IMS does not get to overrule it.",
+      },
+      {
+        kind: "note",
+        tone: "danger",
+        title: "Check anything that is closed but still buying",
+        text: "The card counts stores that are marked closed yet have sales in the last six months, and lists the biggest. A shop that is still invoicing is not shut, whatever the flag says. Look at those before you trust a closure, because the cost of wrongly closing a live store is a rep who never visits it again.",
+      },
+      {
+        kind: "shot",
+        slot: "ims-closed-stores",
+        caption: "Closed stores, previewed before anything is written",
+        capture: "Control Centre → IMS Reconciliation, the Closed stores card after pressing Preview the change, showing the counts and the list",
+      },
+    ],
+  },
+
+  // ─────────────────────────────────────────────────────────────────────
+  {
+    id: "data-health",
+    number: "7",
     title: "Checking the data before you plan",
     blurb: "Thirteen checks in one place",
     icon: "M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z",
@@ -338,7 +442,7 @@ export const GUIDE: GuideSection[] = [
   // ─────────────────────────────────────────────────────────────────────
   {
     id: "home",
-    number: "7",
+    number: "8",
     title: "Where each rep starts their day",
     blurb: "Home addresses, and why they save driving",
     icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6",
@@ -396,7 +500,7 @@ export const GUIDE: GuideSection[] = [
   // ─────────────────────────────────────────────────────────────────────
   {
     id: "generate",
-    number: "8",
+    number: "9",
     title: "Generating the routes",
     blurb: "The single click that builds the cycle",
     icon: "M13 10V3L4 14h7v7l9-11h-7z",
@@ -447,7 +551,7 @@ export const GUIDE: GuideSection[] = [
   // ─────────────────────────────────────────────────────────────────────
   {
     id: "reading",
-    number: "9",
+    number: "10",
     title: "Reading the results",
     blurb: "Routes, Map and Rep Capacity",
     icon: "M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7",
@@ -493,7 +597,7 @@ export const GUIDE: GuideSection[] = [
   // ─────────────────────────────────────────────────────────────────────
   {
     id: "repsly",
-    number: "10",
+    number: "11",
     title: "Sending the cycle to Repsly",
     blurb: "Turning the plan into dated visits",
     icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z",
@@ -523,7 +627,7 @@ export const GUIDE: GuideSection[] = [
   // ─────────────────────────────────────────────────────────────────────
   {
     id: "maintenance",
-    number: "11",
+    number: "12",
     title: "Keeping it up to date",
     blurb: "What to do when something changes",
     icon: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15",
@@ -556,7 +660,7 @@ export const GUIDE: GuideSection[] = [
   // ─────────────────────────────────────────────────────────────────────
   {
     id: "troubleshooting",
-    number: "12",
+    number: "13",
     title: "When something looks wrong",
     blurb: "The usual causes, in order of likelihood",
     icon: "M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
@@ -611,7 +715,7 @@ export const GUIDE: GuideSection[] = [
   // ─────────────────────────────────────────────────────────────────────
   {
     id: "glossary",
-    number: "13",
+    number: "14",
     title: "Glossary",
     blurb: "The words this system uses",
     icon: "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.247m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.247",

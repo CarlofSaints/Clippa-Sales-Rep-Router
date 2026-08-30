@@ -27,6 +27,7 @@ interface Report {
     issueTypes: number;
     blocking: number;
     storesBlocked: number;
+    storesClosed: number;
   };
   issues: HealthIssue[];
 }
@@ -183,6 +184,14 @@ export default function DataHealthPage() {
           tone={t.storesBlocked > 0 ? "bad" : "good"}
         />
       </div>
+
+      {t.storesClosed > 0 && (
+        <p className="-mt-3 mb-6 text-xs text-gray-500">
+          Every check below runs on the <strong>{t.stores.toLocaleString()}</strong> trading stores.{" "}
+          <strong>{t.storesClosed.toLocaleString()}</strong> closed stores are excluded, because a shop
+          that is never routed cannot have a routing problem. Reopen one and it returns to these checks.
+        </p>
+      )}
 
       {found.length === 0 && (
         <div className="rounded-xl border border-green-200 bg-green-50 p-4 mb-6">

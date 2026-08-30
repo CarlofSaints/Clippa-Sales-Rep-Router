@@ -56,6 +56,8 @@ const store = (o: Partial<Store> = {}): Store => ({
   province: o.province,
   region: o.region,
   rangeConfirmed: o.rangeConfirmed,
+  closed: o.closed,
+  closedReason: o.closedReason,
 });
 
 const CHANNELS: Channel[] = [{ id: "indep", name: "Independent", frequency: "monthly", duration: 30 }];
@@ -197,6 +199,34 @@ console.log("\n--- the report as a whole ---\n");
   ok("every issue id is unique", new Set(r.issues.map((i) => i.id)).size === r.issues.length);
   ok("no issue id would break an Excel sheet name", r.issues.every((i) => i.id.length <= 31 && !/[:\\/?*[\]]/.test(i.id)));
 }
+
+// ── Closed stores are not a to-do list ──────────────────────────────────
+//
+// A shut shop is never routed, so a missing rep code on one is a fact rather
+// than a fault. Counting them made the blocking list read as 31 stores needing
+// attention when 24 were deliberately closed and only 7 were real.
+{
+  const r = run(
+    [rep({ code: "R1" })],
+    [
+      store({ placeId: "OPEN1", repCode: "GHOST" }),
+      store({ placeId: "SHUT1", repCode: "GHOST", closed: true }),
+      store({ placeId: "SHUT2", repCode: "", closed: true }),
+    ]
+  );
+  ok("a closed store is not reported as having an unknown rep",
+    find(r, "stores-unknown-rep").count === 1,
+    `counted ${find(r, "stores-unknown-rep").count}, expected only the open one`);
+  ok("a closed store is not reported as having no rep code",
+    find(r, "stores-no-rep").count === 0);
+  ok("the closed count is stated, not silently subtracted", r.totals.storesClosed === 2);
+  ok("totals.stores counts the trading stores only", r.totals.stores === 1);
+  ok("a closed store blocks nothing", r.totals.storesBlocked === 1);
+  ok("reopening one would return it to the checks",
+    run([rep({ code: "R1" })], [store({ placeId: "SHUT1", repCode: "GHOST" })]).totals.storesBlocked === 1,
+    "the exclusion must follow the flag, not be baked in");
+}
+
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed > 0 ? 1 : 0);

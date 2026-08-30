@@ -153,5 +153,31 @@ for (const [label, needle] of [
   ok(label, allText.includes(needle));
 }
 
+// The guide fell a long way behind the app once before: it documented nothing
+// about IMS at all while four IMS actions were live on a page users were being
+// told to press. These pin the things a reader would be stuck without.
+for (const [label, needle] of [
+  ["IMS reconciliation is covered", "ims reconciliation"],
+  ["the snapshot being a moment in time is covered", "snapshot"],
+  ["which button actually queries IMS is covered", "refresh snapshot from ims"],
+  ["closing stores is covered", "closed"],
+  ["ACCC meaning a closed account is covered", "accc"],
+  ["reopening a closed store is covered", "reopen"],
+  ["who decides which rep owns a store is covered", "who decides which rep owns a store"],
+  ["held-back stores are covered", "held back"],
+  ["Data Health as a place to find orphan rep codes is covered", "stores allocated to a rep who does not exist"],
+] as const) {
+  ok(label, allText.includes(needle), `the guide never says "${needle}"`);
+}
+
+// A reader following the guide must be able to fix the orphan-rep-code problem,
+// not just be told it exists. Naming the problem without the fix is what sent
+// someone to ask where the list even lives.
+{
+  const alloc = GUIDE.find((s) => s.id === "allocation");
+  const hasSteps = alloc?.blocks.some((b) => b.kind === "steps" && b.items.length >= 4);
+  ok("the allocation section gives steps, not just a warning", !!hasSteps);
+}
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed > 0 ? 1 : 0);
