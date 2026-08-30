@@ -14,3 +14,12 @@ data/
 # Live data snapshots taken before a bulk import. Real names and email
 # addresses — never commit these.
 /backups/
+
+# Throwaway patch and probe scripts run from the repo root so they can resolve
+# node_modules. Three have been committed by accident; they are never source.
+/*.cjs
+/*.mts
+/*.mjs
+!/postcss.config.mjs
+!/next.config.mjs
+!/eslint.config.mjs
