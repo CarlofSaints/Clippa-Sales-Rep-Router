@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AllocationSourceCard from "@/components/AllocationSourceCard";
 import ClosedStoresCard from "@/components/ClosedStoresCard";
+import ActionButton from "@/components/ActionButton";
 import * as XLSX from "xlsx";
 import { useTableSort, useSortedRows, SortableTh, type TableSort } from "@/components/TableSort";
 import { compareCells } from "@/lib/tableSort";
@@ -103,7 +104,7 @@ export default function ImsReconciliationPage() {
   const sort = useTableSort("sixMonthSales", "desc", ["sixMonthSales"]);
   const sortProps = sort;
 
-  const load = useCallback(async (live = false) => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     setNeedsBuild(false);
@@ -112,13 +113,12 @@ export default function ImsReconciliationPage() {
       // page is now a blob read rather than a ten megabyte query. Only the live
       // path below can hit the sixty second function limit, and it is never
       // reached unless somebody asks for it.
-      // A cached read is a blob fetch and should fail fast if something is
-      // wrong. The live pull is allowed the function's full budget, because
-      // giving up at 58 seconds on a query that takes 94 guaranteed a failure
-      // that was never the server's fault.
-      const res = await fetch(`/api/ims/reconcile${live ? "?live=1" : ""}`, {
+      // A blob read, so it should fail fast if something is wrong. The live
+      // pull still exists on the route as ?live=1 for a console or a script,
+      // but no button reaches it: it cost minutes and cached nothing.
+      const res = await fetch("/api/ims/reconcile", {
         cache: "no-store",
-        signal: AbortSignal.timeout(live ? 295000 : 30000),
+        signal: AbortSignal.timeout(30000),
       });
       if (!res.ok) {
         // A timed-out function returns an HTML error page, so parsing it as
@@ -149,9 +149,7 @@ export default function ImsReconciliationPage() {
     } catch (e) {
       setError(
         e instanceof DOMException && e.name === "TimeoutError"
-          ? (live
-              ? "The live pull ran past five minutes. That reads the whole IMS outlet master and is slow when that server is busy. The cached reconciliation is unaffected: reload the page to go back to it."
-              : "The cached reconciliation did not come back within thirty seconds, which is unusual because it is only a file read. Try again.")
+          ? "The saved reconciliation did not come back within thirty seconds, which is unusual because it is only a file read. Try again."
           : String(e)
       );
     } finally {
@@ -317,29 +315,23 @@ export default function ImsReconciliationPage() {
             when a store has none of its own.
           </p>
         </div>
-        <div className="flex gap-2">
-          <button
+        {/* "Run live" used to sit here. It queried IMS for minutes and then
+            threw the result away without caching it, so the next reload showed
+            the old numbers again and the wait bought nothing. Refresh snapshot
+            does the same work and keeps it. */}
+        <div className="flex flex-wrap items-start gap-3">
+          <ActionButton
+            label={loading ? "Loading..." : "Reload cached view"}
+            hint="Re-reads the saved file. Nothing is fetched from IMS and no figures change."
             onClick={() => load()}
             disabled={loading}
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          >
-            {loading ? "Loading..." : "Reload"}
-          </button>
-          <button
-            onClick={() => load(true)}
-            disabled={loading}
-            title="Rarely what you want. Ignores the cache and queries IMS directly, which takes minutes. To refresh the figures, use Refresh snapshot lower down instead."
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          >
-            Run live
-          </button>
-          <button
+          />
+          <ActionButton
+            label="Export Excel"
+            hint="Downloads what is on screen now, including every row behind the tabs."
             onClick={exportExcel}
             disabled={!data}
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          >
-            Export Excel
-          </button>
+          />
         </div>
       </div>
 
@@ -359,7 +351,7 @@ export default function ImsReconciliationPage() {
 
       {needsBuild && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          No reconciliation has been cached yet. Press <strong>Refresh snapshot</strong> below to build it.
+          No reconciliation has been cached yet. Press <strong>Refresh snapshot from IMS</strong> below to build it.
           Twenty seconds or so when IMS is responsive, a couple of minutes when that server is busy, and it
           is the only thing on this page that queries IMS directly.
         </div>
@@ -369,7 +361,7 @@ export default function ImsReconciliationPage() {
         <p className="text-xs text-gray-500">
           {meta.cached ? "Cached reconciliation" : "Live from IMS"}
           {meta.fetchedAt && <> · built {new Date(meta.fetchedAt).toLocaleString("en-ZA")}</>}
-          {meta.cached && <> · rebuild it with <strong>Refresh snapshot</strong></>}
+          {meta.cached && <> · rebuild it with <strong>Refresh snapshot from IMS</strong></>}
         </p>
       )}
 
@@ -386,13 +378,15 @@ export default function ImsReconciliationPage() {
             reconciliation above. Both come out of the same three SQL queries, so they cost the same
             twenty seconds together as either did alone. This is the only button here that touches IMS.
           </p>
-          <button
-            onClick={refreshSnapshot}
-            disabled={snapshotting}
-            className="mt-3 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          >
-            {snapshotting ? "Building..." : "Refresh snapshot"}
-          </button>
+          <div className="mt-3">
+            <ActionButton
+              label={snapshotting ? "Fetching from IMS..." : "Refresh snapshot from IMS"}
+              hint="Press this and new data is fetched from IMS SQL, then saved. Twenty seconds when IMS is responsive, up to two minutes when it is busy. This is the only button on the page that reaches IMS."
+              variant="primary"
+              onClick={refreshSnapshot}
+              disabled={snapshotting}
+            />
+          </div>
           {snapshot && (
             <p className={`mt-3 rounded-lg p-3 text-xs ${snapshot.error ? "bg-red-50 text-red-800" : "bg-green-50 text-green-900"}`}>
               {snapshot.error
@@ -409,22 +403,21 @@ export default function ImsReconciliationPage() {
             replaced, because routes and call frequencies are built on it. Channels are matched by name,
             never created.
           </p>
-          <div className="mt-3 flex gap-2">
-            <button
+          <div className="mt-3 flex flex-wrap items-start gap-3">
+            <ActionButton
+              label={backfilling ? "Working..." : "Preview the change"}
+              hint="Counts the blanks that could be filled. Nothing is saved."
               onClick={() => runBackfill("preview")}
               disabled={backfilling}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-            >
-              {backfilling ? "Working..." : "Preview"}
-            </button>
-            <button
+            />
+            <ActionButton
+              label="Fill the blank fields"
+              hint="Saves. Fills blank channel and province only. A value the app already holds is never replaced."
+              variant="primary"
               onClick={() => runBackfill("apply")}
               disabled={backfilling || !backfill || !!backfill.error || backfill.applied === true}
-              className="rounded-lg bg-clippa-red px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
               title={!backfill ? "Preview first" : ""}
-            >
-              Apply
-            </button>
+            />
           </div>
           {backfill && <BackfillReport result={backfill} />}
         </div>
@@ -489,22 +482,21 @@ export default function ImsReconciliationPage() {
               <span className="font-mono">Avg Monthly Sales</span> as a sixth of it. A store with no IMS
               figure is left exactly as it is, never zeroed.
             </p>
-            <div className="mt-3 flex gap-2">
-              <button
+            <div className="mt-3 flex flex-wrap items-start gap-3">
+              <ActionButton
+                label={applying ? "Working..." : "Preview the change"}
+                hint="Counts what would be written. Nothing is saved."
                 onClick={() => runApply("preview")}
                 disabled={applying}
-                className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-              >
-                {applying ? "Working..." : "Preview"}
-              </button>
-              <button
+              />
+              <ActionButton
+                label="Write sales to stores"
+                hint="Saves. Overwrites 6-Month Sales and Avg Monthly on every store IMS has a figure for."
+                variant="primary"
                 onClick={() => runApply("apply")}
                 disabled={applying || !applyResult || !!applyResult.error || applyResult.applied === true}
-                className="rounded-lg bg-clippa-red px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
                 title={!applyResult ? "Preview first" : ""}
-              >
-                Apply to stores
-              </button>
+              />
             </div>
             {applyResult && <ApplyReport result={applyResult} />}
           </div>

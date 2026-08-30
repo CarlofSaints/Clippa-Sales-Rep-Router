@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     const [stores, snapshot] = await Promise.all([getStores(), getImsSnapshot()]);
     if (!snapshot) {
       return NextResponse.json(
-        { error: "No IMS snapshot has been built yet. Press Refresh snapshot first." },
+        { error: "No IMS snapshot has been built yet. Press Refresh snapshot from IMS first." },
         { status: 400 }
       );
     }
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
             "en-ZA"
           )} stores but there are now ${stores.length.toLocaleString(
             "en-ZA"
-          )}. Refresh the snapshot before closing anything.`,
+          )}. Press Refresh snapshot from IMS before closing anything.`,
         },
         { status: 400 }
       );

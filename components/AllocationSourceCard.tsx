@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import type { AllocationSource } from "@/lib/allocationSource";
+import ActionButton from "./ActionButton";
 
 interface Move {
   placeId: string;
@@ -195,32 +196,34 @@ export default function AllocationSourceCard({ refreshKey = 0 }: { refreshKey?: 
         </>
       )}
 
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="mt-4 flex flex-wrap items-start gap-3">
         {!isIms ? (
-          <button
+          <ActionButton
+            label="Make IMS the source"
+            hint="Saves the setting only. No store moves yet, and a future upload stops being able to overwrite a rep code."
             onClick={() => save("ims", false)}
             disabled={busy}
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          >
-            Make IMS the source
-          </button>
+          />
         ) : (
-          <button
+          <ActionButton
+            label="Go back to Repsly uploads"
+            hint="Saves the setting only. No store moves back, but a Places upload can overwrite rep codes again."
             onClick={() => save("repsly", false)}
             disabled={busy}
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          >
-            Go back to Repsly uploads
-          </button>
+          />
         )}
-        <button
+        <ActionButton
+          label={busy ? "Working…" : `Re-assign ${p ? num(p.moveCount) : ""} stores now`}
+          hint={
+            data?.snapshot?.stale
+              ? "Blocked until the snapshot is refreshed, or the plan would come from a stale picture."
+              : "Saves. Rewrites the rep on every store listed above. Held-back codes are not touched."
+          }
+          variant="primary"
           onClick={() => save("ims", true)}
           disabled={busy || !p || p.moveCount === 0 || !!data?.snapshot?.stale}
-          title={data?.snapshot?.stale ? "Refresh the snapshot first" : "Rewrites the rep on every store listed above"}
-          className="rounded-lg bg-clippa-red px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-        >
-          {busy ? "Working…" : `Re-assign ${p ? num(p.moveCount) : ""} stores now`}
-        </button>
+          title={data?.snapshot?.stale ? "Refresh the snapshot first" : ""}
+        />
       </div>
 
       {result && <p className="mt-3 rounded-lg bg-green-50 p-3 text-xs text-green-900">{result}</p>}

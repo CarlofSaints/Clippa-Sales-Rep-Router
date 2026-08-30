@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import ActionButton from "./ActionButton";
 
 /**
  * Mark stores IMS says are shut, so no rep is routed to them.
@@ -94,30 +95,29 @@ export default function ClosedStoresCard({ onApplied }: { onApplied?: () => void
         </span>
       </label>
 
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button
+      <div className="mt-3 flex flex-wrap items-start gap-3">
+        <ActionButton
+          label={busy ? "Working..." : "Preview the change"}
+          hint="Reads the saved snapshot and counts what would shut. Nothing is saved and IMS is not touched."
           onClick={() => run("preview")}
           disabled={busy}
-          className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-        >
-          {busy ? "Working..." : "Preview"}
-        </button>
-        <button
+        />
+        <ActionButton
+          label={p?.wouldClose ? `Close ${p.wouldClose} stores` : "Close the stores"}
+          hint="Saves. These stores stop appearing in route generation and capacity. Reversible with Reopen."
+          variant="primary"
           onClick={() => run("apply")}
           disabled={busy || !p || !!p.error || !p.wouldClose}
           title={!p ? "Preview first" : ""}
-          className="rounded-lg bg-clippa-red px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-        >
-          {p?.wouldClose ? `Close ${p.wouldClose} stores` : "Close stores"}
-        </button>
+        />
         {!!p?.wouldReopen && (
-          <button
+          <ActionButton
+            label={`Reopen ${p.wouldReopen} stores`}
+            hint="Saves. Puts them back into call cycles. Anything you closed by hand is left alone."
+            variant="positive"
             onClick={() => run("reopen")}
             disabled={busy}
-            className="rounded-lg border border-green-300 px-3 py-2 text-sm font-medium text-green-800 hover:bg-green-50 disabled:opacity-50"
-          >
-            Reopen {p.wouldReopen}
-          </button>
+          />
         )}
       </div>
 
