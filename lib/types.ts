@@ -174,6 +174,17 @@ export interface Store {
   rangeConfirmed?: boolean; // manager confirmed this store is in the rep's cycle despite being far from their area
   region?: string; // user-defined region
   province?: string; // auto-populated from GPS via Google Geocoding
+  /**
+   * Shut. Excluded from route generation and capacity, because a rep must not
+   * be sent to a shop that no longer exists.
+   *
+   * Optional and absent by default: the field arrived long after these records
+   * did, and absent means "nobody has said", which reads as open.
+   */
+  closed?: boolean;
+  /** Why, so an automatic pass never silently undoes a human decision. */
+  closedReason?: "ims_accc" | "ims_flag" | "manual";
+  closedAt?: string;
 }
 
 export const SA_PROVINCES = [

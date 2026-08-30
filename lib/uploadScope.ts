@@ -35,6 +35,16 @@ export interface UploadScope {
    * rep codes rather than about the upload.
    */
   hasRep: boolean;
+  /**
+   * Whether the file can say a store is closed.
+   *
+   * 🔴 Always FALSE today, and that is the point. No Repsly export carries a
+   * closed column, so an upload must never touch the flag — otherwise the next
+   * Places load quietly reopens every shop IMS said was shut and puts them all
+   * back in the call cycles. This is the fifth sibling in that write block; the
+   * previous four each shipped unguarded first.
+   */
+  hasClosed: boolean;
 }
 
 const SALES_HEADERS = [
@@ -46,6 +56,9 @@ const CHANNEL_HEADERS = ["CHANNEL", "Channel", "CHANNEL NAME", "Channel Name", "
 
 /** Every spelling the route already accepts when it reads the rep off a row. */
 const REP_HEADERS = ["REPRESENTATIVE ID", "REP CODE", "Rep Code", "Representative ID"];
+
+/** Nothing Repsly exports matches these. Named so the intent is searchable. */
+const CLOSED_HEADERS = ["CLOSED", "Closed", "CLOSED STATUS", "Closed Status"];
 
 const LAT_HEADERS = ["GPS LATITUDE", "Gps latitude", "Gps Latitude", "GPS_LATITUDE", "Latitude"];
 const LNG_HEADERS = ["GPS LONGITUDE", "Gps longitude", "Gps Longitude", "GPS_LONGITUDE", "Longitude"];
@@ -66,5 +79,6 @@ export function uploadScope(fileHeaders: string[]): UploadScope {
     // everywhere else in this app.
     hasGps: present(fileHeaders, LAT_HEADERS) && present(fileHeaders, LNG_HEADERS),
     hasRep: present(fileHeaders, REP_HEADERS),
+    hasClosed: present(fileHeaders, CLOSED_HEADERS),
   };
 }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AllocationSourceCard from "@/components/AllocationSourceCard";
+import ClosedStoresCard from "@/components/ClosedStoresCard";
 import * as XLSX from "xlsx";
 import { useTableSort, useSortedRows, SortableTh, type TableSort } from "@/components/TableSort";
 import { compareCells } from "@/lib/tableSort";
@@ -427,6 +428,7 @@ export default function ImsReconciliationPage() {
           </div>
           {backfill && <BackfillReport result={backfill} />}
         </div>
+        <ClosedStoresCard onApplied={() => setSnapshotEpoch((n) => n + 1)} />
       </div>
 
       {/* Reads the cached snapshot, not live SQL, so it stays usable when the

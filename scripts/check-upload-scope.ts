@@ -112,5 +112,16 @@ function ok(label: string, condition: boolean, detail = "") {
     "substring matching here would re-create the original bug");
 }
 
+// 🔴 No Repsly export carries a closed column, so an upload must never be able
+// to reopen a shop IMS said was shut and put it back into the call cycles.
+{
+  const repsly = ["ID", "Name", "Active", "Tags", "Representative ID", "Gps latitude", "Gps longitude", "Status"];
+  ok("a Places export cannot write the closed flag", uploadScope(repsly).hasClosed === false);
+  const schedule = ["Schedule ID", "Place ID", "Representative ID", "Place name"];
+  ok("a Schedule export cannot write the closed flag", uploadScope(schedule).hasClosed === false);
+  ok("only an explicit Closed column would enable it",
+    uploadScope([...repsly, "Closed"]).hasClosed === true);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

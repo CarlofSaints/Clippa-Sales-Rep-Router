@@ -5,6 +5,7 @@ import { generateRepRoute } from "@/lib/route-engine";
 import { hasGoogleMapsKey } from "@/lib/google-maps";
 import { getSession, sessionHasPermission } from "@/lib/auth";
 import { logActivity } from "@/lib/activityLog";
+import { activeStores } from "@/lib/closedStores";
 
 export const maxDuration = 120;
 
@@ -16,7 +17,10 @@ function getStoresForRep(
   // A rep's stores are the stores allocated to them (repCode). This is the
   // source of truth for "which stores does this rep call on". The route engine
   // then clusters them geographically and optimises the daily order.
-  const allocated = allStores.filter((s) => s.repCode === rep.code);
+  // Closed stores are dropped before anything else looks at them. IMS parks
+  // dead accounts on the rep code ACCC, and routing somebody to a shut shop
+  // wastes the visit and the drive to it.
+  const allocated = activeStores(allStores).filter((s) => s.repCode === rep.code);
 
   // Channel Dedicated additionally narrows the allocation to the rep's channels.
   if (strategy === "channel_dedicated" && rep.assignedChannels?.length) {

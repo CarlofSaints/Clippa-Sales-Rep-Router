@@ -1,4 +1,5 @@
 import { Rep, Store, RoutePlanDocument, getMonthlyRate } from "./types";
+import { activeStores } from "./closedStores";
 
 // A generated route document covers one 4-week cycle = one month.
 export const WORKING_DAYS_PER_MONTH = 20; // 5 days x 4 weeks
@@ -37,9 +38,12 @@ export function computeCapacity(
   doc: RoutePlanDocument | null
 ): CapacityResult {
   const planByRep = new Map((doc?.repPlans ?? []).map((p) => [p.repCode, p]));
+  const active = activeStores(stores);
 
   const rows: RepCapacity[] = reps.map((rep) => {
-    const allocated = stores.filter((s) => s.repCode === rep.code);
+    // Same exclusion as route generation, and it has to be the same or the
+    // capacity page reports a workload the generated cycle does not contain.
+    const allocated = active.filter((s) => s.repCode === rep.code);
     const callsPerMonth = allocated.reduce(
       (sum, s) => sum + getMonthlyRate(s.frequency || "monthly"),
       0
