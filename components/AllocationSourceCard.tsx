@@ -36,7 +36,15 @@ const rand = (n: number) => "R " + Math.round(n).toLocaleString("en-ZA");
  * Preview first, always. This rewrites which human is credited with which shop,
  * and there is no store backup to diff against afterwards.
  */
-export default function AllocationSourceCard() {
+/**
+ * @param refreshKey change it to make this card re-read /api/allocation.
+ *
+ * The plan is computed from the IMS snapshot, and the snapshot is rebuilt by a
+ * button on the parent page. Without this the card kept showing the plan from
+ * the OLD snapshot, warning that the snapshot was stale, while the page above
+ * it reported a successful rebuild. Two panels, same instant, disagreeing.
+ */
+export default function AllocationSourceCard({ refreshKey = 0 }: { refreshKey?: number }) {
   const [data, setData] = useState<PlanResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -52,7 +60,7 @@ export default function AllocationSourceCard() {
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(load, [load]);
+  useEffect(load, [load, refreshKey]);
 
   const save = async (source: AllocationSource, apply: boolean) => {
     setBusy(true);

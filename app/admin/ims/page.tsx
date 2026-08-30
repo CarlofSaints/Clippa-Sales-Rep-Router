@@ -93,6 +93,8 @@ export default function ImsReconciliationPage() {
   /** When the cached reconciliation was built, and whether this view came from it. */
   const [meta, setMeta] = useState<{ cached: boolean; fetchedAt: string | null } | null>(null);
   const [needsBuild, setNeedsBuild] = useState(false);
+  /** Bumped after a snapshot rebuild so the allocation card re-reads its plan. */
+  const [snapshotEpoch, setSnapshotEpoch] = useState(0);
   const [snapshotting, setSnapshotting] = useState(false);
   const [backfill, setBackfill] = useState<Record<string, unknown> | null>(null);
   const [backfilling, setBackfilling] = useState(false);
@@ -183,9 +185,14 @@ export default function ImsReconciliationPage() {
       const res = await fetch("/api/ims/snapshot", { method: "POST" });
       const body = await res.json();
       setSnapshot(body);
-      // The rebuild wrote a fresh reconciliation too, so pick it up rather than
-      // leaving the page showing figures the button just superseded.
-      if (body?.built) await load();
+      // The rebuild wrote a fresh reconciliation AND a fresh map, so pick both
+      // up rather than leaving the page showing figures the button just
+      // superseded. The allocation card reads the map, not the reconciliation,
+      // so it needs telling separately.
+      if (body?.built) {
+        setSnapshotEpoch((n) => n + 1);
+        await load();
+      }
     } catch (e) {
       setSnapshot({ error: String(e) });
     } finally {
@@ -424,7 +431,7 @@ export default function ImsReconciliationPage() {
 
       {/* Reads the cached snapshot, not live SQL, so it stays usable when the
           reconciliation below has never been built. */}
-      <AllocationSourceCard />
+      <AllocationSourceCard refreshKey={snapshotEpoch} />
 
       {s && (
         <>
