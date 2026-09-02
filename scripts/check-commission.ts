@@ -119,7 +119,8 @@ const store = (id: string, repCode: string, six: number | undefined): Store => (
 const imsRow = (placeId: string, repCode: string): MapRow => ({
   placeId, status: "matched",
   flags: { noSales: false, dormant: false, duplicateAccount: false, repMismatch: false, closedInIms: false },
-  imsName: placeId, imsProvince: null, imsChannel: null, imsRepCode: repCode,
+  imsName: placeId, imsProvince: null, imsChannel: null,
+    imsSubChannel: null, imsRepCode: repCode,
   sixMonthSales: null, twinCode: null,
 });
 

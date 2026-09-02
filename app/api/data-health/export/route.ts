@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getReps, getStores, getChannels, getStoreOverrides, getSettings } from "@/lib/data";
+import { getReps, getStores, getChannels, getStoreOverrides, getSettings, getSubChannels } from "@/lib/data";
 import { requirePermission } from "@/lib/auth";
 import { buildDataHealthReport } from "@/lib/dataHealth";
 import XLSX from "xlsx";
@@ -30,11 +30,12 @@ export async function GET() {
   try {
     await requirePermission("export_data");
 
-    const [reps, stores, channels, overrides, settings] = await Promise.all([
+    const [reps, stores, channels, overrides, subChannels, settings] = await Promise.all([
       getReps(),
       getStores(),
       getChannels(),
       getStoreOverrides(),
+      getSubChannels(),
       getSettings(),
     ]);
 
@@ -43,6 +44,7 @@ export async function GET() {
       stores,
       channels,
       overrides,
+      subChannels,
       outlierRadiusKm: settings.outlierRadiusKm ?? 50,
     });
 

@@ -1,4 +1,4 @@
-import { Channel, Rep, Store, StoreOverride, getMonthlyRate } from "./types";
+import { Channel, Rep, Store, StoreOverride, SubChannel, getMonthlyRate } from "./types";
 import { computeOutliers } from "./outliers";
 import { buildDuplicateGroups } from "./duplicates";
 import { overriddenStoreIds } from "./channelDefaults";
@@ -77,6 +77,8 @@ export interface HealthInput {
   stores: Store[];
   channels: Channel[];
   overrides: StoreOverride[];
+  /** Optional: a deployment with none configured behaves exactly as before. */
+  subChannels?: SubChannel[];
   outlierRadiusKm: number;
 }
 
@@ -116,7 +118,7 @@ function issue(
 }
 
 export function buildDataHealthReport(input: HealthInput): DataHealthReport {
-  const { reps, stores: allStores, channels, overrides, outlierRadiusKm } = input;
+  const { reps, stores: allStores, channels, overrides, subChannels, outlierRadiusKm } = input;
 
   /**
    * Closed stores are excluded from every store check below.
@@ -143,7 +145,7 @@ export function buildDataHealthReport(input: HealthInput): DataHealthReport {
    * and "7 do, 24 are shut and 2 100 are in channels nobody calls on" are
    * different reports, and only one of them is a list of work.
    */
-  const stores = routableStores({ stores: allStores, channels, overrides });
+  const stores = routableStores({ stores: allStores, channels, overrides, subChannels });
   const closedCount = allStores.filter((s) => isClosed(s)).length;
   const notCalledOnCount = allStores.length - stores.length - closedCount;
 

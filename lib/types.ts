@@ -37,12 +37,54 @@ export interface Channel {
   sourceAt?: string;
 }
 
+/**
+ * A named subdivision of a channel, as the client's own systems use it.
+ *
+ * Pick n Pay is the reason it exists: some of its formats are called on by a
+ * rep and some order automatically, so the channel alone cannot answer "does
+ * anybody visit this shop". IMS already carries `Store Sub Channel` on every
+ * outlet, so this is imported rather than invented.
+ *
+ * ⚠️ The parent is recorded but is NOT what decides routing on its own. See
+ * `callPolicy` in lib/routable.ts: the most specific setting wins, so a
+ * sub-channel can be excluded inside a channel reps call on, or called on
+ * inside one they do not.
+ */
+export interface SubChannel {
+  id: string;
+  name: string;
+  /** The channel this belongs to, as IMS files it. */
+  channelId: string;
+  /**
+   * Nobody calls on this sub-channel.
+   *
+   * THREE states, not two, which is why it is optional and never defaulted:
+   *   absent → follow the parent channel
+   *   true   → excluded, whatever the parent says
+   *   false  → called on, whatever the parent says
+   *
+   * Collapsing absent and false would make "inherit" impossible to express,
+   * and every sub-channel created by the import would silently pin itself to
+   * "called on" the moment its parent was excluded.
+   */
+  notARepChannel?: boolean;
+  source?: ChannelSource;
+  sourceAt?: string;
+}
+
 export type ChannelSource =
   /** Created by a Repsly Places store upload that carried an unknown channel. */
   | "store_upload"
   /** Created from the IMS outlet master on the Channels page. */
   | "ims"
-  /** Created by the Channels page Excel import. */
+  /**
+   * Created by the Channels page Excel import.
+   *
+   * Which is Repsly data too: those sheets are Repsly exports. The difference
+   * worth keeping is that an export is STATIC — frozen at the moment it was
+   * pulled — whereas a store upload reflects Repsly as it was that day. Same
+   * origin, different freshness.
+   */
   | "excel"
   /** Typed in by hand with Add Channel. */
   | "manual"
@@ -52,7 +94,7 @@ export type ChannelSource =
 export const CHANNEL_SOURCE_LABEL: Record<ChannelSource, string> = {
   store_upload: "Repsly store upload",
   ims: "IMS",
-  excel: "Excel import",
+  excel: "Repsly export (Excel)",
   manual: "Added by hand",
   seed: "Original seed",
 };
@@ -237,6 +279,14 @@ export interface Store {
   /** Why, so an automatic pass never silently undoes a human decision. */
   closedReason?: "ims_accc" | "ims_flag" | "manual";
   closedAt?: string;
+  /**
+   * The sub-channel this store belongs to, as IMS files it.
+   *
+   * Absent means IMS has no sub-channel for it, or it has never been matched,
+   * and the store simply follows its channel. That is a real and common state,
+   * not a gap to be filled with a guess.
+   */
+  subChannelId?: string;
   /**
    * A person set this store's status by hand, in EITHER direction.
    *

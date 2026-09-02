@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getReps, getStores, getChannels, getStoreOverrides, getSettings } from "@/lib/data";
+import { getReps, getStores, getChannels, getStoreOverrides, getSettings, getSubChannels } from "@/lib/data";
 import { requireSession } from "@/lib/auth";
 import { buildDataHealthReport } from "@/lib/dataHealth";
 
@@ -9,11 +9,12 @@ export async function GET() {
   try {
     await requireSession();
 
-    const [reps, stores, channels, overrides, settings] = await Promise.all([
+    const [reps, stores, channels, overrides, subChannels, settings] = await Promise.all([
       getReps(),
       getStores(),
       getChannels(),
       getStoreOverrides(),
+      getSubChannels(),
       getSettings(),
     ]);
 
@@ -22,6 +23,7 @@ export async function GET() {
       stores,
       channels,
       overrides,
+      subChannels,
       outlierRadiusKm: settings.outlierRadiusKm ?? 50,
     });
 

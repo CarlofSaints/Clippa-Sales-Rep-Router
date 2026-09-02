@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getReps, getStores, saveRoutes, saveRoutesForType, getRoutes, getRoutesForType, getCallCycleTypes, getSettings, getChannels, getStoreOverrides } from "@/lib/data";
+import { getReps, getStores, saveRoutes, saveRoutesForType, getRoutes, getRoutesForType, getCallCycleTypes, getSettings, getChannels, getStoreOverrides, getSubChannels } from "@/lib/data";
 import { RoutePlanDocument, RepRoutePlan, Store, Rep } from "@/lib/types";
 import { generateRepRoute } from "@/lib/route-engine";
 import { hasGoogleMapsKey } from "@/lib/google-maps";
@@ -38,15 +38,16 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const repCodes: string[] | undefined = body.repCodes;
 
-    const [allReps, allStores, callCycleTypes, settings, channels, overrides] = await Promise.all([
+    const [allReps, allStores, callCycleTypes, settings, channels, overrides, subChannels] = await Promise.all([
       getReps(),
       getStores(),
       getCallCycleTypes(),
       getSettings(),
       getChannels(),
       getStoreOverrides(),
+      getSubChannels(),
     ]);
-    const routable = routableStores({ stores: allStores, channels, overrides });
+    const routable = routableStores({ stores: allStores, channels, overrides, subChannels });
     const outlierRadiusKm = settings.outlierRadiusKm;
 
     // How many calls a day this run should aim for.

@@ -1,5 +1,5 @@
 import { put, list, get } from "@vercel/blob";
-import { Channel, Rep, Store, User, Team, RoutePlanDocument, RolePermission, ROLE_DEFINITIONS, ALL_PERMISSIONS, CallCycleType, DEFAULT_CALL_CYCLE_TYPES, Region, StoreOverride } from "./types";
+import { Channel, SubChannel, Rep, Store, User, Team, RoutePlanDocument, RolePermission, ROLE_DEFINITIONS, ALL_PERMISSIONS, CallCycleType, DEFAULT_CALL_CYCLE_TYPES, Region, StoreOverride } from "./types";
 import type { PasswordResetRecord } from "./passwordReset";
 import { DEFAULT_COMMISSION, type CommissionSettings } from "./commission";
 import { DEFAULT_ALLOCATION, type AllocationSettings } from "./allocationSource";
@@ -77,6 +77,21 @@ export async function getChannels(): Promise<Channel[]> {
 
 export async function saveChannels(channels: Channel[]): Promise<void> {
   await writeJSON("channels", channels);
+}
+
+/**
+ * Sub-channels, in their own blob rather than nested inside each channel.
+ *
+ * A store points at one by id, exactly as it points at a channel, so the two
+ * lists read the same way and a sub-channel can be renamed or re-parented
+ * without rewriting the channel record every store depends on.
+ */
+export async function getSubChannels(): Promise<SubChannel[]> {
+  return readJSON<SubChannel[]>("sub-channels", []);
+}
+
+export async function saveSubChannels(subChannels: SubChannel[]): Promise<void> {
+  await writeJSON("sub-channels", subChannels);
 }
 
 // ---------- App Settings ----------

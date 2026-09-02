@@ -70,6 +70,8 @@ export interface MapRow {
   imsName: string | null;
   imsProvince: string | null;
   imsChannel: string | null;
+  /** What IMS files this outlet under WITHIN its channel, when it says. */
+  imsSubChannel: string | null;
   imsRepCode: string | null;
   sixMonthSales: number | null;
   /** The account code the sales appear to be going to instead, when there is one. */
@@ -166,6 +168,7 @@ export function buildStoreMap({ stores, sales, sales12, master }: MapInputs): St
       imsName: m?.["Store Name"] ?? null,
       imsProvince: m?.Province ?? null,
       imsChannel: m?.["Store Channel"] ?? null,
+      imsSubChannel: m?.["Store Sub Channel"] ?? null,
       imsRepCode: m?.["Rep Code"] ?? null,
       sixMonthSales: value ?? null,
       twinCode,
@@ -192,6 +195,7 @@ export function buildStoreMap({ stores, sales, sales12, master }: MapInputs): St
       imsName: m?.["Store Name"] ?? null,
       imsProvince: m?.Province ?? null,
       imsChannel: m?.["Store Channel"] ?? null,
+      imsSubChannel: m?.["Store Sub Channel"] ?? null,
       imsRepCode: imsRep,
       sixMonthSales: value,
       twinCode: null,

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getReps, getStores, getRoutes, getChannels, getStoreOverrides } from "@/lib/data";
+import { getReps, getStores, getRoutes, getChannels, getStoreOverrides, getSubChannels } from "@/lib/data";
 import { computeCapacity } from "@/lib/capacity";
 import { requireSession } from "@/lib/auth";
 
@@ -7,15 +7,16 @@ export async function GET() {
   try {
     await requireSession();
 
-    const [reps, stores, doc, channels, overrides] = await Promise.all([
+    const [reps, stores, doc, channels, overrides, subChannels] = await Promise.all([
       getReps(),
       getStores(),
       getRoutes(),
       getChannels(),
       getStoreOverrides(),
+      getSubChannels(),
     ]);
 
-    return NextResponse.json(computeCapacity(reps, stores, doc, channels, overrides));
+    return NextResponse.json(computeCapacity(reps, stores, doc, channels, overrides, subChannels));
   } catch (err) {
     if (String(err).includes("Unauthorized")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

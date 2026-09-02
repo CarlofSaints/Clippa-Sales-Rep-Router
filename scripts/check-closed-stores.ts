@@ -61,6 +61,7 @@ function row(placeId: string, extra: Partial<MapRow> = {}): MapRow {
     imsName: null,
     imsProvince: null,
     imsChannel: null,
+    imsSubChannel: null,
     imsRepCode: null,
     sixMonthSales: null,
     twinCode: null,

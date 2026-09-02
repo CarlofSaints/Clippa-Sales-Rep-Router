@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { Channel, FREQUENCY_OPTIONS, FrequencyType, getFrequencyLabel, CHANNEL_SOURCE_LABEL } from "@/lib/types";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { Channel, FREQUENCY_OPTIONS, FrequencyType, getFrequencyLabel, CHANNEL_SOURCE_LABEL, type SubChannel } from "@/lib/types";
 import { useTableSort, useSortedRows, SortableTh } from "@/components/TableSort";
-import { storeCountsByChannel } from "@/lib/routable";
+import { storeCountsByChannel, storeCountsBySubChannel } from "@/lib/routable";
 
 export default function ChannelsPage() {
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -171,6 +171,153 @@ export default function ChannelsPage() {
       setImportMsg({ type: "error", text: String(err) });
     } finally {
       setImsBusy(false);
+    }
+  };
+  /**
+   * Sub-channels.
+   *
+   * Pick n Pay is why they exist: some formats are called on and some order
+   * automatically, so the channel alone cannot answer it. IMS already carries
+   * Store Sub Channel on every outlet, so these are imported rather than typed.
+   */
+  interface SubCandidate { name: string; channel: string; channelId: string; outlets: number; storesHere: number }
+  const [subChannels, setSubChannels] = useState<SubChannel[]>([]);
+  const [subCounts, setSubCounts] = useState<Map<string, { total: number; open: number }>>(new Map());
+  const [subBusy, setSubBusy] = useState(false);
+  const [subCandidates, setSubCandidates] = useState<SubCandidate[] | null>(null);
+  const [subChosen, setSubChosen] = useState<Set<string>>(new Set());
+  const [subOrphans, setSubOrphans] = useState<{ channel: string; outlets: number }[]>([]);
+  const [newSubName, setNewSubName] = useState("");
+  const [newSubParent, setNewSubParent] = useState("");
+
+  const loadSubChannels = useCallback(() => {
+    Promise.all([
+      fetch("/api/sub-channels").then((r) => (r.ok ? r.json() : [])).catch(() => []),
+      fetch("/api/stores").then((r) => r.json()).catch(() => []),
+    ]).then(([subs, st]) => {
+      setSubChannels(Array.isArray(subs) ? subs : []);
+      setSubCounts(storeCountsBySubChannel(Array.isArray(st) ? st : []));
+    });
+  }, []);
+
+  useEffect(() => { loadSubChannels(); }, [loadSubChannels]);
+
+  const previewSubChannels = async () => {
+    setSubBusy(true);
+    setImportMsg(null);
+    try {
+      const res = await fetch("/api/sub-channels/from-ims", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setImportMsg({ type: "error", text: data.error || "Could not read the IMS sub-channel list." });
+        return;
+      }
+      setSubCandidates(data.candidates ?? []);
+      setSubOrphans(data.orphanParents ?? []);
+      setSubChosen(new Set());
+      if ((data.candidates ?? []).length === 0) {
+        setImportMsg({ type: "success", text: "Every IMS sub-channel with a matching channel is already here." });
+      }
+    } catch (err) {
+      setImportMsg({ type: "error", text: String(err) });
+    } finally {
+      setSubBusy(false);
+    }
+  };
+
+  const applySubChannels = async () => {
+    if (subChosen.size === 0) return;
+    setSubBusy(true);
+    try {
+      const res = await fetch("/api/sub-channels/from-ims?mode=apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [...subChosen] }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setImportMsg({ type: "error", text: data.error || "Could not create those sub-channels." });
+        return;
+      }
+      setImportMsg({
+        type: "success",
+        text: `Created ${data.created.length} sub-channel${data.created.length === 1 ? "" : "s"} and filed ${data.storesFiled} store${data.storesFiled === 1 ? "" : "s"}${data.storesMoved ? `, moving ${data.storesMoved}` : ""}. ${data.note}`,
+      });
+      setSubCandidates(null);
+      setSubChosen(new Set());
+      loadSubChannels();
+    } catch (err) {
+      setImportMsg({ type: "error", text: String(err) });
+    } finally {
+      setSubBusy(false);
+    }
+  };
+
+  /**
+   * Set a sub-channel to called on, excluded, or back to following its channel.
+   *
+   * A THREE-state select rather than a switch, because a switch cannot express
+   * "no opinion" — and that third state is the one every imported sub-channel
+   * starts in and the one a manager needs to get back to.
+   */
+  const setSubPolicy = async (sub: SubChannel, value: "inherit" | "called" | "excluded") => {
+    setSubBusy(true);
+    try {
+      const res = await fetch("/api/sub-channels", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: sub.id,
+          notARepChannel: value === "inherit" ? null : value === "excluded",
+        }),
+      });
+      if (!res.ok) throw new Error("Could not save that sub-channel.");
+      setImportMsg({ type: "success", text: `${sub.name} saved. Regenerate routes for this to reach the reps.` });
+      loadSubChannels();
+    } catch (err) {
+      setImportMsg({ type: "error", text: String(err) });
+    } finally {
+      setSubBusy(false);
+    }
+  };
+
+  const addSubChannel = async () => {
+    if (!newSubName.trim() || !newSubParent) return;
+    setSubBusy(true);
+    try {
+      const res = await fetch("/api/sub-channels", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newSubName.trim(), channelId: newSubParent }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not create that sub-channel.");
+      setNewSubName("");
+      setImportMsg({ type: "success", text: `${data.name} created. It follows its channel until you say otherwise.` });
+      loadSubChannels();
+    } catch (err) {
+      setImportMsg({ type: "error", text: String(err) });
+    } finally {
+      setSubBusy(false);
+    }
+  };
+
+  const deleteSubChannel = async (sub: SubChannel) => {
+    if (!confirm(`Delete ${sub.name}? Its stores will follow their channel again.`)) return;
+    setSubBusy(true);
+    try {
+      const res = await fetch(`/api/sub-channels?id=${encodeURIComponent(sub.id)}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not delete that sub-channel.");
+      setImportMsg({
+        type: "success",
+        text: `${sub.name} deleted${data.storesCleared ? `; ${data.storesCleared} store(s) now follow their channel` : ""}.`,
+      });
+      loadSubChannels();
+    } catch (err) {
+      setImportMsg({ type: "error", text: String(err) });
+    } finally {
+      setSubBusy(false);
     }
   };
   const startEdit = (ch: Channel) => {
@@ -409,6 +556,14 @@ export default function ChannelsPage() {
               defined and never called, so 'Apply defaults to stores' has been
               unreachable in this app since the feature was ported. */}
           <button
+            onClick={previewSubChannels}
+            disabled={subBusy}
+            className="px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            title="Create the sub-channels IMS uses and file this app's stores under them. Shows a preview first."
+          >
+            {subBusy ? "Checking IMS..." : "Add sub-channels from IMS"}
+          </button>
+          <button
             onClick={previewImsChannels}
             disabled={imsBusy}
             className="px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
@@ -622,6 +777,99 @@ export default function ChannelsPage() {
       </div>
 
 
+
+      {/* Sub-channels from IMS: what would be created, before anything is. */}
+      {subCandidates && subCandidates.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4">
+          <div className="flex items-start justify-between gap-4 mb-3">
+            <div>
+              <p className="text-sm font-semibold text-gray-900">
+                {subCandidates.length} sub-channel{subCandidates.length === 1 ? "" : "s"} in IMS that this app does not have
+              </p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Creating them also files this app&rsquo;s stores under them, matched on Place ID.
+                {" "}<strong>They follow their channel</strong> until you set one either way.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => { setSubCandidates(null); setSubChosen(new Set()); }}
+                className="text-xs text-gray-400 hover:text-gray-700 px-2 py-1"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => setSubChosen(new Set(subCandidates.map((c) => `${c.channelId}__${c.name.toLowerCase().replace(/[^a-z0-9]/g, "_")}`)))}
+                className="text-xs text-gray-500 hover:text-gray-900 px-2 py-1"
+              >
+                Select all
+              </button>
+              <button
+                onClick={applySubChannels}
+                disabled={subBusy || subChosen.size === 0}
+                className="px-3 py-1.5 bg-gray-900 text-white text-xs font-medium rounded-lg hover:bg-gray-700 disabled:opacity-40"
+              >
+                {subBusy ? "Creating..." : `Create ${subChosen.size}`}
+              </button>
+            </div>
+          </div>
+
+          {/* A sub-channel whose parent channel is not configured here cannot be
+              created — it would hang off nothing. Named rather than dropped, so
+              the fix (import that channel first) is obvious. */}
+          {subOrphans.length > 0 && (
+            <p className="mb-2 text-xs text-amber-700">
+              {subOrphans.length} IMS channel{subOrphans.length === 1 ? " is" : "s are"} not on this page yet, so
+              {" "}their sub-channels cannot be created: {subOrphans.slice(0, 6).map((o) => `${o.channel} (${o.outlets})`).join(", ")}
+              {subOrphans.length > 6 ? ` and ${subOrphans.length - 6} more` : ""}. Add those channels from IMS first.
+            </p>
+          )}
+
+          <div className="max-h-72 overflow-y-auto border border-gray-100 rounded-lg">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 text-gray-500 uppercase sticky top-0">
+                <tr>
+                  <th className="px-3 py-2 w-8"></th>
+                  <th className="px-3 py-2 text-left">Sub-channel</th>
+                  <th className="px-3 py-2 text-left">Under</th>
+                  <th className="px-3 py-2 text-right">Outlets in IMS</th>
+                  <th className="px-3 py-2 text-right">Stores here</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {subCandidates.map((c) => {
+                  const id = `${c.channelId}__${c.name.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
+                  return (
+                    <tr key={id}>
+                      <td className="px-3 py-1.5">
+                        <input
+                          type="checkbox"
+                          checked={subChosen.has(id)}
+                          onChange={() => {
+                            const next = new Set(subChosen);
+                            if (next.has(id)) next.delete(id);
+                            else next.add(id);
+                            setSubChosen(next);
+                          }}
+                          className="w-4 h-4 rounded border-gray-300 text-clippa-red focus:ring-clippa-red cursor-pointer align-middle"
+                          aria-label={`Create ${c.name}`}
+                        />
+                      </td>
+                      <td className="px-3 py-1.5 font-medium text-gray-800">{c.name}</td>
+                      <td className="px-3 py-1.5 text-gray-600">{c.channel}</td>
+                      <td className="px-3 py-1.5 text-right text-gray-600">{c.outlets.toLocaleString("en-ZA")}</td>
+                      {/* The number that decides whether this is worth creating: */}
+                      <td className={`px-3 py-1.5 text-right ${c.storesHere > 0 ? "text-gray-800 font-medium" : "text-gray-300"}`}>
+                        {c.storesHere.toLocaleString("en-ZA")}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
       {/* What would be created, before anything is. */}
       {imsCandidates && imsCandidates.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4">
@@ -897,6 +1145,127 @@ export default function ChannelsPage() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Sub-channels.
+
+          Its own card rather than rows nested in the table above: a sub-channel
+          answers a THREE-state question and the channel table answers a
+          two-state one, and cramming both into one row made neither readable. */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 mt-6">
+        <div className="px-6 py-4 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-gray-900">Sub-channels</h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              A sub-channel beats its channel, in both directions. Use it where some formats of a
+              retailer are called on and others order automatically.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              value={newSubName}
+              onChange={(e) => setNewSubName(e.target.value)}
+              placeholder="New sub-channel name"
+              className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs w-48 focus:outline-none focus:ring-1 focus:ring-clippa-red"
+            />
+            <select
+              value={newSubParent}
+              onChange={(e) => setNewSubParent(e.target.value)}
+              className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-clippa-red"
+            >
+              <option value="">Under which channel?</option>
+              {channels.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+            <button
+              onClick={addSubChannel}
+              disabled={subBusy || !newSubName.trim() || !newSubParent}
+              className="px-3 py-1.5 border border-gray-300 text-gray-700 text-xs font-medium rounded-lg hover:bg-gray-50 disabled:opacity-40"
+            >
+              Add
+            </button>
+          </div>
+        </div>
+
+        {subChannels.length === 0 ? (
+          <p className="px-6 py-8 text-center text-sm text-gray-400">
+            No sub-channels yet. Press <span className="font-medium">Add sub-channels from IMS</span> to bring in the
+            ones the client already uses.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3">Sub-channel</th>
+                  <th className="px-6 py-3">Under</th>
+                  <th className="px-6 py-3 text-right">Stores</th>
+                  <th className="px-6 py-3">Called on?</th>
+                  <th className="px-6 py-3">Came from</th>
+                  <th className="px-6 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {[...subChannels]
+                  .sort((a, b) => {
+                    const ca = channels.find((c) => c.id === a.channelId)?.name ?? a.channelId;
+                    const cb = channels.find((c) => c.id === b.channelId)?.name ?? b.channelId;
+                    return ca.localeCompare(cb) || a.name.localeCompare(b.name);
+                  })
+                  .map((sc) => {
+                    const parent = channels.find((c) => c.id === sc.channelId);
+                    const inherited = parent?.notARepChannel === true ? "Not a rep channel" : "Reps call here";
+                    const value = sc.notARepChannel === undefined ? "inherit" : sc.notARepChannel ? "excluded" : "called";
+                    return (
+                      <tr key={sc.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-3 font-medium text-gray-900">{sc.name}</td>
+                        <td className="px-6 py-3 text-gray-600">
+                          {parent?.name ?? <span className="text-amber-700">{sc.channelId} (missing)</span>}
+                        </td>
+                        <td className="px-6 py-3 text-right text-gray-600">
+                          {(subCounts.get(sc.id)?.open ?? 0).toLocaleString("en-ZA")}
+                        </td>
+                        <td className="px-6 py-3">
+                          {/* THREE states. A switch cannot say "no opinion", and
+                              that is the state every import starts in. */}
+                          <select
+                            value={value}
+                            disabled={subBusy}
+                            onChange={(e) => setSubPolicy(sc, e.target.value as "inherit" | "called" | "excluded")}
+                            className={`border rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-clippa-red ${
+                              value === "excluded"
+                                ? "border-gray-300 bg-gray-100 text-gray-700"
+                                : value === "called"
+                                  ? "border-green-300 bg-green-50 text-green-800"
+                                  : "border-gray-200 text-gray-500"
+                            }`}
+                          >
+                            <option value="inherit">Follows channel ({inherited})</option>
+                            <option value="called">Reps call here</option>
+                            <option value="excluded">Not a rep sub-channel</option>
+                          </select>
+                        </td>
+                        <td className="px-6 py-3">
+                          <span className="text-xs text-gray-500">
+                            {sc.source ? CHANNEL_SOURCE_LABEL[sc.source] : "Not recorded"}
+                          </span>
+                        </td>
+                        <td className="px-6 py-3 text-right">
+                          <button
+                            onClick={() => deleteSubChannel(sc)}
+                            className="text-gray-400 hover:text-red-600 text-xs font-medium"
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

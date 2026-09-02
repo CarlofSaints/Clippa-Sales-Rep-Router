@@ -1,4 +1,4 @@
-import { Rep, Store, RoutePlanDocument, getMonthlyRate, Channel, StoreOverride } from "./types";
+import { Rep, Store, RoutePlanDocument, getMonthlyRate, Channel, StoreOverride, SubChannel } from "./types";
 import { routableStores } from "./routable";
 
 // A generated route document covers one 4-week cycle = one month.
@@ -40,12 +40,13 @@ export function computeCapacity(
   // that forgot them report a workload that ignores excluded channels, and it
   // would compile and look right. A missing argument has to break the build.
   channels: Channel[],
-  overrides: StoreOverride[]
+  overrides: StoreOverride[],
+  subChannels: SubChannel[]
 ): CapacityResult {
   const planByRep = new Map((doc?.repPlans ?? []).map((p) => [p.repCode, p]));
   // The SAME rule route generation uses. Anything else and this page reports a
   // workload the generated cycle does not contain.
-  const active = routableStores({ stores, channels, overrides });
+  const active = routableStores({ stores, channels, overrides, subChannels });
 
   const rows: RepCapacity[] = reps.map((rep) => {
     // Same exclusion as route generation, and it has to be the same or the

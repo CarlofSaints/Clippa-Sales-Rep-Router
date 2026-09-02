@@ -56,6 +56,15 @@ export interface ImsSnapshot extends StoreMap {
    * would hide the duplicates that are worth seeing before anything is created.
    */
   imsChannels?: { name: string; outlets: number }[];
+  /**
+   * Every distinct sub-channel in the IMS outlet master, with its parent
+   * channel and outlet count.
+   *
+   * Parent included because the same sub-channel NAME can appear under more
+   * than one channel, and a list of bare names could not be turned back into
+   * the tree the client actually has.
+   */
+  imsSubChannels?: { name: string; channel: string; outlets: number }[];
 }
 
 export interface ImsReconSnapshot {
@@ -112,6 +121,23 @@ export async function buildImsSnapshot(
   const imsChannels = [...channelCounts]
     .map(([name, outlets]) => ({ name, outlets }))
     .sort((a, b) => b.outlets - a.outlets || a.name.localeCompare(b.name));
+
+  // Sub-channels, keyed by parent AND name: the same sub-channel name can sit
+  // under two different channels, and flattening them would merge two real
+  // groups into one.
+  const subCounts = new Map<string, { name: string; channel: string; outlets: number }>();
+  for (const row of master.values()) {
+    const name = String(row["Store Sub Channel"] ?? "").trim();
+    if (!name) continue;
+    const channel = String(row["Store Channel"] ?? "").trim();
+    const key = channel.toUpperCase() + "||" + name.toUpperCase();
+    const e = subCounts.get(key) ?? { name, channel, outlets: 0 };
+    e.outlets++;
+    subCounts.set(key, e);
+  }
+  const imsSubChannels = [...subCounts.values()].sort(
+    (a, b) => b.outlets - a.outlets || a.channel.localeCompare(b.channel) || a.name.localeCompare(b.name)
+  );
   const result = reconcile(stores, sales, sales12, master, monthsBack);
 
   // One timestamp for both, because they describe the same instant. Two clocks
@@ -125,6 +151,7 @@ export async function buildImsSnapshot(
       // Stamped so a stale snapshot is visible rather than silently believed.
       fetchedAt,
       imsChannels,
+      imsSubChannels,
       monthsBack,
       totals: {
         appStores: stores.length,

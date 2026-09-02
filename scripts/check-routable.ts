@@ -15,10 +15,11 @@ import {
   approvedOverrideStoreIds,
   routableStores,
   countExclusions,
+  callPolicy,
   exclusionReason,
   storeCountsByChannel,
 } from "../lib/routable";
-import type { Channel, Store, StoreOverride } from "../lib/types";
+import type { Channel, Store, StoreOverride, SubChannel } from "../lib/types";
 
 let passed = 0;
 let failed = 0;
@@ -176,6 +177,70 @@ const CHANNELS = [channel("indep"), channel("makro", { notARepChannel: true })];
     routableStores({ stores, channels: [], overrides: [] }).length,
     1
   );
+}
+
+
+// -- Channel vs sub-channel: the most specific setting wins ------------------
+//
+// Pick n Pay is the case that forces this. Some formats are visited and some
+// order automatically, so a sub-channel must be able to override its parent in
+// BOTH directions, and "no opinion" has to stay distinct from "called on".
+{
+  const sub = (id: string, channelId: string, notARepChannel?: boolean): SubChannel => ({
+    id, name: id, channelId,
+    ...(notARepChannel === undefined ? {} : { notARepChannel }),
+  });
+
+  const CH = [channel("pnp"), channel("makro", { notARepChannel: true })];
+  const SUBS = [
+    sub("pnp_hyper", "pnp", true),      // excluded inside a channel reps DO call on
+    sub("pnp_express", "pnp", false),   // explicitly called on
+    sub("pnp_family", "pnp"),           // no opinion: follow the channel
+    sub("makro_liquor", "makro", false),// called on inside an EXCLUDED channel
+    sub("makro_food", "makro"),         // no opinion: follow the channel
+  ];
+  const chById = new Map(CH.map((c) => [c.id, c]));
+  const subById = new Map(SUBS.map((c) => [c.id, c]));
+
+  const at = (channelId: string, subChannelId?: string) =>
+    callPolicy(store("s", channelId, subChannelId ? { subChannelId } : {}), chById, subById);
+
+  // Inside a channel reps call on.
+  ok("a sub-channel can be excluded inside a channel reps call on", at("pnp", "pnp_hyper").calledOn === false);
+  eq("and says the sub-channel decided it", at("pnp", "pnp_hyper").decidedBy, "sub_channel");
+  ok("a sub-channel with no opinion follows its channel", at("pnp", "pnp_family").calledOn === true);
+  eq("and says the CHANNEL decided it", at("pnp", "pnp_family").decidedBy, "default");
+
+  // 🔴 The other direction. Without this, excluding Makro would strand a
+  // format the client genuinely visits, and the only fix would be a per-store
+  // override on every branch.
+  ok("a sub-channel can be CALLED ON inside an excluded channel", at("makro", "makro_liquor").calledOn === true);
+  eq("and says the sub-channel decided it", at("makro", "makro_liquor").decidedBy, "sub_channel");
+  ok("a sub-channel with no opinion inherits the exclusion", at("makro", "makro_food").calledOn === false);
+  eq("and says the channel decided it", at("makro", "makro_food").decidedBy, "channel");
+
+  // A store with no sub-channel at all is the common case and must be untouched.
+  ok("no sub-channel means follow the channel", at("makro").calledOn === false);
+  ok("and in a called-on channel it still routes", at("pnp").calledOn === true);
+
+  // A dangling id must not silently exclude the store.
+  ok("a sub-channel id that no longer exists falls back to the channel", at("pnp", "gone").calledOn === true);
+
+  // The whole pipeline, not just the policy.
+  const stores = [
+    store("a", "pnp", { subChannelId: "pnp_hyper" }),
+    store("b", "pnp", { subChannelId: "pnp_express" }),
+    store("c", "pnp"),
+    store("d", "makro", { subChannelId: "makro_liquor" }),
+    store("e", "makro"),
+  ];
+  const routable = routableStores({ stores, channels: CH, overrides: [], subChannels: SUBS })
+    .map((s) => s.id).sort();
+  eq("the pipeline honours both directions", routable, ["b", "c", "d"]);
+
+  // Passing no sub-channels must behave exactly as before the feature existed.
+  const withoutSubs = routableStores({ stores, channels: CH, overrides: [] }).map((s) => s.id).sort();
+  eq("with no sub-channels configured, only the channel decides", withoutSubs, ["a", "b", "c"]);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
