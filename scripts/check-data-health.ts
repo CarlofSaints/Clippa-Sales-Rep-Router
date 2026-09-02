@@ -310,5 +310,53 @@ console.log("\n--- a book that cannot fit the hours ---\n");
   void AVAILABLE;
 }
 
+
+console.log("\n--- channels nobody calls on ---\n");
+
+// A store in a channel reps never visit is not a data problem. Flagging its
+// missing GPS sends somebody to fix a coordinate that will never be driven to,
+// and buries the ones that matter.
+{
+  const CH = [
+    { id: "indep", name: "Independent", frequency: "monthly", duration: 30 } as Channel,
+    { id: "makro", name: "Makro", frequency: "monthly", duration: 30, notARepChannel: true } as Channel,
+  ];
+
+  // Both have unusable coordinates. Only the one a rep visits is a problem.
+  const stores = [
+    store({ placeId: "A1", channelId: "indep", gpsLat: "", gpsLng: "" }),
+    store({ placeId: "M1", channelId: "makro", gpsLat: "", gpsLng: "" }),
+  ];
+
+  const r = run([rep({ code: "GAU001" })], stores, CH);
+  eq("a blank coordinate is only reported for a store reps visit", find(r, "stores-gps-blank").count, 1);
+  eq("and the excluded ones are COUNTED, not silently dropped", r.totals.storesNotCalledOn, 1);
+  eq("the store total is what reps actually call on", r.totals.stores, 1);
+
+  // 🔴 The exception has to survive. A manager who excused one Makro branch
+  // WANTS a rep there, so its missing coordinate is a real problem again.
+  const excused = run([rep({ code: "GAU001" })], stores, CH, [
+    {
+      id: "o1", storeId: stores[1].id, storeName: "M1", placeId: "M1", channelId: "makro",
+      repCode: "GAU001", defaultFrequency: "monthly", defaultDuration: 30,
+      frequency: "monthly", duration: 30, approvalStatus: "approved",
+      createdBy: "t", createdAt: "", updatedAt: "",
+    } as StoreOverride,
+  ]);
+  eq("an excused store is checked again", find(excused, "stores-gps-blank").count, 2);
+  eq("and nothing is reported as excluded", excused.totals.storesNotCalledOn, 0);
+
+  // A pending override is a request, not a decision.
+  const pending = run([rep({ code: "GAU001" })], stores, CH, [
+    {
+      id: "o2", storeId: stores[1].id, storeName: "M1", placeId: "M1", channelId: "makro",
+      repCode: "GAU001", defaultFrequency: "monthly", defaultDuration: 30,
+      frequency: "monthly", duration: 30, approvalStatus: "pending",
+      createdBy: "t", createdAt: "", updatedAt: "",
+    } as StoreOverride,
+  ]);
+  eq("a pending override does not bring the store back", find(pending, "stores-gps-blank").count, 1);
+}
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed > 0 ? 1 : 0);

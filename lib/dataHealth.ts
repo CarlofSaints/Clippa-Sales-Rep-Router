@@ -2,7 +2,8 @@ import { Channel, Rep, Store, StoreOverride, getMonthlyRate } from "./types";
 import { computeOutliers } from "./outliers";
 import { buildDuplicateGroups } from "./duplicates";
 import { overriddenStoreIds } from "./channelDefaults";
-import { activeStores } from "./closedStores";
+import { isClosed } from "./closedStores";
+import { routableStores } from "./routable";
 
 /**
  * Every way this data can be wrong, in one place.
@@ -59,6 +60,14 @@ export interface DataHealthReport {
      * a list of work.
      */
     storesClosed: number;
+    /**
+     * Stores in channels reps do not call on, excluded from every check above.
+     *
+     * Its own number rather than folded into the closed count: they are
+     * excluded for a different reason, and un-ticking one channel brings them
+     * all back, which is not true of a closure.
+     */
+    storesNotCalledOn: number;
   };
   issues: HealthIssue[];
 }
@@ -120,8 +129,23 @@ export function buildDataHealthReport(input: HealthInput): DataHealthReport {
    * Reported as its own count so the number is visible rather than silently
    * subtracted, which is its own kind of lie.
    */
-  const stores = activeStores(allStores);
-  const closedCount = allStores.length - stores.length;
+  /**
+   * 🔴 Stores nobody calls on are not data problems either.
+   *
+   * A Makro branch with no GPS, no rep code and a coordinate in the sea is
+   * perfectly fine if no rep is ever sent there — it orders automatically. So a
+   * channel marked "not a rep channel" takes its stores out of every check
+   * here, exactly as a closed store does, less any single store an approved
+   * Call Override puts back in the cycle: that one IS visited, so it does need
+   * a usable coordinate.
+   *
+   * Both exclusions are COUNTED and reported. "31 stores have no valid rep"
+   * and "7 do, 24 are shut and 2 100 are in channels nobody calls on" are
+   * different reports, and only one of them is a list of work.
+   */
+  const stores = routableStores({ stores: allStores, channels, overrides });
+  const closedCount = allStores.filter((s) => isClosed(s)).length;
+  const notCalledOnCount = allStores.length - stores.length - closedCount;
 
   const repByCode = new Map(reps.map((r) => [code(r.code), r]));
   const channelById = new Map(channels.map((c) => [c.id, c]));
@@ -489,6 +513,7 @@ export function buildDataHealthReport(input: HealthInput): DataHealthReport {
       blocking: found.filter((i) => i.severity === "blocking").reduce((a, i) => a + i.count, 0),
       storesBlocked: blockedStoreIds.size,
       storesClosed: closedCount,
+      storesNotCalledOn: notCalledOnCount,
     },
     // Worst first, then biggest. A clean check still ships, so the page can show
     // what was looked at and found nothing — silence is not the same as a pass.

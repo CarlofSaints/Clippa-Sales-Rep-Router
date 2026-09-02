@@ -17,7 +17,7 @@ export async function GET() {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { id, name, frequency, duration } = body as Partial<Channel> & { id: string };
+    const { id, name, frequency, duration, notARepChannel } = body as Partial<Channel> & { id: string };
 
     const channels = await getChannels();
     const idx = channels.findIndex((c) => c.id === id);
@@ -30,6 +30,22 @@ export async function PUT(request: NextRequest) {
     if (name) channels[idx].name = name;
     if (frequency) channels[idx].frequency = frequency as FrequencyType;
     if (duration !== undefined) channels[idx].duration = duration;
+
+    // Whether reps call on this channel at all.
+    //
+    // Deliberately NOT part of `defaultsChanged`: that triggers the frequency
+    // and duration cascade onto every store in the channel, and excluding a
+    // channel from routing is not a reason to rewrite the call rhythm of
+    // stores that an override may put straight back into the cycle.
+    const routingChanged =
+      notARepChannel !== undefined && !!notARepChannel !== channels[idx].notARepChannel;
+    if (notARepChannel !== undefined) {
+      // Absent means "a rep channel", so the flag is REMOVED rather than
+      // stored as false. Otherwise every channel ever untoggled carries a
+      // field whose absence and whose false mean the same thing.
+      if (notARepChannel) channels[idx].notARepChannel = true;
+      else delete channels[idx].notARepChannel;
+    }
 
     await saveChannels(channels);
 
@@ -54,7 +70,13 @@ export async function PUT(request: NextRequest) {
       action: "Updated channel",
       actor: session?.email || "unknown",
       actorName: session?.name || "Unknown",
-      summary: `Updated channel ${channels[idx].name}`,
+      summary: routingChanged
+        ? `${channels[idx].name} is ${
+            channels[idx].notARepChannel
+              ? "no longer a rep channel — its stores are out of every call cycle"
+              : "a rep channel again — its stores are back in the call cycles"
+          }`
+        : `Updated channel ${channels[idx].name}`,
       details: defaultsChanged
         ? `Applied defaults to ${storesUpdated} store(s); ${storesPinned} kept their override`
         : undefined,

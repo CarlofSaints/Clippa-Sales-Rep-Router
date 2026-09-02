@@ -1,26 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getReps, getStores, saveRoutes, saveRoutesForType, getRoutes, getRoutesForType, getCallCycleTypes, getSettings } from "@/lib/data";
+import { getReps, getStores, saveRoutes, saveRoutesForType, getRoutes, getRoutesForType, getCallCycleTypes, getSettings, getChannels, getStoreOverrides } from "@/lib/data";
 import { RoutePlanDocument, RepRoutePlan, Store, Rep } from "@/lib/types";
 import { generateRepRoute } from "@/lib/route-engine";
 import { hasGoogleMapsKey } from "@/lib/google-maps";
 import { getSession, sessionHasPermission } from "@/lib/auth";
 import { logActivity } from "@/lib/activityLog";
-import { activeStores } from "@/lib/closedStores";
+import { routableStores } from "@/lib/routable";
 
 export const maxDuration = 120;
 
 function getStoresForRep(
   rep: Rep,
-  allStores: Store[],
+  routable: Store[],
   strategy: string | null
 ): Store[] {
   // A rep's stores are the stores allocated to them (repCode). This is the
   // source of truth for "which stores does this rep call on". The route engine
   // then clusters them geographically and optimises the daily order.
-  // Closed stores are dropped before anything else looks at them. IMS parks
-  // dead accounts on the rep code ACCC, and routing somebody to a shut shop
-  // wastes the visit and the drive to it.
-  const allocated = activeStores(allStores).filter((s) => s.repCode === rep.code);
+  //
+  // The list arrives already filtered by lib/routable: shut shops are out, and
+  // so are channels nobody calls on, less any single store a manager has
+  // excused with an approved Call Override. Filtered ONCE for all reps rather
+  // than per rep, because it walks every store and every channel.
+  const allocated = routable.filter((s) => s.repCode === rep.code);
 
   // Channel Dedicated additionally narrows the allocation to the rep's channels.
   if (strategy === "channel_dedicated" && rep.assignedChannels?.length) {
@@ -36,12 +38,15 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const repCodes: string[] | undefined = body.repCodes;
 
-    const [allReps, allStores, callCycleTypes, settings] = await Promise.all([
+    const [allReps, allStores, callCycleTypes, settings, channels, overrides] = await Promise.all([
       getReps(),
       getStores(),
       getCallCycleTypes(),
       getSettings(),
+      getChannels(),
+      getStoreOverrides(),
     ]);
+    const routable = routableStores({ stores: allStores, channels, overrides });
     const outlierRadiusKm = settings.outlierRadiusKm;
 
     // How many calls a day this run should aim for.
@@ -88,7 +93,7 @@ export async function POST(request: NextRequest) {
 
     for (const rep of reps) {
       // Get stores for this rep based on active strategy
-      const repStores = getStoresForRep(rep, allStores, strategy);
+      const repStores = getStoresForRep(rep, routable, strategy);
       if (repStores.length === 0) {
         repPlans.push({
           repCode: rep.code,

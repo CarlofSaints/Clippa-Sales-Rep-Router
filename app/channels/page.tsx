@@ -3,10 +3,11 @@
 import { useState, useEffect, useRef } from "react";
 import { Channel, FREQUENCY_OPTIONS, FrequencyType, getFrequencyLabel } from "@/lib/types";
 import { useTableSort, useSortedRows, SortableTh } from "@/components/TableSort";
+import { storeCountsByChannel } from "@/lib/routable";
 
 export default function ChannelsPage() {
   const [channels, setChannels] = useState<Channel[]>([]);
-  const sort = useTableSort("name", "asc", ["duration"]);
+  const sort = useTableSort("name", "asc", ["duration", "storeCount"]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<string | null>(null);
   const [editData, setEditData] = useState<Partial<Channel>>({});
@@ -42,6 +43,136 @@ export default function ChannelsPage() {
 
   useEffect(() => { load(); }, []);
 
+  /**
+   * How many stores sit in each channel, and how many of those an approved
+   * Call Override would keep in the cycle anyway.
+   *
+   * Loaded alongside the channels because the count is what makes the toggle
+   * safe to press: it is the difference between excluding a channel and
+   * excluding 1 484 stores.
+   */
+  const [storeCounts, setStoreCounts] = useState<Map<string, { total: number; open: number; excused: number }>>(new Map());
+
+  useEffect(() => {
+    Promise.all([
+      fetch("/api/stores").then((r) => r.json()).catch(() => []),
+      fetch("/api/store-overrides").then((r) => r.json()).catch(() => ({ overrides: [] })),
+    ]).then(([st, ov]) => {
+      const stores = Array.isArray(st) ? st : [];
+      const overrides = Array.isArray(ov) ? ov : Array.isArray(ov?.overrides) ? ov.overrides : [];
+      setStoreCounts(storeCountsByChannel(stores, overrides));
+    });
+  }, []);
+
+  /**
+   * Turn routing for a channel on or off.
+   *
+   * Confirmed on the way OUT of the cycle and not on the way back in: removing
+   * a thousand shops from every rep's week is the change worth being sure
+   * about, and making the reverse equally tedious just discourages fixing a
+   * mistake.
+   */
+  const toggleRepChannel = async (ch: Channel) => {
+    const open = storeCounts.get(ch.id)?.open ?? 0;
+    const excused = storeCounts.get(ch.id)?.excused ?? 0;
+    if (!ch.notARepChannel) {
+      const affected = open - excused;
+      const ok = confirm(
+        `Stop routing anyone to ${ch.name}?\n\n` +
+          `${affected.toLocaleString("en-ZA")} open store${affected === 1 ? "" : "s"} would leave every call cycle.` +
+          (excused > 0
+            ? `\n${excused} with an approved Call Override would stay in.`
+            : "") +
+          `\n\nRegenerate routes afterwards for this to reach the reps.`
+      );
+      if (!ok) return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/channels", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: ch.id, notARepChannel: !ch.notARepChannel }),
+      });
+      if (!res.ok) throw new Error("Could not save that channel.");
+      setImportMsg({
+        type: "success",
+        text: !ch.notARepChannel
+          ? `${ch.name} is no longer a rep channel. Regenerate routes to take its stores out of the cycles.`
+          : `${ch.name} is a rep channel again. Regenerate routes to put its stores back.`,
+      });
+      load();
+    } catch (err) {
+      setImportMsg({ type: "error", text: String(err) });
+    } finally {
+      setSaving(false);
+    }
+  };
+  /**
+   * Channels IMS uses that this app has never heard of.
+   *
+   * Preview first, always. IMS carries "INDEPENDANT" and "INDEPANDANT" beside
+   * "INDEPENDENT", and a channel literally named "GAUTENG" — importing blindly
+   * would turn the client's typos into permanent channels that stores then get
+   * filed under, and there is no undo for that worth the name.
+   */
+  interface ImsCandidate { name: string; outlets: number; looksLike: string | null }
+  const [imsBusy, setImsBusy] = useState(false);
+  const [imsCandidates, setImsCandidates] = useState<ImsCandidate[] | null>(null);
+  const [imsChosen, setImsChosen] = useState<Set<string>>(new Set());
+
+  const previewImsChannels = async () => {
+    setImsBusy(true);
+    setImportMsg(null);
+    try {
+      const res = await fetch("/api/channels/from-ims", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setImportMsg({ type: "error", text: data.error || "Could not read the IMS channel list." });
+        return;
+      }
+      setImsCandidates(data.candidates ?? []);
+      // 🔴 Nothing is ticked by default, and the near-duplicates least of all.
+      // A preview that arrives pre-selected is just an import with an extra
+      // click, which is not what a preview is for.
+      setImsChosen(new Set());
+      if ((data.candidates ?? []).length === 0) {
+        setImportMsg({ type: "success", text: "Every channel IMS uses is already on this page." });
+      }
+    } catch (err) {
+      setImportMsg({ type: "error", text: String(err) });
+    } finally {
+      setImsBusy(false);
+    }
+  };
+
+  const applyImsChannels = async () => {
+    if (imsChosen.size === 0) return;
+    setImsBusy(true);
+    try {
+      const res = await fetch("/api/channels/from-ims?mode=apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ names: [...imsChosen] }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setImportMsg({ type: "error", text: data.error || "Could not create those channels." });
+        return;
+      }
+      setImportMsg({
+        type: "success",
+        text: `Created ${data.created.length} channel${data.created.length === 1 ? "" : "s"}. ${data.note}`,
+      });
+      setImsCandidates(null);
+      setImsChosen(new Set());
+      load();
+    } catch (err) {
+      setImportMsg({ type: "error", text: String(err) });
+    } finally {
+      setImsBusy(false);
+    }
+  };
   const startEdit = (ch: Channel) => {
     setEditing(ch.id);
     setEditData({ name: ch.name, frequency: ch.frequency, duration: ch.duration });
@@ -157,6 +288,9 @@ export default function ChannelsPage() {
     name: (c) => c.name,
     frequency: (c) => getFrequencyLabel(c.frequency),
     duration: (c) => c.duration ?? null,
+    storeCount: (c) => storeCounts.get(c.id)?.open ?? 0,
+    // Excluded channels group together, which is the whole point of sorting on it.
+    routed: (c) => (c.notARepChannel ? "Not a rep channel" : "Reps call here"),
   }, sort);
 
   const allVisibleSelected =
@@ -273,6 +407,14 @@ export default function ChannelsPage() {
           {/* The cascade existed but nothing invoked it: previewDefaults was
               defined and never called, so 'Apply defaults to stores' has been
               unreachable in this app since the feature was ported. */}
+          <button
+            onClick={previewImsChannels}
+            disabled={imsBusy}
+            className="px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            title="Find channels IMS uses that this app does not have. Shows a preview first; nothing is created until you choose."
+          >
+            {imsBusy ? "Checking IMS..." : "Add channels from IMS"}
+          </button>
           <button
             onClick={previewDefaults}
             disabled={applyBusy}
@@ -478,6 +620,75 @@ export default function ChannelsPage() {
         )}
       </div>
 
+
+      {/* What would be created, before anything is. */}
+      {imsCandidates && imsCandidates.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4">
+          <div className="flex items-start justify-between gap-4 mb-3">
+            <div>
+              <p className="text-sm font-semibold text-gray-900">
+                {imsCandidates.length} channel{imsCandidates.length === 1 ? "" : "s"} in IMS that this app does not have
+              </p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Tick the ones to create. New channels arrive as Once a Month, 30 minutes, and
+                {" "}<strong>reps do call on them</strong> until you say otherwise.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => { setImsCandidates(null); setImsChosen(new Set()); }}
+                className="text-xs text-gray-400 hover:text-gray-700 px-2 py-1"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={applyImsChannels}
+                disabled={imsBusy || imsChosen.size === 0}
+                className="px-3 py-1.5 bg-gray-900 text-white text-xs font-medium rounded-lg hover:bg-gray-700 disabled:opacity-40"
+              >
+                {imsBusy ? "Creating..." : `Create ${imsChosen.size} channel${imsChosen.size === 1 ? "" : "s"}`}
+              </button>
+            </div>
+          </div>
+          <div className="max-h-72 overflow-y-auto border border-gray-100 rounded-lg">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 text-gray-500 uppercase sticky top-0">
+                <tr>
+                  <th className="px-3 py-2 w-8"></th>
+                  <th className="px-3 py-2 text-left">IMS channel</th>
+                  <th className="px-3 py-2 text-right">Outlets in IMS</th>
+                  <th className="px-3 py-2 text-left">Careful</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {imsCandidates.map((c) => (
+                  <tr key={c.name} className={c.looksLike ? "bg-amber-50/40" : ""}>
+                    <td className="px-3 py-1.5">
+                      <input
+                        type="checkbox"
+                        checked={imsChosen.has(c.name)}
+                        onChange={() => {
+                          const next = new Set(imsChosen);
+                          if (next.has(c.name)) next.delete(c.name);
+                          else next.add(c.name);
+                          setImsChosen(next);
+                        }}
+                        className="w-4 h-4 rounded border-gray-300 text-clippa-red focus:ring-clippa-red cursor-pointer align-middle"
+                        aria-label={`Create ${c.name}`}
+                      />
+                    </td>
+                    <td className="px-3 py-1.5 font-medium text-gray-800">{c.name}</td>
+                    <td className="px-3 py-1.5 text-right text-gray-600">{c.outlets.toLocaleString("en-ZA")}</td>
+                    <td className="px-3 py-1.5 text-amber-700">
+                      {c.looksLike ? `Looks like a spelling of "${c.looksLike}" — creating it would split the same shops across two channels` : ""}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -496,6 +707,8 @@ export default function ChannelsPage() {
                 <SortableTh sortId="name" sort={sort} className="px-6 py-3">Channel Name</SortableTh>
                 <SortableTh sortId="frequency" sort={sort} className="px-6 py-3">Default Frequency</SortableTh>
                 <SortableTh sortId="duration" sort={sort} align="right" className="px-6 py-3">Duration (min)</SortableTh>
+                <SortableTh sortId="storeCount" sort={sort} align="right" className="px-6 py-3">Stores</SortableTh>
+                <SortableTh sortId="routed" sort={sort} className="px-6 py-3">Called on?</SortableTh>
                 <th className="px-6 py-3 text-right">Actions</th>
               </tr>
             </thead>
@@ -543,6 +756,15 @@ export default function ChannelsPage() {
                           className="border border-gray-200 rounded px-2 py-1 text-sm w-20 text-right focus:outline-none focus:ring-1 focus:ring-clippa-red"
                         />
                       </td>
+                      {/* Not editable inline: it is one click on its own button,
+                          and every td below is positional so the cells must
+                          still exist in this branch. */}
+                      <td className="px-6 py-3 text-right text-gray-400">
+                        {(storeCounts.get(ch.id)?.open ?? 0).toLocaleString("en-ZA")}
+                      </td>
+                      <td className="px-6 py-3 text-gray-400 text-xs">
+                        {ch.notARepChannel ? "Not a rep channel" : "Reps call here"}
+                      </td>
                       <td className="px-6 py-3 text-right space-x-2">
                         <button
                           onClick={() => saveEdit(ch.id)}
@@ -568,7 +790,46 @@ export default function ChannelsPage() {
                         </span>
                       </td>
                       <td className="px-6 py-3 text-right text-gray-600">{ch.duration} min</td>
+                      {/* The size of the decision, BEFORE it is taken. Ticking
+                          "not a rep channel" on SPAR removes 1 484 stores from
+                          every call cycle, and a count that only appears
+                          afterwards is how that happens by accident. */}
+                      <td className="px-6 py-3 text-right text-gray-600">
+                        {(storeCounts.get(ch.id)?.open ?? 0).toLocaleString("en-ZA")}
+                      </td>
+                      <td className="px-6 py-3">
+                        {ch.notARepChannel ? (
+                          <span
+                            className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-200 text-gray-700"
+                            title="No rep is routed to stores in this channel. An approved Call Override can still put a single store back in."
+                          >
+                            Not a rep channel
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            Reps call here
+                          </span>
+                        )}
+                        {/* Only worth saying where it changes the answer. */}
+                        {ch.notARepChannel && (storeCounts.get(ch.id)?.excused ?? 0) > 0 && (
+                          <span className="ml-1 text-[10px] text-blue-600" title="Stores kept in the cycle by an approved Call Override, despite this channel">
+                            {storeCounts.get(ch.id)!.excused} excused
+                          </span>
+                        )}
+                      </td>
                       <td className="px-6 py-3 text-right space-x-3">
+                        <button
+                          onClick={() => toggleRepChannel(ch)}
+                          disabled={saving}
+                          className="text-gray-500 hover:text-gray-900 text-xs font-medium"
+                          title={
+                            ch.notARepChannel
+                              ? `Put this channel back into the call cycles`
+                              : `Stop routing anyone to the ${(storeCounts.get(ch.id)?.open ?? 0).toLocaleString("en-ZA")} open stores in this channel`
+                          }
+                        >
+                          {ch.notARepChannel ? "Reps call here" : "Not a rep channel"}
+                        </button>
                         <button
                           onClick={() => startEdit(ch)}
                           className="text-clippa-red hover:text-red-800 text-xs font-medium"
@@ -588,7 +849,7 @@ export default function ChannelsPage() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-gray-400">
+                  <td colSpan={8} className="px-6 py-8 text-center text-gray-400">
                     {channels.length === 0
                       ? 'No channels configured. Click "Add Channel" to create one.'
                       : `No channels match "${search}".`}

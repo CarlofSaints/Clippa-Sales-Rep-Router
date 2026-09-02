@@ -28,6 +28,7 @@ interface Report {
     blocking: number;
     storesBlocked: number;
     storesClosed: number;
+    storesNotCalledOn: number;
   };
   issues: HealthIssue[];
 }
@@ -185,11 +186,24 @@ export default function DataHealthPage() {
         />
       </div>
 
-      {t.storesClosed > 0 && (
+      {(t.storesClosed > 0 || t.storesNotCalledOn > 0) && (
         <p className="-mt-3 mb-6 text-xs text-gray-500">
-          Every check below runs on the <strong>{t.stores.toLocaleString()}</strong> trading stores.{" "}
-          <strong>{t.storesClosed.toLocaleString()}</strong> closed stores are excluded, because a shop
-          that is never routed cannot have a routing problem. Reopen one and it returns to these checks.
+          Every check below runs on the <strong>{t.stores.toLocaleString()}</strong> stores reps
+          actually call on.{" "}
+          {t.storesClosed > 0 && (
+            <>
+              <strong>{t.storesClosed.toLocaleString()}</strong> closed stores are excluded, because a
+              shop that is never routed cannot have a routing problem. Reopen one and it returns to
+              these checks.{" "}
+            </>
+          )}
+          {t.storesNotCalledOn > 0 && (
+            <>
+              A further <strong>{t.storesNotCalledOn.toLocaleString()}</strong> sit in channels marked
+              <em> not a rep channel</em> and are excluded for the same reason — a missing coordinate on
+              a store nobody visits is not a problem to fix. Un-tick that channel and they all return.
+            </>
+          )}
         </p>
       )}
 

@@ -1,5 +1,5 @@
-import { Rep, Store, RoutePlanDocument, getMonthlyRate } from "./types";
-import { activeStores } from "./closedStores";
+import { Rep, Store, RoutePlanDocument, getMonthlyRate, Channel, StoreOverride } from "./types";
+import { routableStores } from "./routable";
 
 // A generated route document covers one 4-week cycle = one month.
 export const WORKING_DAYS_PER_MONTH = 20; // 5 days x 4 weeks
@@ -35,10 +35,17 @@ export interface CapacityResult {
 export function computeCapacity(
   reps: Rep[],
   stores: Store[],
-  doc: RoutePlanDocument | null
+  doc: RoutePlanDocument | null,
+  // 🔴 Required, deliberately. Defaulting these to [] would make every caller
+  // that forgot them report a workload that ignores excluded channels, and it
+  // would compile and look right. A missing argument has to break the build.
+  channels: Channel[],
+  overrides: StoreOverride[]
 ): CapacityResult {
   const planByRep = new Map((doc?.repPlans ?? []).map((p) => [p.repCode, p]));
-  const active = activeStores(stores);
+  // The SAME rule route generation uses. Anything else and this page reports a
+  // workload the generated cycle does not contain.
+  const active = routableStores({ stores, channels, overrides });
 
   const rows: RepCapacity[] = reps.map((rep) => {
     // Same exclusion as route generation, and it has to be the same or the

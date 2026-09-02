@@ -3,6 +3,23 @@ export interface Channel {
   name: string;
   frequency: FrequencyType;
   duration: number; // minutes per visit
+  /**
+   * Nobody calls on this channel.
+   *
+   * A rep has no reason to visit a major retailer that orders automatically, so
+   * those stores are excluded from routing entirely rather than being given a
+   * frequency nobody honours.
+   *
+   * Named for what a manager ticks rather than inverted to a positive flag,
+   * because ABSENT has to mean "a rep channel". Every channel that exists today
+   * predates this field, and a flag whose absence excluded them would empty
+   * every call cycle in the app the moment it shipped.
+   *
+   * ⚠️ It is a CHANNEL-level default, not a verdict on every store in it. An
+   * approved Call Override on a single store puts that store back in the cycle.
+   * See lib/routable.ts, which is the one place that decides.
+   */
+  notARepChannel?: boolean;
 }
 
 export type FrequencyType =

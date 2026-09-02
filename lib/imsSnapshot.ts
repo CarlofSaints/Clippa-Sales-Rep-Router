@@ -43,6 +43,19 @@ export interface ImsSnapshot extends StoreMap {
     imsMasterCodes: number;
     ghosts: number;
   };
+  /**
+   * Every distinct channel name in the IMS outlet master, with how many outlets
+   * carry it.
+   *
+   * Computed here because the master is 40 000 rows and is NOT kept: the map
+   * stores only app stores and ghosts, so a channel used by outlets that are
+   * neither is invisible everywhere else. Deriving the list from what the
+   * snapshot happens to hold would quietly miss those.
+   *
+   * Names as IMS spells them, including the misspellings. Normalising here
+   * would hide the duplicates that are worth seeing before anything is created.
+   */
+  imsChannels?: { name: string; outlets: number }[];
 }
 
 export interface ImsReconSnapshot {
@@ -88,6 +101,17 @@ export async function buildImsSnapshot(
   for (const r of masterRes.data ?? []) master.set(norm(r["Store Code"]), r);
 
   const map = buildStoreMap({ stores, sales, sales12, master });
+
+  // The channel list, taken off the MASTER rather than off the map.
+  const channelCounts = new Map<string, number>();
+  for (const row of master.values()) {
+    const name = String(row["Store Channel"] ?? "").trim();
+    if (!name) continue;
+    channelCounts.set(name, (channelCounts.get(name) ?? 0) + 1);
+  }
+  const imsChannels = [...channelCounts]
+    .map(([name, outlets]) => ({ name, outlets }))
+    .sort((a, b) => b.outlets - a.outlets || a.name.localeCompare(b.name));
   const result = reconcile(stores, sales, sales12, master, monthsBack);
 
   // One timestamp for both, because they describe the same instant. Two clocks
@@ -100,6 +124,7 @@ export async function buildImsSnapshot(
       ...map,
       // Stamped so a stale snapshot is visible rather than silently believed.
       fetchedAt,
+      imsChannels,
       monthsBack,
       totals: {
         appStores: stores.length,
