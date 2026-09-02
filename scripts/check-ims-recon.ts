@@ -9,6 +9,7 @@
  * of these assert that it stays SILENT where it should.
  */
 
+import { parseMonthsBack } from "../lib/sqlProxy";
 import {
   reconcile,
   applySalesToStores,
@@ -312,6 +313,33 @@ ok("a bare CMR code does not match everything", !sameRep("GAU086", "CMRMP"));
   );
 }
 
+
+
+// -- The rolling window ------------------------------------------------------
+//
+// The live snapshot was built over ONE month while every field it fills is
+// called sixMonthSales. searchParams.get() returns null for an absent param,
+// Number(null) is 0, Number.isFinite(0) is true, and the clamp then floored it
+// to 1. The default was unreachable and nothing said so, because a one month
+// figure and a six month figure look alike until you add them up.
+{
+  ok("an absent monthsBack gives six, not one", parseMonthsBack(null) === 6, String(parseMonthsBack(null)));
+  ok("undefined gives six", parseMonthsBack(undefined) === 6, String(parseMonthsBack(undefined)));
+  ok("an empty string gives six", parseMonthsBack("") === 6, String(parseMonthsBack("")));
+  ok("whitespace gives six", parseMonthsBack("   ") === 6, String(parseMonthsBack("   ")));
+  ok("a non-numeric value gives six", parseMonthsBack("six") === 6, String(parseMonthsBack("six")));
+
+  ok("a real value is honoured", parseMonthsBack("3") === 3);
+  ok("twelve is honoured", parseMonthsBack("12") === 12);
+  ok("a decimal truncates", parseMonthsBack("6.9") === 6);
+
+  // The SP is clamped 1..24 on the proxy as well. Both ends are asserted here
+  // so a caller cannot discover the range in production.
+  ok("zero clamps up to one, it does not become the default", parseMonthsBack("0") === 1, String(parseMonthsBack("0")));
+  ok("a negative clamps to one", parseMonthsBack("-4") === 1);
+  ok("above the ceiling clamps to 24", parseMonthsBack("99") === 24);
+  ok("the ceiling itself is allowed", parseMonthsBack("24") === 24);
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

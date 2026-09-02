@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, requireSession } from "@/lib/auth";
-import { isSqlProxyConfigured } from "@/lib/sqlProxy";
+import { isSqlProxyConfigured, parseMonthsBack } from "@/lib/sqlProxy";
 import { buildImsSnapshot, getImsSnapshot, saveImsSnapshot, saveImsRecon } from "@/lib/imsSnapshot";
 
 /**
@@ -52,8 +52,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const raw = Number(request.nextUrl.searchParams.get("monthsBack"));
-    const monthsBack = Number.isFinite(raw) ? Math.min(Math.max(Math.trunc(raw), 1), 24) : 6;
+    const monthsBack = parseMonthsBack(request.nextUrl.searchParams.get("monthsBack"));
 
     const { snapshot, recon } = await buildImsSnapshot(monthsBack);
     // Written together. A map saved without its reconciliation would leave the

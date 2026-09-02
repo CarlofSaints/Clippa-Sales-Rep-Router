@@ -35,6 +35,32 @@ const PROXY_KEY = () => (process.env.SQL_PROXY_API_KEY || "").trim();
 /** The client's name as SQL knows it. Confirm against `list_clients` before trusting it. */
 export const CLIPPA_SQL_CLIENT = "CLIPPA SALES";
 
+/** The rolling window the IMS sales SP accepts, in months. */
+export const MONTHS_BACK_MIN = 1;
+export const MONTHS_BACK_MAX = 24;
+export const MONTHS_BACK_DEFAULT = 6;
+
+/**
+ * Read a ?monthsBack= query parameter.
+ *
+ * Takes the RAW parameter, which is null when the caller sent nothing, and not
+ * a Number. That distinction is the whole point: Number(null) is 0 and
+ * Number.isFinite(0) is true, so coercing first made the default unreachable
+ * and clamped every no-param call to a one month window. Both IMS pages call
+ * with no param, so every cached figure in the app was one month of sales
+ * stored in a field named sixMonthSales.
+ *
+ * Anything unusable falls back to the default rather than throwing: the window
+ * is a reporting nicety, and refusing to build a snapshot over a typo in a URL
+ * would be a worse failure than quietly using six.
+ */
+export function parseMonthsBack(param: string | null | undefined): number {
+  if (param == null || String(param).trim() === "") return MONTHS_BACK_DEFAULT;
+  const n = Number(param);
+  if (!Number.isFinite(n)) return MONTHS_BACK_DEFAULT;
+  return Math.min(Math.max(Math.trunc(n), MONTHS_BACK_MIN), MONTHS_BACK_MAX);
+}
+
 export interface ProxyResponse<T = Record<string, unknown>> {
   data: T[];
   count: number;

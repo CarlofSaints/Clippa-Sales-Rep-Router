@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/auth";
-import { isSqlProxyConfigured } from "@/lib/sqlProxy";
+import { isSqlProxyConfigured, parseMonthsBack } from "@/lib/sqlProxy";
 import { buildReconciliation } from "@/lib/imsRecon";
 import { EMPTY_RECON } from "@/lib/imsReconCore";
 import { getImsRecon } from "@/lib/imsSnapshot";
@@ -34,8 +34,7 @@ export async function GET(request: NextRequest) {
   try {
     await requirePermission("view_sql_direct");
 
-    const raw = Number(request.nextUrl.searchParams.get("monthsBack"));
-    const monthsBack = Number.isFinite(raw) ? Math.min(Math.max(Math.trunc(raw), 1), 24) : 6;
+    const monthsBack = parseMonthsBack(request.nextUrl.searchParams.get("monthsBack"));
     const live = request.nextUrl.searchParams.get("live") === "1";
 
     if (!live) {
