@@ -316,7 +316,7 @@ export default function RepActivityPage() {
                           the number. */}
                       {r.storesImsOnly > 0 && (
                         <a
-                          href={`/stores?rep=${encodeURIComponent(r.repCode)}&ghosts=1`}
+                          href={`/stores?rep=${encodeURIComponent(r.repCode)}&unrouted=1`}
                           className="ml-1 text-[10px] text-blue-600 underline decoration-dotted underline-offset-2 hover:text-blue-800"
                           title={`Show the ${r.storesImsOnly} of these ${r.storesIms} outlets that have no store in the router. They are on no map, in no call cycle, and nobody is sent to them.`}
                         >

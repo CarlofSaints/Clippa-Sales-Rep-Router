@@ -590,7 +590,23 @@ function StoresPageInner() {
   useEffect(() => {
     const rep = searchParams.get("rep");
     if (rep) setFilterReps(new Set([rep]));
-    if (searchParams.get("ghosts") === "1") setShowGhosts(true);
+
+    // 🔴 `unrouted=1` must show ONLY the unrouted outlets. Turning the ghost
+    // rows on is not enough on its own: the rep's routed stores stay in the
+    // grid, so arriving from a link that said "2 unrouted" landed on a page
+    // showing 14 rows, and the two that were asked for sat at the bottom.
+    //
+    // The Map Status filter is what separates them, and it already works on
+    // both kinds of row: a store that IS in the router carries matched /
+    // matched_gaps / rr_only, never an IMS-only status, so filtering to the
+    // two IMS-only statuses empties the store rows and leaves the ghosts.
+    if (searchParams.get("unrouted") === "1") {
+      setShowGhosts(true);
+      setFilterMapStatus(new Set(["ims_only", "ims_only_no_rep"]));
+    } else if (searchParams.get("ghosts") === "1") {
+      // Kept for a link that wants the ghosts BESIDE the routed stores.
+      setShowGhosts(true);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const badCoordCount = useMemo(
