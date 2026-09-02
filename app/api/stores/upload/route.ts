@@ -138,6 +138,10 @@ export async function POST(request: NextRequest) {
           name: channelName,
           frequency: "monthly",
           duration: 30,
+          // Where the bulk of this list came from: a Places export naming a
+          // channel nobody had configured yet.
+          source: "store_upload",
+          sourceAt: new Date().toISOString(),
         };
         channelMap.set(channelName, ch);
       }

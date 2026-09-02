@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Channel, FREQUENCY_OPTIONS, FrequencyType, getFrequencyLabel } from "@/lib/types";
+import { Channel, FREQUENCY_OPTIONS, FrequencyType, getFrequencyLabel, CHANNEL_SOURCE_LABEL } from "@/lib/types";
 import { useTableSort, useSortedRows, SortableTh } from "@/components/TableSort";
 import { storeCountsByChannel } from "@/lib/routable";
 
@@ -291,6 +291,7 @@ export default function ChannelsPage() {
     storeCount: (c) => storeCounts.get(c.id)?.open ?? 0,
     // Excluded channels group together, which is the whole point of sorting on it.
     routed: (c) => (c.notARepChannel ? "Not a rep channel" : "Reps call here"),
+    source: (c) => (c.source ? CHANNEL_SOURCE_LABEL[c.source] : "Not recorded"),
   }, sort);
 
   const allVisibleSelected =
@@ -709,6 +710,7 @@ export default function ChannelsPage() {
                 <SortableTh sortId="duration" sort={sort} align="right" className="px-6 py-3">Duration (min)</SortableTh>
                 <SortableTh sortId="storeCount" sort={sort} align="right" className="px-6 py-3">Stores</SortableTh>
                 <SortableTh sortId="routed" sort={sort} className="px-6 py-3">Called on?</SortableTh>
+                <SortableTh sortId="source" sort={sort} className="px-6 py-3">Came from</SortableTh>
                 <th className="px-6 py-3 text-right">Actions</th>
               </tr>
             </thead>
@@ -765,6 +767,9 @@ export default function ChannelsPage() {
                       <td className="px-6 py-3 text-gray-400 text-xs">
                         {ch.notARepChannel ? "Not a rep channel" : "Reps call here"}
                       </td>
+                      <td className="px-6 py-3 text-gray-400 text-xs">
+                        {ch.source ? CHANNEL_SOURCE_LABEL[ch.source] : "Not recorded"}
+                      </td>
                       <td className="px-6 py-3 text-right space-x-2">
                         <button
                           onClick={() => saveEdit(ch.id)}
@@ -797,39 +802,72 @@ export default function ChannelsPage() {
                       <td className="px-6 py-3 text-right text-gray-600">
                         {(storeCounts.get(ch.id)?.open ?? 0).toLocaleString("en-ZA")}
                       </td>
+                      {/* The state IS the control.
+
+                          It was a badge here and a text link over in Actions:
+                          two things saying the same thing, and the one that
+                          actually did something did not look like a button. A
+                          switch shows the current answer and changes it in the
+                          same place, which is what a reader expects of a column
+                          headed with a question. */}
                       <td className="px-6 py-3">
-                        {ch.notARepChannel ? (
-                          <span
-                            className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-200 text-gray-700"
-                            title="No rep is routed to stores in this channel. An approved Call Override can still put a single store back in."
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={!ch.notARepChannel}
+                            aria-label={`Reps call on ${ch.name}`}
+                            onClick={() => toggleRepChannel(ch)}
+                            disabled={saving}
+                            title={
+                              ch.notARepChannel
+                                ? "Off: nobody is routed here. Click to put this channel back into the call cycles."
+                                : `On: reps call here. Click to stop routing anyone to the ${(storeCounts.get(ch.id)?.open ?? 0).toLocaleString("en-ZA")} open stores in this channel.`
+                            }
+                            className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-clippa-red disabled:opacity-50 ${
+                              ch.notARepChannel ? "bg-gray-300" : "bg-green-500"
+                            }`}
                           >
-                            Not a rep channel
+                            <span
+                              className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+                                ch.notARepChannel ? "translate-x-1" : "translate-x-[1.125rem]"
+                              }`}
+                            />
+                          </button>
+                          <span
+                            className={`text-xs font-medium ${ch.notARepChannel ? "text-gray-500" : "text-green-700"}`}
+                          >
+                            {ch.notARepChannel ? "Not a rep channel" : "Reps call here"}
+                          </span>
+                          {/* Only worth saying where it changes the answer. */}
+                          {ch.notARepChannel && (storeCounts.get(ch.id)?.excused ?? 0) > 0 && (
+                            <span className="text-[10px] text-blue-600" title="Stores kept in the cycle by an approved Call Override, despite this channel">
+                              {storeCounts.get(ch.id)!.excused} excused
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      {/* ABSENT is a fact, not a blank. Most channels predate
+                          this field, and "Not recorded" says so rather than
+                          guessing Repsly for all of them. */}
+                      <td className="px-6 py-3">
+                        {ch.source ? (
+                          <span
+                            className="text-xs text-gray-600"
+                            title={ch.sourceAt ? `Added ${new Date(ch.sourceAt).toLocaleString("en-ZA")}` : undefined}
+                          >
+                            {CHANNEL_SOURCE_LABEL[ch.source]}
                           </span>
                         ) : (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                            Reps call here
-                          </span>
-                        )}
-                        {/* Only worth saying where it changes the answer. */}
-                        {ch.notARepChannel && (storeCounts.get(ch.id)?.excused ?? 0) > 0 && (
-                          <span className="ml-1 text-[10px] text-blue-600" title="Stores kept in the cycle by an approved Call Override, despite this channel">
-                            {storeCounts.get(ch.id)!.excused} excused
+                          <span
+                            className="text-xs text-gray-400 italic"
+                            title="This channel predates the field. The original list arrived with the Repsly store loads, but channels have been added by hand and by Excel since, so it is not recorded which."
+                          >
+                            Not recorded
                           </span>
                         )}
                       </td>
                       <td className="px-6 py-3 text-right space-x-3">
-                        <button
-                          onClick={() => toggleRepChannel(ch)}
-                          disabled={saving}
-                          className="text-gray-500 hover:text-gray-900 text-xs font-medium"
-                          title={
-                            ch.notARepChannel
-                              ? `Put this channel back into the call cycles`
-                              : `Stop routing anyone to the ${(storeCounts.get(ch.id)?.open ?? 0).toLocaleString("en-ZA")} open stores in this channel`
-                          }
-                        >
-                          {ch.notARepChannel ? "Reps call here" : "Not a rep channel"}
-                        </button>
                         <button
                           onClick={() => startEdit(ch)}
                           className="text-clippa-red hover:text-red-800 text-xs font-medium"
@@ -849,7 +887,7 @@ export default function ChannelsPage() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-6 py-8 text-center text-gray-400">
+                  <td colSpan={9} className="px-6 py-8 text-center text-gray-400">
                     {channels.length === 0
                       ? 'No channels configured. Click "Add Channel" to create one.'
                       : `No channels match "${search}".`}

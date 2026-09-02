@@ -31,6 +31,7 @@ export async function POST() {
       name,
       frequency: "monthly" as const,
       duration: 30,
+      source: "seed" as const,
     }));
     await saveChannels(channels);
 

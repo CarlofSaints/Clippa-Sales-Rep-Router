@@ -20,7 +20,42 @@ export interface Channel {
    * See lib/routable.ts, which is the one place that decides.
    */
   notARepChannel?: boolean;
+  /**
+   * Where this channel came from.
+   *
+   * Two systems now feed this list and they disagree about spelling, so
+   * "INDEPENDANT beside INDEPENDENT" is only answerable if each one says where
+   * it arrived from.
+   *
+   * ABSENT means it predates the field, which is most of them, and is rendered
+   * as "Not recorded" rather than guessed at. The original list came in with
+   * the Repsly store loads, but channels have been added by hand and by Excel
+   * since, and labelling all of them Repsly would be inventing history.
+   */
+  source?: ChannelSource;
+  /** When it was created, for the sources that know. */
+  sourceAt?: string;
 }
+
+export type ChannelSource =
+  /** Created by a Repsly Places store upload that carried an unknown channel. */
+  | "store_upload"
+  /** Created from the IMS outlet master on the Channels page. */
+  | "ims"
+  /** Created by the Channels page Excel import. */
+  | "excel"
+  /** Typed in by hand with Add Channel. */
+  | "manual"
+  /** Part of the original seed data. */
+  | "seed";
+
+export const CHANNEL_SOURCE_LABEL: Record<ChannelSource, string> = {
+  store_upload: "Repsly store upload",
+  ims: "IMS",
+  excel: "Excel import",
+  manual: "Added by hand",
+  seed: "Original seed",
+};
 
 export type FrequencyType =
   | "daily"

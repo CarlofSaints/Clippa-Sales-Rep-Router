@@ -97,6 +97,8 @@ export async function POST(request: NextRequest) {
       name: body.name,
       frequency: body.frequency || "monthly",
       duration: body.duration || 30,
+      source: "manual",
+      sourceAt: new Date().toISOString(),
     };
     channels.push(newChannel);
     await saveChannels(channels);

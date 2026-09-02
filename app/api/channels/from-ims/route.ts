@@ -132,6 +132,8 @@ export async function POST(request: NextRequest) {
         // hand every new channel four visits a month that nobody asked for.
         frequency: "monthly",
         duration: 30,
+        source: "ims",
+        sourceAt: new Date().toISOString(),
       });
     }
 

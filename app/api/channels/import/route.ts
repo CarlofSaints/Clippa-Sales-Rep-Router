@@ -97,6 +97,8 @@ export async function POST(request: NextRequest) {
           name,
           frequency: frequency || "monthly",
           duration: duration ?? 30,
+          source: "excel",
+          sourceAt: new Date().toISOString(),
         };
         channels.push(newCh);
         byName.set(name.toLowerCase().trim(), newCh);
