@@ -89,7 +89,7 @@ export default function RepActivityPage() {
     const gaps = rows.filter((r) => r.storesWithoutSales > 0).length;
     return [
       { value: "no_stores", label: `No stores allocated (${noStores})` },
-      { value: "ims_only", label: `Has outlets nobody visits (${imsOnly})` },
+      { value: "ims_only", label: `Has unrouted IMS outlets (${imsOnly})` },
       { value: "sales_gaps", label: `Has stores with no IMS figure (${gaps})` },
     ];
   }, [rows]);
@@ -304,13 +304,18 @@ export default function RepActivityPage() {
                     </td>
                     <td className="px-3 py-2 text-right text-gray-600">
                       {num(r.storesIms)}
-                      {/* Outlets IMS bills under this rep that no store matches. */}
+                      {/* 🔴 This used to render as "+12", which claims the wrong
+                          arithmetic: the unrouted outlets are a SUBSET of the IMS
+                          count, not an addition to it. imsCount is bumped for both
+                          matched rows and ghosts; imsOnlyCount only for ghosts. So
+                          "174 +12" read as 186 when it meant "12 of the 174", which
+                          is exactly why nobody could parse it. */}
                       {r.storesImsOnly > 0 && (
                         <span
                           className="ml-1 text-[10px] text-blue-600"
-                          title={`${r.storesImsOnly} of these have no store in the router, so nobody is routed to them`}
+                          title={`${r.storesImsOnly} of these ${r.storesIms} outlets have no store in the router, so they are on no map, in no call cycle, and nobody is sent to them`}
                         >
-                          +{r.storesImsOnly}
+                          ({r.storesImsOnly} unrouted)
                         </span>
                       )}
                     </td>
@@ -403,22 +408,85 @@ export default function RepActivityPage() {
         </div>
       </div>
 
-      <div className="mt-3 text-xs text-gray-400 space-y-1">
-        <p>
-          <strong>Stores (Repsly)</strong> is what the router holds, which is where the Repsly Places
-          exports landed. <strong>Stores (IMS)</strong> is what the client invoices under that rep
-          code, and a blue <strong>+n</strong> counts outlets in it that no rep is routed to.
-        </p>
-        <p>
-          <strong>Portfolio / Month</strong> is six months of IMS value divided by six. A grey number
-          in brackets counts stores carrying no IMS figure at all, which contribute nothing.
-        </p>
-        <p>
-          <strong>Calls / Month</strong> comes from each store&apos;s frequency in this app. It switches to
-          Repsly&apos;s own schedule once the Call Cycles sync has credentials.
-        </p>
+      {/* Reading this table.
+
+          Every marker is rendered HERE in the same styling it has in the grid,
+          against a worked example. Describing a colour in prose ("a blue +n")
+          asks the reader to hold a description in their head and go hunting for
+          something that matches it; showing the thing does not. */}
+      <div className="mt-4 bg-white border border-gray-100 rounded-xl p-4">
+        <p className="text-[10px] uppercase tracking-wider text-gray-400 mb-3">Reading this table</p>
+        <dl className="space-y-2.5 text-xs">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <dt className="w-40 shrink-0 font-medium text-gray-700">Stores (Repsly)</dt>
+            <dd className="flex-1 min-w-[18rem] text-gray-500">
+              What this router holds for the rep. It is where the Repsly Places exports landed.
+            </dd>
+          </div>
+
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <dt className="w-40 shrink-0 font-medium text-gray-700">Stores (IMS)</dt>
+            <dd className="flex-1 min-w-[18rem] text-gray-500">
+              What the client invoices under that rep code. It will not match the Repsly
+              count, and is not meant to.
+            </dd>
+          </div>
+
+          {/* The one nobody could read. Its own row, with the real example. */}
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-t border-gray-100 pt-2.5">
+            <dt className="w-40 shrink-0 whitespace-nowrap">
+              <span className="text-gray-700">174</span>
+              <span className="ml-1 text-[10px] text-blue-600">(12 unrouted)</span>
+            </dt>
+            <dd className="flex-1 min-w-[18rem] text-gray-500">
+              IMS bills <strong className="text-gray-700">174</strong> outlets to this rep, and
+              <strong className="text-blue-600"> 12 of those 174</strong> have no store in this
+              router at all. They are on no map, in no call cycle, and no rep is ever sent to
+              them. <strong className="text-gray-700">The 12 are part of the 174, not extra.</strong>
+            </dd>
+          </div>
+
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-t border-gray-100 pt-2.5">
+            <dt className="w-40 shrink-0 whitespace-nowrap">
+              <span className="text-gray-700">R 400 000</span>
+              <span className="ml-1 text-[10px] text-gray-400">(18)</span>
+            </dt>
+            <dd className="flex-1 min-w-[18rem] text-gray-500">
+              Portfolio is six months of IMS value divided by six. The
+              <strong className="text-gray-500"> grey number in brackets</strong> counts stores
+              carrying no IMS figure at all, so they add nothing to the total. A low portfolio
+              beside a high grey number means missing data, not a quiet rep.
+            </dd>
+          </div>
+
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-t border-gray-100 pt-2.5">
+            <dt className="w-40 shrink-0 font-medium text-gray-700">Calls / Month</dt>
+            <dd className="flex-1 min-w-[18rem] text-gray-500">
+              Comes from each store&apos;s frequency in this app, not from any route plan. Week and
+              Day are the same figure over a 4-week cycle of 5 working days. It switches to
+              Repsly&apos;s own schedule once the Call Cycles sync has credentials.
+            </dd>
+          </div>
+
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-t border-gray-100 pt-2.5">
+            <dt className="w-40 shrink-0 whitespace-nowrap">
+              <span className="font-semibold text-red-700">40</span>
+              <span className="ml-1 text-gray-400">in Calls / Day</span>
+            </dt>
+            <dd className="flex-1 min-w-[18rem] text-gray-500">
+              <strong className="text-red-700">Red</strong> means the rep&apos;s book asks for more
+              calls a day than a working day holds. Their store
+              <strong className="text-gray-700"> frequencies</strong> decide this, not the routes,
+              so no amount of re-routing fixes it. Data Health lists these reps with the hours
+              behind the number.
+            </dd>
+          </div>
+        </dl>
+
         {data?.snapshotFetchedAt && (
-          <p>IMS snapshot taken {new Date(data.snapshotFetchedAt).toLocaleString("en-ZA")}.</p>
+          <p className="mt-3 pt-2.5 border-t border-gray-100 text-xs text-gray-400">
+            IMS snapshot taken {new Date(data.snapshotFetchedAt).toLocaleString("en-ZA")}.
+          </p>
         )}
       </div>
     </div>
