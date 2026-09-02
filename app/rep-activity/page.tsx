@@ -27,6 +27,16 @@ function Money({ v, bold }: { v: number | null; bold?: boolean }) {
   return <span className={bold ? "font-semibold text-gray-900" : ""}>{rand(v)}</span>;
 }
 
+/**
+ * Above this, a book asks for more calls a day than a working day holds.
+ *
+ * Not a hard rule and not enforced anywhere: it only colours a number, so a
+ * manager scanning the grid sees which books are arithmetically impossible
+ * before they blame the routing. Ten is generous against a median of about
+ * seven and a stated target of eight.
+ */
+const DAILY_CALL_WARNING = 10;
+
 export default function RepActivityPage() {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -108,7 +118,7 @@ export default function RepActivityPage() {
   }, [rows, search, filterTeams, filterEarning, filterCoverage]);
 
   const sort = useTableSort("portfolioMonthly", "desc", [
-    "storesRepsly", "storesIms", "callsPerMonth", "portfolioMonthly",
+    "storesRepsly", "storesIms", "callsPerMonth", "callsPerWeek", "callsPerDay", "portfolioMonthly",
     "earning", "newCycleStores", "newCyclePortfolioMonthly", "newCycleEarning",
   ]);
 
@@ -120,6 +130,8 @@ export default function RepActivityPage() {
       storesRepsly: (r) => r.storesRepsly,
       storesIms: (r) => r.storesIms,
       callsPerMonth: (r) => r.callsPerMonth,
+      callsPerWeek: (r) => r.callsPerWeek,
+      callsPerDay: (r) => r.callsPerDay,
       portfolioMonthly: (r) => r.portfolioMonthly,
       earning: (r) => r.commission.earning,
       // Null sinks in both directions, so a rep with no plan never floats to the
@@ -253,6 +265,12 @@ export default function RepActivityPage() {
                 <SortableTh sortId="callsPerMonth" sort={sort} align="right" className="px-3 py-2">
                   Calls / Month
                 </SortableTh>
+                <SortableTh sortId="callsPerWeek" sort={sort} align="right" className="px-3 py-2">
+                  Calls / Week
+                </SortableTh>
+                <SortableTh sortId="callsPerDay" sort={sort} align="right" className="px-3 py-2">
+                  Calls / Day
+                </SortableTh>
                 <SortableTh sortId="portfolioMonthly" sort={sort} align="right" className="px-3 py-2">
                   Portfolio / Month
                 </SortableTh>
@@ -272,9 +290,9 @@ export default function RepActivityPage() {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {loading ? (
-                <tr><td colSpan={11} className="px-3 py-8 text-center text-gray-400">Loading…</td></tr>
+                <tr><td colSpan={13} className="px-3 py-8 text-center text-gray-400">Loading…</td></tr>
               ) : sorted.length === 0 ? (
-                <tr><td colSpan={11} className="px-3 py-8 text-center text-gray-400">No reps match these filters.</td></tr>
+                <tr><td colSpan={13} className="px-3 py-8 text-center text-gray-400">No reps match these filters.</td></tr>
               ) : (
                 sorted.map((r) => (
                   <tr key={r.repCode} className="hover:bg-gray-50">
@@ -297,6 +315,22 @@ export default function RepActivityPage() {
                       )}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-600">{r.callsPerMonth.toLocaleString("en-ZA")}</td>
+                    <td className="px-3 py-2 text-right text-gray-600">{r.callsPerWeek.toLocaleString("en-ZA")}</td>
+                    {/* The number a manager argues about. Flagged once it is past
+                        what a day can hold, because a book asking for 37 calls a
+                        day is not a routing problem, it is a book problem. */}
+                    <td className="px-3 py-2 text-right">
+                      {r.callsPerDay > DAILY_CALL_WARNING ? (
+                        <span
+                          className="font-semibold text-red-700"
+                          title={`${r.callsPerDay} calls a day is more than a working day holds. Their store frequencies, not the routes, decide this.`}
+                        >
+                          {r.callsPerDay.toLocaleString("en-ZA")}
+                        </span>
+                      ) : (
+                        <span className="text-gray-600">{r.callsPerDay.toLocaleString("en-ZA")}</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">
                       <Money v={r.portfolioMonthly} />
                       {r.storesWithoutSales > 0 && (
@@ -351,6 +385,8 @@ export default function RepActivityPage() {
                   <td className="px-3 py-2 text-right">{num(totals.storesRepsly)}</td>
                   <td className="px-3 py-2 text-right">{num(totals.storesIms)}</td>
                   <td className="px-3 py-2 text-right">{totals.callsPerMonth.toLocaleString("en-ZA")}</td>
+                  <td className="px-3 py-2 text-right">{totals.callsPerWeek.toLocaleString("en-ZA")}</td>
+                  <td className="px-3 py-2 text-right">{totals.callsPerDay.toLocaleString("en-ZA")}</td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">{rand(totals.portfolioMonthly)}</td>
                   <td className="px-3 py-2 text-right whitespace-nowrap text-green-700">{rand(totals.earning)}</td>
                   <td className="px-3 py-2 text-right">{showNewCycle ? num(totals.newCycleStores) : "—"}</td>

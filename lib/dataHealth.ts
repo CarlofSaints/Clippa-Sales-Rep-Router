@@ -1,4 +1,4 @@
-import { Channel, Rep, Store, StoreOverride } from "./types";
+import { Channel, Rep, Store, StoreOverride, getMonthlyRate } from "./types";
 import { computeOutliers } from "./outliers";
 import { buildDuplicateGroups } from "./duplicates";
 import { overriddenStoreIds } from "./channelDefaults";
@@ -18,6 +18,12 @@ import { activeStores } from "./closedStores";
  * Adding a check is adding one function to CHECKS and nothing else.
  */
 
+/**
+ * Working days in the cycle the route engine builds: 4 weeks of 5 days.
+ * Matching the engine matters — a check that used a calendar month would
+ * disagree with the plan it is meant to be describing.
+ */
+const DAY_SLOTS_PER_CYCLE = 20;
 export type Severity = "blocking" | "warning" | "info";
 
 export interface HealthIssue {
@@ -245,6 +251,67 @@ export function buildDataHealthReport(input: HealthInput): DataHealthReport {
     );
   }
 
+  // ── A book that cannot fit the rep's hours ───────────────────────────
+  //
+  // 🔴 The check that would have found the Pretoria five without anyone going
+  // looking. GAU053's stores ask for 743 visits a month against 20 working
+  // days: 37 calls a day, and 659 hours of visit time against 170 available.
+  // No amount of clustering or route optimisation fixes that, because nothing
+  // here is a routing problem. The store FREQUENCIES are the problem, and they
+  // are invisible on every other screen.
+  //
+  // Measured on visit time alone, with no travel at all. That is deliberate:
+  // travel is an estimate and would make this arguable, whereas a rep whose
+  // visits alone exceed their hours is impossible on arithmetic nobody can
+  // dispute. Real days are worse than this says.
+  {
+    const rows: (string | number)[][] = [];
+    for (const rep of reps) {
+      const repCode = code(rep.code);
+      if (!repCode) continue;
+      const mine = stores.filter((s: Store) => code(s.repCode) === repCode);
+      if (mine.length === 0) continue;
+
+      let visits = 0;
+      let minutes = 0;
+      for (const s of mine) {
+        const rate = getMonthlyRate(s.frequency || "monthly");
+        visits += rate;
+        minutes += rate * (s.duration || 0);
+      }
+
+      const hoursNeeded = minutes / 60;
+      const hoursAvailable = (rep.workingHoursPerDay ?? 8.5) * DAY_SLOTS_PER_CYCLE;
+      if (hoursNeeded <= hoursAvailable) continue;
+
+      rows.push([
+        rep.code,
+        rep.name,
+        mine.length,
+        Math.round(visits),
+        Math.round((visits / DAY_SLOTS_PER_CYCLE) * 10) / 10,
+        Math.round(hoursNeeded),
+        Math.round(hoursAvailable),
+        `${Math.round((hoursNeeded / hoursAvailable) * 10) / 10}x`,
+        // The frequencies driving it, so the fix is obvious from the row.
+        mine.filter((s: Store) => getMonthlyRate(s.frequency || "monthly") >= 4).length,
+      ]);
+    }
+    // Worst first: the ratio is what says how far from possible it is.
+    rows.sort((a, b) => Number(b[5]) / Number(b[6]) - Number(a[5]) / Number(a[6]));
+
+    issues.push(
+      issue(
+        "rep-book-exceeds-hours",
+        "Reps whose call cycle cannot fit their hours",
+        "blocking",
+        "The stores allocated to this rep, at the frequencies those stores carry, need more visit time than the rep has in a four-week cycle. Travel is not even counted. Any route plan for them will schedule what fits and report the rest as overflow, which reads as a routing failure when it is really a workload one.",
+        "Fix the FREQUENCIES, not the routes. Check whether those stores should genuinely be visited weekly: a channel default of weekly cascades onto every store in the channel, so one wrong channel can do this to a whole team at once. Reducing the frequency, or moving stores to another rep, are the only two things that change this number.",
+        ["REP CODE", "REP NAME", "STORES", "VISITS / MONTH", "CALLS / DAY", "HOURS NEEDED", "HOURS AVAILABLE", "OVER BY", "STORES VISITED WEEKLY OR MORE"],
+        rows
+      )
+    );
+  }
   // ── 5. Two reps, one inbox ───────────────────────────────────────────
   {
     const byEmail = new Map<string, Rep[]>();

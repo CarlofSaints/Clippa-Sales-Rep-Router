@@ -24,7 +24,16 @@ export async function GET(request: NextRequest) {
     getTeams(),
     getCommissionSettings(),
     getCallCycleTypes(),
-    getImsSnapshot(),
+    // The IMS snapshot ENRICHES this page; it does not carry it. Every reader
+    // below already handles it being absent, so a failed read must degrade to
+    // "no snapshot" rather than take the whole page down with a 500 — which is
+    // what it did, because the read throws instead of returning null.
+    //
+    // Read-only, so nothing downstream writes a decision based on the empty
+    // result. The paths that DO write from the snapshot deliberately keep the
+    // loud failure, because silently seeing "no snapshot" there would close or
+    // re-assign stores off a picture that was never loaded.
+    getImsSnapshot().catch(() => null),
   ]);
 
   const newCyclePlan = !typeId

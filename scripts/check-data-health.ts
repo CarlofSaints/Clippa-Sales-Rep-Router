@@ -228,5 +228,87 @@ console.log("\n--- the report as a whole ---\n");
 }
 
 
+
+console.log("\n--- a book that cannot fit the hours ---\n");
+
+// The Pretoria five were invisible on every screen in the app: their stores
+// look ordinary, their rep records look ordinary, and only the FREQUENCIES
+// make the week impossible. These assert the arithmetic that surfaces them.
+{
+  const HOURS = 8.5;
+  const AVAILABLE = HOURS * 20 * 60; // minutes in the four-week cycle
+
+  // Comfortably inside the hours: 40 monthly stores at 30 minutes = 20h.
+  const easy = run(
+    [rep({ code: "R1", workingHoursPerDay: HOURS })],
+    Array.from({ length: 40 }, (_, i) => store({ placeId: `E${i}`, repCode: "R1" }))
+  );
+  eq("a rep whose book fits is not flagged", find(easy, "rep-book-exceeds-hours").count, 0);
+
+  // The Hester shape: weekly stores at 45 minutes. 200 x 4 x 45 = 600h.
+  const hard = run(
+    [rep({ code: "R1", workingHoursPerDay: HOURS })],
+    Array.from({ length: 200 }, (_, i) =>
+      store({ placeId: `H${i}`, repCode: "R1", frequency: "weekly", duration: 45 })
+    )
+  );
+  const flagged = find(hard, "rep-book-exceeds-hours");
+  eq("a book that cannot fit IS flagged", flagged.count, 1);
+  ok("it is blocking, not advisory", flagged.severity === "blocking", flagged.severity);
+
+  const row = flagged.rows[0];
+  eq("it reports the visits a month", row[3], 800);
+  eq("and the calls a day behind them", row[4], 40);
+  eq("and counts the stores driving it", row[8], 200);
+  ok("it states how far over, not just that it is over", String(row[7]).endsWith("x"), String(row[7]));
+
+  // 🔴 Frequency, not store count, is what this check is about. The same 200
+  // stores visited monthly fit easily, and must NOT be flagged — otherwise it
+  // just reports 'this rep has a lot of stores', which everybody already knows.
+  const sameStoresMonthly = run(
+    [rep({ code: "R1", workingHoursPerDay: HOURS })],
+    Array.from({ length: 200 }, (_, i) =>
+      store({ placeId: `M${i}`, repCode: "R1", frequency: "monthly", duration: 45 })
+    )
+  );
+  eq("the same stores at monthly are not flagged", find(sameStoresMonthly, "rep-book-exceeds-hours").count, 0);
+
+  // A rep's own working hours are honoured, not a hardcoded 8.5.
+  const shortDay = run(
+    [rep({ code: "R1", workingHoursPerDay: 4 })],
+    Array.from({ length: 200 }, (_, i) => store({ placeId: `S${i}`, repCode: "R1", duration: 45 }))
+  );
+  ok("a shorter working day makes the same book impossible", find(shortDay, "rep-book-exceeds-hours").count === 1);
+
+  // Closed stores are excluded from every check here, and this one too: a shut
+  // shop is not work, and counting it would inflate the ratio it reports.
+  const withClosed = run(
+    [rep({ code: "R1", workingHoursPerDay: HOURS })],
+    Array.from({ length: 200 }, (_, i) =>
+      store({ placeId: `C${i}`, repCode: "R1", frequency: "weekly", duration: 45, closed: true, closedReason: "manual" })
+    )
+  );
+  eq("a book of CLOSED stores is not flagged", find(withClosed, "rep-book-exceeds-hours").count, 0);
+
+  // A rep with nothing allocated is a different problem, already reported by
+  // reps-no-stores. Reporting them twice makes both lists less useful.
+  const noStores = run([rep({ code: "R9", workingHoursPerDay: HOURS })], []);
+  eq("a rep with no stores is not flagged here", find(noStores, "rep-book-exceeds-hours").count, 0);
+
+  // Worst first, so the row that needs a decision is the one at the top.
+  const many = run(
+    [rep({ code: "R1", workingHoursPerDay: HOURS }), rep({ code: "R2", email: "b@clippasales.com", workingHoursPerDay: HOURS })],
+    [
+      ...Array.from({ length: 200 }, (_, i) => store({ placeId: `A${i}`, repCode: "R1", frequency: "weekly", duration: 45 })),
+      ...Array.from({ length: 100 }, (_, i) => store({ placeId: `B${i}`, repCode: "R2", frequency: "weekly", duration: 45 })),
+    ]
+  );
+  const sorted = find(many, "rep-book-exceeds-hours");
+  eq("both are flagged", sorted.count, 2);
+  eq("the worst offender sorts first", sorted.rows[0][0], "R1");
+
+  void AVAILABLE;
+}
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed > 0 ? 1 : 0);

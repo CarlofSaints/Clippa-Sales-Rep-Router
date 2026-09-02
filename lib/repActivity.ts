@@ -19,6 +19,14 @@ import { computeCommission, type CommissionSettings, type CommissionResult } fro
  * They are not meant to agree, and a page that made them agree would be hiding
  * the finding.
  */
+/**
+ * The planner's calendar: a 4-week cycle of 5 working days, which is what the
+ * route engine actually builds. Deliberately not 4.33 weeks or 21.7 days: the
+ * capacity figures a rep is measured against come off this same cycle, and a
+ * column that quietly used a calendar month would disagree with their route.
+ */
+const WEEKS_IN_CYCLE = 4;
+const DAYS_IN_WEEK = 5;
 export interface RepActivityRow {
   repCode: string;
   repName: string;
@@ -34,6 +42,19 @@ export interface RepActivityRow {
 
   /** Calls a month implied by the store frequencies the rep carries. */
   callsPerMonth: number;
+  /**
+   * The same load expressed per week and per day.
+   *
+   * Plain division on the planner's own calendar: a 4-week cycle of 5 working
+   * days. Derived here rather than in the page so the grid, the totals row and
+   * any export cannot drift apart on the arithmetic.
+   *
+   * ⚠️ It is what the rep's BOOK implies, not what any route plan schedules.
+   * A rep whose book asks for 37 a day still shows 37 here after a plan capped
+   * them at 8 — that gap is the point of the column.
+   */
+  callsPerWeek: number;
+  callsPerDay: number;
 
   /**
    * Six-month IMS value across the rep's stores, and the same figure per month.
@@ -152,6 +173,8 @@ export function buildRepActivity(input: RepActivityInput): RepActivityRow[] {
       storesIms: imsCount.get(c) ?? 0,
       storesImsOnly: imsOnlyCount.get(c) ?? 0,
       callsPerMonth: Math.round(callsPerMonth * 10) / 10,
+    callsPerWeek: Math.round((callsPerMonth / WEEKS_IN_CYCLE) * 10) / 10,
+    callsPerDay: Math.round((callsPerMonth / WEEKS_IN_CYCLE / DAYS_IN_WEEK) * 10) / 10,
       portfolioSixMonth,
       portfolioMonthly,
       storesWithoutSales,
@@ -174,6 +197,10 @@ export function totalRepActivity(rows: RepActivityRow[]) {
     storesRepsly: sum((r) => r.storesRepsly),
     storesIms: sum((r) => r.storesIms),
     callsPerMonth: Math.round(sum((r) => r.callsPerMonth) * 10) / 10,
+    // Summed from the rows, never re-derived from the total: the two agree
+    // only if rounding is applied in the same place.
+    callsPerWeek: Math.round(sum((r) => r.callsPerWeek) * 10) / 10,
+    callsPerDay: Math.round(sum((r) => r.callsPerDay) * 10) / 10,
     portfolioMonthly: sum((r) => r.portfolioMonthly),
     earning: sum((r) => r.commission.earning),
     qualifying: rows.filter((r) => r.commission.qualifies).length,
