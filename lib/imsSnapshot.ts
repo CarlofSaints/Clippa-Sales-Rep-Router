@@ -1,5 +1,7 @@
 import "server-only";
 import { get, put } from "@vercel/blob";
+import fs from "fs";
+import path from "path";
 import { sqlQuery } from "./sqlProxy";
 import { getStores } from "./data";
 import { norm, reconcile, type ImsStore, type ReconResult } from "./imsReconCore";
@@ -110,25 +112,60 @@ export async function buildImsSnapshot(
   };
 }
 
+/**
+ * Blob in production, a local `data/` file when there is no token.
+ *
+ * The same dual mode `lib/data.ts` has had all along, and for the same reason:
+ * without it the IMS half of this app — the Stores grid's Map Status and
+ * IMS-only rows, the Map, Rep Sales & Activity, the reconciliation — cannot be
+ * run or checked locally at all, because every one of them reads this cache.
+ *
+ * Keyed off the token exactly like lib/data.ts, so on any deployment the local
+ * branch is unreachable.
+ */
+const useBlob = () => !!process.env.BLOB_READ_WRITE_TOKEN;
+const localPath = (key: string) => path.join(process.cwd(), "data", key);
+
+async function readSnapshotJSON<T>(key: string): Promise<T | null> {
+  if (useBlob()) {
+    const result = await get(key, { access: "private", useCache: false });
+    if (!result) return null;
+    const text = await new Response(result.stream).text();
+    if (!text.trim()) return null;
+    return JSON.parse(text) as T;
+  }
+  try {
+    const raw = fs.readFileSync(localPath(key), "utf-8");
+    return raw.trim() ? (JSON.parse(raw) as T) : null;
+  } catch {
+    // Never built locally is the same answer as never built at all.
+    return null;
+  }
+}
+
+async function writeSnapshotJSON(key: string, value: unknown): Promise<void> {
+  const body = JSON.stringify(value);
+  if (useBlob()) {
+    await put(key, body, {
+      // PRIVATE, like every other blob this app writes. It holds outlet-level
+      // client sales; a public blob URL is readable by anyone who learns it.
+      access: "private",
+      addRandomSuffix: false,
+      allowOverwrite: true,
+      contentType: "application/json",
+    });
+    return;
+  }
+  const dir = path.dirname(localPath(key));
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(localPath(key), body, "utf-8");
+}
 export async function saveImsSnapshot(snapshot: ImsSnapshot): Promise<void> {
-  await put(KEY, JSON.stringify(snapshot), {
-    // PRIVATE, like every other blob this app writes. It holds outlet-level
-    // client sales; a public blob URL is readable by anyone who learns it.
-    access: "private",
-    addRandomSuffix: false,
-    allowOverwrite: true,
-    contentType: "application/json",
-  });
+  await writeSnapshotJSON(KEY, snapshot);
 }
 
 export async function saveImsRecon(recon: ImsReconSnapshot): Promise<void> {
-  await put(RECON_KEY, JSON.stringify(recon), {
-    // Private for the same reason as the map: outlet-level client sales.
-    access: "private",
-    addRandomSuffix: false,
-    allowOverwrite: true,
-    contentType: "application/json",
-  });
+  await writeSnapshotJSON(RECON_KEY, recon);
 }
 
 /**
@@ -138,18 +175,10 @@ export async function saveImsRecon(recon: ImsReconSnapshot): Promise<void> {
  * immediately and there is no index to go stale.
  */
 export async function getImsSnapshot(): Promise<ImsSnapshot | null> {
-  const result = await get(KEY, { access: "private", useCache: false });
-  if (!result) return null;
-  const text = await new Response(result.stream).text();
-  if (!text.trim()) return null;
-  return JSON.parse(text) as ImsSnapshot;
+  return readSnapshotJSON<ImsSnapshot>(KEY);
 }
 
 /** Read the cached reconciliation. Null when it has never been built. */
 export async function getImsRecon(): Promise<ImsReconSnapshot | null> {
-  const result = await get(RECON_KEY, { access: "private", useCache: false });
-  if (!result) return null;
-  const text = await new Response(result.stream).text();
-  if (!text.trim()) return null;
-  return JSON.parse(text) as ImsReconSnapshot;
+  return readSnapshotJSON<ImsReconSnapshot>(RECON_KEY);
 }

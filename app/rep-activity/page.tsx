@@ -310,13 +310,18 @@ export default function RepActivityPage() {
                           matched rows and ghosts; imsOnlyCount only for ghosts. So
                           "174 +12" read as 186 when it meant "12 of the 174", which
                           is exactly why nobody could parse it. */}
+                      {/* The count is the way IN to the list. Knowing a rep has
+                          two unrouted outlets is useless without being able to
+                          see WHICH two, and this was the only screen that knew
+                          the number. */}
                       {r.storesImsOnly > 0 && (
-                        <span
-                          className="ml-1 text-[10px] text-blue-600"
-                          title={`${r.storesImsOnly} of these ${r.storesIms} outlets have no store in the router, so they are on no map, in no call cycle, and nobody is sent to them`}
+                        <a
+                          href={`/stores?rep=${encodeURIComponent(r.repCode)}&ghosts=1`}
+                          className="ml-1 text-[10px] text-blue-600 underline decoration-dotted underline-offset-2 hover:text-blue-800"
+                          title={`Show the ${r.storesImsOnly} of these ${r.storesIms} outlets that have no store in the router. They are on no map, in no call cycle, and nobody is sent to them.`}
                         >
                           ({r.storesImsOnly} unrouted)
-                        </span>
+                        </a>
                       )}
                     </td>
                     <td className="px-3 py-2 text-right text-gray-600">{r.callsPerMonth.toLocaleString("en-ZA")}</td>
@@ -436,13 +441,16 @@ export default function RepActivityPage() {
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-t border-gray-100 pt-2.5">
             <dt className="w-40 shrink-0 whitespace-nowrap">
               <span className="text-gray-700">174</span>
-              <span className="ml-1 text-[10px] text-blue-600">(12 unrouted)</span>
+              <span className="ml-1 text-[10px] text-blue-600 underline decoration-dotted underline-offset-2">
+                (12 unrouted)
+              </span>
             </dt>
             <dd className="flex-1 min-w-[18rem] text-gray-500">
               IMS bills <strong className="text-gray-700">174</strong> outlets to this rep, and
               <strong className="text-blue-600"> 12 of those 174</strong> have no store in this
               router at all. They are on no map, in no call cycle, and no rep is ever sent to
               them. <strong className="text-gray-700">The 12 are part of the 174, not extra.</strong>
+              {" "}Click the blue number to open the Stores page showing exactly those outlets.
             </dd>
           </div>
 

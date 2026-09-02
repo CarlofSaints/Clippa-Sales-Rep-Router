@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { Suspense, useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { Store, Channel, Rep, Team, FREQUENCY_OPTIONS, FrequencyType, getFrequencyLabel, SA_PROVINCES } from "@/lib/types";
 import { useSession } from "@/components/SessionProvider";
 import StoreImportModal from "@/components/StoreImportModal";
@@ -10,6 +11,7 @@ import { FilterDropdown } from "@/components/FilterDropdown";
 import { MAP_STATUS_LABEL, MAP_STATUS_HINT, FLAG_LABEL, type MapRow, type MapStatus, type MapFlags } from "@/lib/mapStatus";
 import { rankStores, salesForRanking } from "@/lib/storeRanking";
 import { storeStatus, closedReasonLabel } from "@/lib/closedStores";
+import { canonicalRepCode } from "@/lib/allocationSource";
 import type { SortValue } from "@/lib/tableSort";
 
 const DAYS = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
@@ -225,7 +227,7 @@ const googleMapsUrl = (lat: number, lng: number) =>
   `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
 
 /* ─── Multi-select checkbox dropdown with search ─── */
-export default function StoresPage() {
+function StoresPageInner() {
   const { can } = useSession();
   const [stores, setStores] = useState<Store[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -512,22 +514,85 @@ export default function StoresPage() {
 
   const sorted = useSortedRows(filtered, sortAccessors, sort);
 
-  // Ghosts follow the search box but not the other filters: province, channel and
-  // rep all filter on fields these rows do not have in this app.
+  /**
+   * How many IMS-only outlets the current filters leave, regardless of whether
+   * the toggle is on. The label needs this BEFORE anyone ticks the box, so
+   * "Show 2 IMS-only outlets" is what invites the click.
+   */
+  const ghostsMatchingFilters = useMemo(() => {
+    let rows = ghosts;
+    if (filterReps.size > 0) {
+      const wanted = new Set([...filterReps].map(canonicalRepCode));
+      rows = rows.filter((g) => wanted.has(canonicalRepCode(g.imsRepCode)));
+    }
+    if (filterProvinces.size > 0) {
+      rows = rows.filter((g) => {
+        const p = (g.imsProvince || "").trim();
+        return p ? filterProvinces.has(p) : filterProvinces.has("__none__");
+      });
+    }
+    return rows;
+  }, [ghosts, filterReps, filterProvinces]);
+  /**
+   * Which IMS-only outlets to show.
+   *
+   * 🔴 These used to follow the search box and nothing else, on the grounds
+   * that "province, channel and rep all filter on fields these rows do not
+   * have in this app". That was wrong for two of the three: a ghost carries
+   * `imsRepCode` and `imsProvince`, and the rep code is exactly what Rep Sales
+   * & Activity already uses to count them per rep. So the page could tell you
+   * 2 524 outlets are unrouted but not WHICH TWO belong to a given rep, which
+   * made the number impossible to act on.
+   *
+   * Channel genuinely is excluded: the filter matches this app's channel IDs
+   * and a ghost carries the client's channel NAME, which is a different set.
+   */
   const visibleGhosts = useMemo(() => {
     if (!showGhosts) return [];
     const q = search.trim().toUpperCase();
     let rows = q
       ? ghosts.filter((g) => g.placeId.includes(q) || (g.imsName || "").toUpperCase().includes(q))
       : ghosts;
+
+    // The rep filter holds this app's codes; a ghost holds the IMS one. They
+    // are the same person through canonicalRepCode, which is what strips the
+    // parallel CMR spelling (GAU012 / GAU012CMR).
+    if (filterReps.size > 0) {
+      const wanted = new Set([...filterReps].map(canonicalRepCode));
+      rows = rows.filter((g) => wanted.has(canonicalRepCode(g.imsRepCode)));
+    }
+    if (filterProvinces.size > 0) {
+      rows = rows.filter((g) => {
+        const p = (g.imsProvince || "").trim();
+        // Same rule the store rows use: blank is its own bucket, not a match.
+        return p ? filterProvinces.has(p) : filterProvinces.has("__none__");
+      });
+    }
     // Map Status is the one filter that DOES apply to a ghost, because the two
     // IMS-only statuses are the whole reason these rows exist. A flag filter
     // hides them all: nothing in the router flags a row that is not in it.
     if (filterMapStatus.size > 0) rows = rows.filter((g) => filterMapStatus.has(g.status));
     if (filterMapFlags.size > 0) rows = [];
     return [...rows].sort((a, b) => (b.sixMonthSales ?? 0) - (a.sixMonthSales ?? 0));
-  }, [ghosts, showGhosts, search, filterMapStatus, filterMapFlags]);
+  }, [ghosts, showGhosts, search, filterReps, filterProvinces, filterMapStatus, filterMapFlags]);
 
+  /**
+   * Arrive already filtered.
+   *
+   * Rep Sales & Activity can say a rep has 2 unrouted outlets but not WHICH
+   * two; this is the other half of that. `?rep=CODE&ghosts=1` lands here with
+   * the rep ticked and the IMS-only rows already showing.
+   *
+   * Runs once, on mount. Re-applying it whenever the params changed would fight
+   * the user every time they touched a filter afterwards.
+   */
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const rep = searchParams.get("rep");
+    if (rep) setFilterReps(new Set([rep]));
+    if (searchParams.get("ghosts") === "1") setShowGhosts(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const badCoordCount = useMemo(
     () => stores.filter((s) => !checkCoords(s.gpsLat, s.gpsLng).ok).length,
     [stores]
@@ -772,7 +837,15 @@ export default function StoresPage() {
                   onChange={(e) => setShowGhosts(e.target.checked)}
                   className="rounded border-gray-300"
                 />
-                Show {ghosts.length.toLocaleString("en-ZA")} IMS-only outlets
+                {/* Counts what the CURRENT filters leave, not the whole set. A
+                    label reading 2 524 beside a grid showing two is how somebody
+                    concludes the filter is broken. */}
+                Show{" "}
+                {(filterReps.size > 0 || filterProvinces.size > 0
+                  ? ghostsMatchingFilters.length
+                  : ghosts.length
+                ).toLocaleString("en-ZA")}{" "}
+                IMS-only outlet{(filterReps.size > 0 || filterProvinces.size > 0 ? ghostsMatchingFilters.length : ghosts.length) === 1 ? "" : "s"}
               </label>
             )}
             {imsFetchedAt && (
@@ -1251,5 +1324,23 @@ export default function StoresPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * useSearchParams needs a Suspense boundary in the app router, the same shape
+ * the Map page uses.
+ */
+export default function StoresPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center h-full">
+          <div className="animate-spin w-8 h-8 border-2 border-clippa-red border-t-transparent rounded-full" />
+        </div>
+      }
+    >
+      <StoresPageInner />
+    </Suspense>
   );
 }
