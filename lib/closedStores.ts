@@ -46,6 +46,63 @@ export function activeStores(stores: Store[]): Store[] {
   return stores.filter((s) => !isClosed(s));
 }
 
+/** What the status badge says, and what the filter groups on. */
+export type StoreStatus = "active" | "closed";
+
+export function storeStatus(store: Store): StoreStatus {
+  return isClosed(store) ? "closed" : "active";
+}
+
+/**
+ * Why this store is shut, in words, or null when it is open.
+ *
+ * Read by the grid so "why is this shut?" is answerable without opening the
+ * IMS page. An older record closed before `closedReason` existed falls back to
+ * the generic label rather than rendering an empty tooltip.
+ */
+export function closedReasonLabel(store: Store): string | null {
+  if (!isClosed(store)) return null;
+  const reason = store.closedReason as ClosedReason | undefined;
+  return reason ? CLOSED_REASON_LABEL[reason] : "Closed";
+}
+
+/**
+ * The fields to write when a PERSON flips a store between active and closed.
+ *
+ * Pure, and returns a patch rather than mutating, because this is the write
+ * that stops a rep being sent to a shop. It is asserted directly instead of
+ * being inferred from the route that calls it.
+ *
+ * Closing by hand always records `manual` as the reason, never the IMS reason
+ * that happens to also apply. That is what protects the decision from the next
+ * automatic pass, and a hand-close that recorded `ims_flag` would be silently
+ * undone the first time IMS changed its mind.
+ *
+ * Reopening CLEARS the reason and the timestamp — a store that is open has no
+ * reason to be shut, and leaving the old one behind is how a reopened shop goes
+ * on showing "IMS account closed" in its tooltip forever.
+ */
+export function setStatusByHand(
+  store: Store,
+  closed: boolean,
+  now: string = new Date().toISOString()
+): Pick<Store, "closed" | "closedReason" | "closedAt" | "statusDecidedByHand"> {
+  if (closed) {
+    return {
+      closed: true,
+      closedReason: "manual",
+      closedAt: now,
+      statusDecidedByHand: true,
+    };
+  }
+  return {
+    closed: false,
+    closedReason: undefined,
+    closedAt: undefined,
+    statusDecidedByHand: true,
+  };
+}
+
 export interface ClosureMove {
   storeId: string;
   placeId: string;
@@ -128,19 +185,28 @@ export function planClosures(
       sixMonthSales,
     };
 
+    // 🔴 A person who has looked at this shop outranks a spreadsheet that has
+    // not, in BOTH directions. The old rule protected a hand-CLOSED store from
+    // being reopened but left a hand-REOPENED one exposed: IMS still carries the
+    // flag, so the next closure run would quietly shut it again and nobody would
+    // be told. A store somebody has ruled on is skipped by the automatic pass.
+    //
+    // It is still COUNTED, and still reported as closed-but-selling, because
+    // that is information rather than an action.
+    const decidedByHand = store.statusDecidedByHand === true || store.closedReason === "manual";
+
     if (isClosed(store)) {
       unchanged++;
       if ((sixMonthSales ?? 0) > 0) {
         closedButSelling.push({ ...move, reason: (store.closedReason as ClosedReason) ?? "manual" });
       }
-      // A hand-made decision is not undone by IMS changing its mind.
-      if (store.closedReason !== "manual" && !imsSaysClosed) {
+      if (!decidedByHand && !imsSaysClosed) {
         toReopen.push({ ...move, reason: (store.closedReason as ClosedReason) ?? "ims_accc" });
       }
       continue;
     }
 
-    if (imsSaysClosed) {
+    if (imsSaysClosed && !decidedByHand) {
       toClose.push(move);
       byReason[reason]++;
     }

@@ -185,6 +185,19 @@ export interface Store {
   /** Why, so an automatic pass never silently undoes a human decision. */
   closedReason?: "ims_accc" | "ims_flag" | "manual";
   closedAt?: string;
+  /**
+   * A person set this store's status by hand, in EITHER direction.
+   *
+   * 🔴 Both directions is the point. The closure pass already refused to
+   * auto-reopen a store somebody had closed by hand, but nothing stopped it
+   * re-closing a store somebody had deliberately REOPENED: IMS still carries
+   * the flag, so the next "close the IMS ones" press would quietly undo the
+   * decision, and the person who made it would never be told.
+   *
+   * A store this is set on is skipped by the automatic pass entirely. A person
+   * who has looked at a shop outranks a spreadsheet that has not.
+   */
+  statusDecidedByHand?: boolean;
 }
 
 export const SA_PROVINCES = [

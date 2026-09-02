@@ -94,6 +94,27 @@ async function main() {
   const plan = planImsAllocation(stores, reps, map.rows, IMS_SETTINGS);
   const closures = planClosures(stores, map.rows, { includeImsFlag: true });
 
+  // ── Only OPEN stores are a question ────────────────────────────────────
+  //
+  // A shut shop needs no rep, so asking who owns it wastes the client's time on
+  // the one document we want them to actually fill in. ACCC is the whole reason
+  // this filter exists: it is the client's own code for a closed account, every
+  // one of its stores is already closed here, and it was the single largest
+  // block of rows in the ask while being the one row nobody needed to answer.
+  //
+  // Dropped from the COUNT as well as the listing. A code showing "90 stores"
+  // that turns out to be 90 closed ones is a worse answer than not showing it.
+  const byIdAll = new Map(stores.map((s) => [s.id, s]));
+  const isOpen = (storeId: string) => byIdAll.get(storeId)?.closed !== true;
+  const heldOpen = plan.held.filter((h) => isOpen(h.storeId));
+  const excludedClosed = plan.held.length - heldOpen.length;
+  const openByCode = new Map<string, number>();
+  for (const h of heldOpen) openByCode.set(h.to, (openByCode.get(h.to) ?? 0) + 1);
+  const openCodes = plan.unknownCodes.filter((u) => (openByCode.get(u.code) ?? 0) > 0);
+  const droppedCodes = plan.unknownCodes
+    .filter((u) => (openByCode.get(u.code) ?? 0) === 0)
+    .map((u) => `${u.code} (${u.stores})`);
+
   const months = map.monthsBack;
   const windowLabel = months + (months === 1 ? " month" : " months");
   const SALES = "IMS sales, last " + windowLabel + " (R)";
@@ -103,21 +124,17 @@ async function main() {
   const byId = new Map(stores.map((s) => [s.id, s]));
   const rowFor = (s: Store | undefined) => (s ? map.rows[norm(s.placeId || s.id)] : undefined);
 
-  // One row per IMS rep code we have no person for.
-  const codeRows = plan.unknownCodes.map((u) => {
-    const held = plan.held.filter((h) => h.to === u.code);
+  // One row per IMS rep code we have no person for, counted over OPEN stores.
+  const codeRows = openCodes.map((u) => {
+    const held = heldOpen.filter((h) => h.to === u.code);
     const provinces = new Set<string>();
-    let stillOpen = 0;
     for (const h of held) {
-      const store = byId.get(h.storeId);
-      if (store && !store.closed) stillOpen++;
-      const p = rowFor(store)?.imsProvince;
+      const p = rowFor(byId.get(h.storeId))?.imsProvince;
       if (p) provinces.add(String(p));
     }
     return {
       "IMS rep code": u.code,
-      "Stores behind it": u.stores,
-      "Of those, still open": stillOpen,
+      "Open stores behind it": held.length,
       [SALES]: Math.round(held.reduce((n, h) => n + (h.sixMonthSales ?? 0), 0)),
       Provinces: [...provinces].sort().join(", "),
       "Example stores": held.slice(0, 3).map((h) => h.storeName).join(" | "),
@@ -127,8 +144,8 @@ async function main() {
     };
   });
 
-  // Every store held behind one of those codes.
-  const heldRows = plan.held
+  // Every OPEN store held behind one of those codes.
+  const heldRows = heldOpen
     .slice()
     .sort((a, b) => a.to.localeCompare(b.to) || (b.sixMonthSales ?? 0) - (a.sixMonthSales ?? 0))
     .map((h) => {
@@ -143,7 +160,6 @@ async function main() {
         "IMS channel": row?.imsChannel ?? "",
         [SALES]: Math.round(h.sixMonthSales ?? 0),
         "IMS says closed": row?.flags?.closedInIms ? "Yes" : "No",
-        "Closed in the router": store?.closed ? "Yes" : "No",
       };
     });
 
@@ -169,7 +185,8 @@ async function main() {
     ["Store base in the router", stores.length],
     ["Of those, marked closed", stores.filter((s) => s.closed).length],
     ["Reps in the router", reps.length],
-    ["Stores held back by the questions below", plan.held.length],
+    ["Open stores held back by the questions below", heldOpen.length],
+    ["Closed stores behind the same codes, not listed", excludedClosed],
     [""],
     ["What we need back"],
     ["1", "Sheet '2. Codes to identify' lists the rep codes IMS uses that we have no person for."],
@@ -179,6 +196,12 @@ async function main() {
     ["", "Please confirm whether they are the same person as the code without the suffix."],
     ["3", "Sheet '4. Closed but selling' lists shops IMS flags as closed that still bought stock"],
     ["", "inside the window above. Please confirm whether each one is genuinely shut."],
+    [""],
+    ["Not asked about"],
+    ["", "Stores already marked closed here are left out, because a shut shop needs no rep."],
+    ["", droppedCodes.length
+      ? "Codes whose stores are all closed, excluded entirely: " + droppedCodes.join(", ")
+      : "Every code below still has open stores behind it."],
     [""],
     ["Why it matters"],
     ["", "A store sitting on a rep code with no person behind it disappears from the map,"],
@@ -209,7 +232,8 @@ async function main() {
   console.log("Written: " + out);
   console.log("  IMS snapshot      : " + map.fetchedAt + " over " + windowLabel);
   console.log("  Codes to identify : " + codeRows.length);
-  console.log("  Held-back stores  : " + heldRows.length);
+  console.log("  Held-back stores  : " + heldRows.length + " open (" + excludedClosed + " closed, not asked about)");
+  if (droppedCodes.length) console.log("  Codes dropped as fully closed: " + droppedCodes.join(", "));
   console.log("  Closed but selling: " + closedRows.length);
   if (months !== 6) {
     console.log(

@@ -9,6 +9,7 @@ import { useColumnWidths } from "@/components/useColumnWidths";
 import { FilterDropdown } from "@/components/FilterDropdown";
 import { MAP_STATUS_LABEL, MAP_STATUS_HINT, FLAG_LABEL, type MapRow, type MapStatus, type MapFlags } from "@/lib/mapStatus";
 import { rankStores, salesForRanking } from "@/lib/storeRanking";
+import { storeStatus, closedReasonLabel } from "@/lib/closedStores";
 import type { SortValue } from "@/lib/tableSort";
 
 const DAYS = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
@@ -20,6 +21,38 @@ const WEEKS = ["", "Wk1", "Wk2", "Wk3", "Wk4", "Wk5"];
  * ocean is visible in the grid instead of only on the map.
  */
 const SA_BOUNDS = { latMin: -35.0, latMax: -22.0, lngMin: 16.0, lngMax: 33.0 };
+
+/**
+ * Active or closed, at a glance.
+ *
+ * 267 stores were shut by the IMS pass and this grid said nothing about any of
+ * them: they rendered exactly like every other row while being excluded from
+ * routes and capacity. A store a rep will never be sent to has to look
+ * different from one they will.
+ *
+ * Declared at module level, never inside the page component, or every keystroke
+ * in the grid would remount it.
+ */
+function StatusBadge({ store }: { store: Store }) {
+  const closed = store.closed === true;
+  if (!closed) {
+    return (
+      <span className="inline-block rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-medium text-green-800">
+        Active
+      </span>
+    );
+  }
+  const why = closedReasonLabel(store);
+  const when = store.closedAt ? new Date(store.closedAt).toLocaleDateString("en-ZA") : null;
+  return (
+    <span
+      title={[why, when ? `Closed ${when}` : null, "Not in any call cycle"].filter(Boolean).join(" · ")}
+      className="inline-block rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-medium text-gray-700"
+    >
+      Closed
+    </span>
+  );
+}
 
 const MAP_STATUS_STYLE: Record<MapStatus, string> = {
   matched: "bg-green-100 text-green-800",
@@ -126,6 +159,12 @@ function GhostRow({ row, repName }: { row: MapRow; repName: (code: string) => st
     <tr className="bg-blue-50/30 text-gray-500 italic">
       <td className="px-3 py-2 font-mono">{row.placeId}</td>
       <td className="px-3 py-2 truncate" title={row.imsName || ""}>{row.imsName || "—"}</td>
+      {/* A ghost has no store record here, so it has no open/closed status of
+          its own. The cell still has to EXIST: every td below is positional,
+          and a missing one shifts the whole row against the header. */}
+      <td className="px-3 py-2">
+        <span className="text-gray-300" title="Not in the router, so it has no status here">&mdash;</span>
+      </td>
       <MapStatusCell row={row} />
       <td className="px-3 py-2 truncate">{row.imsChannel || "—"}</td>
       <td className="px-3 py-2 truncate">{row.imsProvince || "—"}</td>
@@ -200,6 +239,10 @@ export default function StoresPage() {
   const [filterProvinces, setFilterProvinces] = useState<Set<string>>(new Set());
   const [filterRegions, setFilterRegions] = useState<Set<string>>(new Set());
   const [filterFrequencies, setFilterFrequencies] = useState<Set<string>>(new Set());
+  // Empty means show both, matching every other filter here. Closed stores are
+  // NOT hidden by default: they are excluded from routes, and a count that
+  // silently disagrees with the one on the IMS page is worse than a longer grid.
+  const [filterStatus, setFilterStatus] = useState<Set<string>>(new Set());
   const [onlyBadCoords, setOnlyBadCoords] = useState(false);
   const [imsMap, setImsMap] = useState<Record<string, MapRow>>({});
   const [ghosts, setGhosts] = useState<MapRow[]>([]);
@@ -366,6 +409,7 @@ export default function StoresPage() {
         if (reg && !filterRegions.has(reg)) return false;
       }
       if (filterFrequencies.size > 0 && !filterFrequencies.has(s.frequency)) return false;
+      if (filterStatus.size > 0 && !filterStatus.has(storeStatus(s))) return false;
       if (onlyBadCoords && checkCoords(s.gpsLat, s.gpsLng).ok) return false;
       if (filterMapStatus.size > 0 || filterMapFlags.size > 0) {
         const row = rowFor(s);
@@ -383,7 +427,7 @@ export default function StoresPage() {
       }
       return true;
     });
-  }, [stores, search, filterChannels, filterReps, filterTeamManagers, filterProvinces, filterRegions, filterFrequencies, onlyBadCoords, filterMapStatus, filterMapFlags, rowFor, repTeamMap]);
+  }, [stores, search, filterChannels, filterReps, filterTeamManagers, filterProvinces, filterRegions, filterFrequencies, filterStatus, onlyBadCoords, filterMapStatus, filterMapFlags, rowFor, repTeamMap]);
 
   const cols = useColumnWidths("stores-grid-widths");
 
@@ -412,6 +456,7 @@ export default function StoresPage() {
   const COLUMNS: { key: string; label: string; w: number; align?: "left" | "right" | "center" }[] = [
     { key: "placeId", label: "Place ID", w: 90 },
     { key: "name", label: "Store Name", w: 210 },
+    { key: "status", label: "Status", w: 90 },
     { key: "mapStatus", label: "Map Status", w: 150 },
     { key: "channel", label: "Channel", w: 130 },
     { key: "province", label: "Province", w: 110 },
@@ -441,6 +486,9 @@ export default function StoresPage() {
   const sortAccessors = useMemo<Record<string, (s: Store) => SortValue>>(() => ({
     placeId: (s) => s.placeId,
     name: (s) => s.name,
+    // Closed sorts before active, so the shut ones gather at one end of the
+    // grid rather than being hunted for a row at a time.
+    status: (s) => storeStatus(s),
     // Sorts by status, so every "In IMS only" row groups together.
     mapStatus: (s) => imsMap[String(s.placeId || s.id).trim().toUpperCase()]?.status ?? null,
     channel: (s) => channelMap.get(s.channelId)?.name || s.channelId,
@@ -485,7 +533,14 @@ export default function StoresPage() {
     [stores]
   );
 
-  const hasFilters = !!search || filterChannels.size > 0 || filterReps.size > 0 || filterTeamManagers.size > 0 || filterProvinces.size > 0 || filterRegions.size > 0 || filterFrequencies.size > 0 || onlyBadCoords || filterMapStatus.size > 0 || filterMapFlags.size > 0;
+  // Counted over EVERY store, not the filtered set, so the chip tells the truth
+  // about the base rather than about the current view.
+  const statusCounts = useMemo(() => ({
+    active: stores.filter((s) => s.closed !== true).length,
+    closed: stores.filter((s) => s.closed === true).length,
+  }), [stores]);
+
+  const hasFilters = !!search || filterChannels.size > 0 || filterReps.size > 0 || filterTeamManagers.size > 0 || filterProvinces.size > 0 || filterRegions.size > 0 || filterFrequencies.size > 0 || filterStatus.size > 0 || onlyBadCoords || filterMapStatus.size > 0 || filterMapFlags.size > 0;
 
   const clearAllFilters = () => {
     setSearch("");
@@ -495,6 +550,7 @@ export default function StoresPage() {
     setFilterProvinces(new Set());
     setFilterRegions(new Set());
     setFilterFrequencies(new Set());
+    setFilterStatus(new Set());
     setOnlyBadCoords(false);
     setFilterMapStatus(new Set());
     setFilterMapFlags(new Set());
@@ -525,13 +581,15 @@ export default function StoresPage() {
       out.push(`Regions: ${named(filterRegions, (r) => (r === "__none__" ? "No Region" : r))}`);
     if (filterFrequencies.size)
       out.push(`Frequency: ${named(filterFrequencies, (f) => getFrequencyLabel(f as FrequencyType))}`);
+    if (filterStatus.size)
+      out.push(`Status: ${named(filterStatus, (k) => (k === "closed" ? "Closed" : "Active"))}`);
     if (onlyBadCoords) out.push("GPS problems only");
     if (filterMapStatus.size)
       out.push(`Map Status: ${named(filterMapStatus, (k) => MAP_STATUS_LABEL[k as MapStatus] || k)}`);
     if (filterMapFlags.size)
       out.push(`IMS Flags: ${named(filterMapFlags, (k) => FLAG_LABEL[k as keyof MapFlags] || k)}`);
     return out;
-  }, [search, filterChannels, filterReps, filterTeamManagers, filterProvinces, filterRegions, filterFrequencies, onlyBadCoords, filterMapStatus, filterMapFlags, channelMap, repMap, teams]);
+  }, [search, filterChannels, filterReps, filterTeamManagers, filterProvinces, filterRegions, filterFrequencies, filterStatus, onlyBadCoords, filterMapStatus, filterMapFlags, channelMap, repMap, teams]);
 
   /**
    * Export what is on screen.
@@ -666,6 +724,10 @@ export default function StoresPage() {
       gpsLat: store.gpsLat || "",
       gpsLng: store.gpsLng || "",
       region: store.region || "",
+      // Seeded from the record, never defaulted to open. A form that starts on
+      // "Active" for a closed store reopens it the moment anything else on the
+      // row is saved.
+      closed: store.closed === true,
     });
   };
 
@@ -827,6 +889,15 @@ export default function StoresPage() {
             onChange={setFilterMapFlags}
           />
         )}
+        <FilterDropdown
+          label="Status"
+          options={[
+            { value: "active", label: `Active (${statusCounts.active})` },
+            { value: "closed", label: `Closed (${statusCounts.closed})` },
+          ]}
+          selected={filterStatus}
+          onChange={setFilterStatus}
+        />
         <button
           onClick={() => setOnlyBadCoords((prev) => !prev)}
           title="Blank, unparseable, swapped, or outside South Africa"
@@ -860,14 +931,19 @@ export default function StoresPage() {
         const uniqueRegions = new Set(filtered.map((s) => (s.region || "").trim()).filter(Boolean));
         const uniqueProvinces = new Set(filtered.map((s) => (s.province || "").trim()).filter(Boolean));
         const uniqueReps = new Set(filtered.map((s) => (s.repCode || "").trim()).filter(Boolean));
+        const closedShown = filtered.filter((s) => s.closed === true).length;
         const cards = [
           { label: "Stores", value: filtered.length, color: "text-gray-900" },
+          // Shown, never silently subtracted. A count on this page that quietly
+          // disagreed with the one on the IMS page is how somebody concludes the
+          // store base has shrunk.
+          { label: "Closed", value: closedShown, color: closedShown > 0 ? "text-gray-500" : "text-gray-300" },
           { label: "Reps", value: uniqueReps.size, color: "text-green-600" },
           { label: "Regions", value: uniqueRegions.size, color: "text-blue-600" },
           { label: "Provinces", value: uniqueProvinces.size, color: "text-purple-600" },
         ];
         return (
-          <div className="grid grid-cols-4 gap-4 mb-4">
+          <div className="grid grid-cols-5 gap-4 mb-4">
             {cards.map((c) => (
               <div key={c.label} className="bg-white rounded-xl shadow-sm border border-gray-100 px-4 py-3">
                 <p className="text-xs text-gray-500 uppercase tracking-wider">{c.label}</p>
@@ -926,6 +1002,23 @@ export default function StoresPage() {
                     <td className="px-3 py-2 font-mono text-gray-500">{store.placeId}</td>
                     <td className="px-3 py-2 font-medium text-gray-900 max-w-[200px] truncate" title={store.name}>
                       {store.name}
+                    </td>
+                    {/* Active or closed. In the common part of the row, not
+                        duplicated into both branches, so there is one place to
+                        get it right. */}
+                    <td className="px-3 py-2">
+                      {isEditing ? (
+                        <select
+                          value={editData.closed ? "closed" : "active"}
+                          onChange={(e) => setEditData({ ...editData, closed: e.target.value === "closed" })}
+                          className="border border-gray-200 rounded px-1 py-0.5 text-xs w-full"
+                        >
+                          <option value="active">Active</option>
+                          <option value="closed">Closed</option>
+                        </select>
+                      ) : (
+                        <StatusBadge store={store} />
+                      )}
                     </td>
                     <MapStatusCell row={imsRow} />
 

@@ -66,6 +66,27 @@ async function writeLog(month: string, entries: ActivityLogEntry[]): Promise<voi
 }
 
 /**
+ * Appends run ONE AT A TIME, in this instance.
+ *
+ * 🔴 Every append is a read-modify-write of the whole month: read the array,
+ * unshift, write it all back. Two of them in flight together both read the same
+ * array and the second write erases the first entry. Measured: a route that
+ * logged twice in one request reliably kept only one of the two, and NINE
+ * routes here log more than once per handler. `/api/allocation` is the worst of
+ * them — its two entries are the allocation-source change and the list of every
+ * store that moved, which is the record that makes the change reversible by
+ * inspection rather than by a backup nobody took.
+ *
+ * A promise chain fixes that completely, because both calls are in one process.
+ *
+ * ⚠️ It does NOT make concurrent appends from two serverless INSTANCES safe;
+ * that needs a per-entry write rather than one shared array. Two people acting
+ * in the same second can still lose an entry. This removes the failure that was
+ * happening on every single multi-log request.
+ */
+let appendChain: Promise<void> = Promise.resolve();
+
+/**
  * Activity logger. Call without await in API routes — the write is handed to
  * Next's after(), which keeps the serverless instance alive until it finishes.
  *
@@ -81,10 +102,16 @@ export function logActivity(entry: Omit<ActivityLogEntry, "id" | "timestamp">): 
   const month = monthKey();
 
   const write = async () => {
-    const entries = await readLog(month);
-    entries.unshift(full);
-    if (entries.length > MAX_ENTRIES) entries.length = MAX_ENTRIES;
-    await writeLog(month, entries);
+    // Queue behind whatever is already appending. The chain is never allowed to
+    // reject, or one failed write would silently swallow every later one.
+    const mine = appendChain.then(async () => {
+      const entries = await readLog(month);
+      entries.unshift(full);
+      if (entries.length > MAX_ENTRIES) entries.length = MAX_ENTRIES;
+      await writeLog(month, entries);
+    });
+    appendChain = mine.catch(() => {});
+    await mine;
   };
 
   const run = () => write().catch((err) => {

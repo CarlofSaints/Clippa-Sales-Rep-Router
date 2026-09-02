@@ -3,6 +3,7 @@ import { getStores, saveStores, getChannels, getStoreOverrides, saveStoreOverrid
 import { Store, FrequencyType } from "@/lib/types";
 import { getSession } from "@/lib/auth";
 import { logActivity } from "@/lib/activityLog";
+import { isClosed, setStatusByHand } from "@/lib/closedStores";
 
 export async function GET() {
   try {
@@ -43,9 +44,26 @@ export async function PUT(request: NextRequest) {
     if (updates.region !== undefined) stores[idx].region = updates.region;
     if (updates.province !== undefined) stores[idx].province = updates.province;
 
+    // Active or closed, set by a person.
+    //
+    // This field existed for days before anything could reach it: the type had
+    // it, the route engine and capacity both honoured it, and 267 stores were
+    // already shut by the IMS bulk pass — but there was no way to correct a
+    // single one by hand, because this route never accepted it.
+    //
+    // Written through setStatusByHand so the reason and the "a person decided
+    // this" mark are recorded together. Setting `closed` here without them
+    // would leave the decision to be silently undone by the next IMS run.
+    const statusChanged =
+      updates.closed !== undefined && !!updates.closed !== isClosed(stores[idx]);
+    if (updates.closed !== undefined) {
+      Object.assign(stores[idx], setStatusByHand(stores[idx], !!updates.closed));
+    }
+
     await saveStores(stores);
 
     const session = await getSession();
+
 
     if (divergesFromChannel) {
       const store = stores[idx];
@@ -100,7 +118,27 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    logActivity({ action: "Updated store", actor: session?.email || "unknown", actorName: session?.name || "Unknown", summary: `Updated store ${stores[idx].name}` });
+    // ONE entry, never two.
+    //
+    // 🔴 A second logActivity call in the same request is silently lost: each one
+    // reads the month's log, appends, and writes the whole array back, so two
+    // racing appends leave whichever finished first overwritten. Measured — a
+    // dedicated "Closed a store" entry never appeared beside this one.
+    //
+    // So the status change is folded into this entry rather than logged
+    // separately. Closing a store stops a rep being sent there, which is exactly
+    // the kind of change the log exists to answer questions about, so it is named
+    // in the action rather than buried in "Updated store".
+    logActivity({
+      action: statusChanged ? (isClosed(stores[idx]) ? "Closed a store" : "Reopened a store") : "Updated store",
+      actor: session?.email || "unknown",
+      actorName: session?.name || "Unknown",
+      summary: statusChanged
+        ? `${stores[idx].name} (${stores[idx].placeId}) marked ${
+            isClosed(stores[idx]) ? "closed and taken out of the call cycles" : "active and back in the call cycles"
+          } by hand`
+        : `Updated store ${stores[idx].name}`,
+    });
 
     return NextResponse.json(stores[idx]);
   } catch (err) {

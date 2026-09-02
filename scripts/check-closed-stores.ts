@@ -14,6 +14,9 @@ import {
   isClosed,
   activeStores,
   ACCC_CODE,
+  setStatusByHand,
+  storeStatus,
+  closedReasonLabel,
   type ClosedReason,
 } from "../lib/closedStores";
 import type { Store } from "../lib/types";
@@ -187,6 +190,71 @@ const rows = (list: MapRow[]) => Object.fromEntries(list.map((r) => [r.placeId, 
   const plan = planClosures([store(" a9 ")], rows([row("A9", { imsRepCode: ACCC_CODE })]));
   ok("a padded, lowercase place id still matches", plan.toClose.length === 1,
     "these ids arrive from spreadsheets");
+}
+
+
+// -- A person setting the status by hand --------------------------------------
+//
+// This is the half that did not exist. The field, the route engine and the bulk
+// IMS pass were all shipped; nothing could set it on ONE store, because the
+// stores route never accepted it. These assert the write itself, not the page.
+{
+  const open = store('H1');
+  const closedByHand = { ...open, ...setStatusByHand(open, true, '2026-09-02T10:00:00.000Z') };
+
+  ok("closing by hand sets closed", closedByHand.closed === true);
+  ok("closing by hand records manual, never the IMS reason", closedByHand.closedReason === "manual", String(closedByHand.closedReason));
+  ok("closing by hand stamps the time", closedByHand.closedAt === "2026-09-02T10:00:00.000Z");
+  ok("closing by hand marks it as a human decision", closedByHand.statusDecidedByHand === true);
+
+  // Reopening has to CLEAR the reason. A store that is open has no reason to be
+  // shut, and a leftover one shows 'IMS account closed' in the tooltip forever.
+  const reopened = { ...closedByHand, ...setStatusByHand(closedByHand, false) };
+  ok("reopening clears closed", reopened.closed === false);
+  ok("reopening clears the reason", reopened.closedReason === undefined, String(reopened.closedReason));
+  ok("reopening clears the timestamp", reopened.closedAt === undefined, String(reopened.closedAt));
+  ok("reopening is ALSO a human decision", reopened.statusDecidedByHand === true);
+
+  ok("storeStatus reads closed", storeStatus(closedByHand) === "closed");
+  ok("storeStatus reads active", storeStatus(reopened) === "active");
+  ok("an open store has no reason label", closedReasonLabel(reopened) === null);
+  ok("a hand-closed store says so in words", closedReasonLabel(closedByHand) === "Closed by hand");
+  // Closed before the reason field existed. A blank tooltip is not an answer.
+  ok("a closed store with no reason still gets a label", closedReasonLabel(store("H9", { closed: true })) === "Closed");
+}
+
+// -- A human decision outranks the automatic pass, in BOTH directions ---------
+//
+// The old rule protected a hand-CLOSED store from being reopened but left a
+// hand-REOPENED one exposed: IMS still carries the flag, so the next closure
+// run would shut it again and the person who reopened it would never be told.
+{
+  const imsSaysShut = row('K1', { flags: { noSales: false, dormant: false, duplicateAccount: false, repMismatch: false, closedInIms: true } });
+
+  // Reopened by hand, IMS still flags it.
+  const reopenedByHand = store('K1', { closed: false, statusDecidedByHand: true });
+  const plan = planClosures([reopenedByHand], { K1: imsSaysShut }, { includeImsFlag: true });
+  ok("a hand-reopened store is NOT closed again by the IMS pass", plan.toClose.length === 0, `${plan.toClose.length} would close`);
+
+  // The same store with nobody having ruled on it still closes, so the guard
+  // is doing something narrower than switching the feature off.
+  const untouched = store('K1');
+  const plan2 = planClosures([untouched], { K1: imsSaysShut }, { includeImsFlag: true });
+  ok("an untouched store IS still closed by the IMS pass", plan2.toClose.length === 1, `${plan2.toClose.length} would close`);
+
+  // And the direction that already worked still works.
+  const closedByHand = store('K2', { closed: true, closedReason: 'manual', statusDecidedByHand: true });
+  const silent = row('K2');
+  const plan3 = planClosures([closedByHand], { K2: silent }, { includeImsFlag: true });
+  ok("a hand-closed store is NOT reopened by the IMS pass", plan3.toReopen.length === 0, `${plan3.toReopen.length} would reopen`);
+
+  // Still counted, and still reported as selling. Skipping the ACTION must not
+  // mean hiding the store from the numbers.
+  const sellingWhileShut = store('K3', { closed: true, statusDecidedByHand: true });
+  const withSales = row('K3', { sixMonthSales: 12345 });
+  const plan4 = planClosures([sellingWhileShut], { K3: withSales }, { includeImsFlag: true });
+  ok("a hand-decided store is still counted as unchanged", plan4.unchanged === 1);
+  ok("a hand-decided store still appears as closed-but-selling", plan4.closedButSelling.length === 1);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
