@@ -176,6 +176,9 @@ export async function generateRepRoute(
     repName: rep.name,
     homeLatLng: home,
     workingHoursPerDay: rep.workingHoursPerDay ?? DEFAULT_WORKING_HOURS,
+    // Stamped on the rep, so a week can say what it was built on even when the
+    // document as a whole was built on something else.
+    callsPerDay: callsPerDay && callsPerDay > 0 ? callsPerDay : undefined,
     generatedAt: new Date().toISOString(),
     days: dayPlans,
     stats: {

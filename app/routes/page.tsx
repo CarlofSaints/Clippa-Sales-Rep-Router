@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useSession } from "@/components/SessionProvider";
+import { FilterDropdown } from "@/components/FilterDropdown";
 import {
   Rep,
   Team,
@@ -41,7 +42,12 @@ export default function RoutesPage() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState("");
-  const [selectedRep, setSelectedRep] = useState("");
+  // Which reps a target applies to. A set, because the useful unit is a
+  // SUBSET: ten reps moved to eight calls a day while the rest stay put.
+  const [selectedReps, setSelectedReps] = useState<Set<string>>(new Set());
+  // Whose week the grid is drawing. A grid can only show one, and it is not
+  // the same question as who the change applies to.
+  const [viewingRep, setViewingRep] = useState("");
   const [includeTimes, setIncludeTimes] = useState(true);
   const [selectedCell, setSelectedCell] = useState<{
     week: WeekLabel;
@@ -121,7 +127,8 @@ export default function RoutesPage() {
   // Auto-select rep for rep users
   useEffect(() => {
     if (isRep && session?.repCode && reps.length > 0) {
-      setSelectedRep(session.repCode);
+      setViewingRep(session.repCode);
+      setSelectedReps(new Set([session.repCode]));
     }
   }, [isRep, session?.repCode, reps]);
 
@@ -144,6 +151,37 @@ export default function RoutesPage() {
     return scoped;
   }, [reps, isRep, isTeamManager, isAdmin, session?.repCode, session?.teamId, selectedTeam]);
 
+
+  /**
+   * Each rep's calls-per-day target, taken off the saved plan rather than the
+   * settings blob. After a subset run the two legitimately differ, and the
+   * setting would describe a week those reps do not have.
+   */
+  const repCallsPerDay = useMemo(() => {
+    const out: Record<string, number | undefined> = {};
+    for (const p of routes?.repPlans ?? []) out[p.repCode] = p.callsPerDay;
+    return out;
+  }, [routes]);
+  /**
+   * The reps a calls-per-day change applies to.
+   *
+   * Nothing ticked means everybody in view, which is what the page did before
+   * a subset was possible and stays the least surprising reading of an empty
+   * selection. Ticking any rep narrows it to exactly those.
+   */
+  const targetReps = useMemo(
+    () => (selectedReps.size > 0 ? filteredReps.filter((r) => selectedReps.has(r.code)) : filteredReps),
+    [selectedReps, filteredReps]
+  );
+  const isSubset = selectedReps.size > 0 && selectedReps.size < filteredReps.length;
+
+  // The grid always has to be drawing SOMEBODY. When the ticked set changes
+  // out from under the viewed rep, follow it rather than going blank.
+  useEffect(() => {
+    if (selectedReps.size === 0) return;
+    if (viewingRep && selectedReps.has(viewingRep)) return;
+    setViewingRep([...selectedReps][0] ?? "");
+  }, [selectedReps, viewingRep]);
   // 🔴 Seeded from the server, never defaulted in the markup. A box that starts
   // on 8 while the business is on no target would apply 8 the first time
   // anyone touched anything else on this page.
@@ -167,7 +205,18 @@ export default function RoutesPage() {
    * to it. The server merges the result into the saved plan rather than
    * replacing it, so the other reps keep the week they already had.
    */
-  const previewForRep = async (repCode: string, calls: number | null) => {
+  /**
+   * Rebuild the reps in scope at the number in the box, without saving it.
+   *
+   * One rep takes well under a second; ten take a few. That is the whole point
+   * of previewing a subset rather than the whole book: the manager sees what
+   * eight calls a day does to THESE reps before anyone else moves.
+   *
+   * The server merges the result into the saved plan, so reps outside the
+   * selection keep the week they already had.
+   */
+  const previewForReps = async (codes: string[], calls: number | null) => {
+    if (codes.length === 0) return;
     setPreviewing(true);
     setError("");
     const started = Date.now();
@@ -176,7 +225,7 @@ export default function RoutesPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          repCodes: [repCode],
+          repCodes: codes,
           ...(selectedTypeId ? { typeId: selectedTypeId } : {}),
           // Explicit null asks for no target. Omitting it would inherit the
           // saved setting, which is the opposite of what the box says.
@@ -189,13 +238,15 @@ export default function RoutesPage() {
       }
       const doc = await res.json();
       setRoutes(doc);
-      const plan = doc.repPlans?.find((p: RepRoutePlan) => p.repCode === repCode);
-      const perDay = plan?.days?.map((d: RouteDayPlan) => d.stops.length) ?? [];
+
+      const touched = (doc.repPlans ?? []).filter((p: RepRoutePlan) => codes.includes(p.repCode));
+      const counts = touched.flatMap((p: RepRoutePlan) => p.days.map((d) => d.stops.length));
       const seconds = ((Date.now() - started) / 1000).toFixed(1);
+      const who = touched.length === 1 ? touched[0].repName : `${touched.length} reps`;
       setPreviewNote(
-        plan
-          ? `${plan.repName} rebuilt at ${calls ? `${calls} calls/day` : "no target"} in ${seconds}s` +
-            (perDay.length ? ` — ${Math.min(...perDay)} to ${Math.max(...perDay)} calls a day` : "")
+        touched.length
+          ? `${who} rebuilt at ${calls ? `${calls} calls/day` : "no target"} in ${seconds}s` +
+            (counts.length ? ` — ${Math.min(...counts)} to ${Math.max(...counts)} calls a day` : "")
           : null
       );
     } catch (err) {
@@ -205,52 +256,65 @@ export default function RoutesPage() {
       setPreviewing(false);
     }
   };
-
   /**
-   * Commit the number, then rebuild everybody on it.
+   * Commit the number to the reps in scope.
    *
-   * The setting is saved FIRST. A rebuild that succeeded against a setting that
-   * failed to save would leave the plan and the stated target disagreeing, and
-   * the next person to press Generate would silently undo the whole thing.
+   * 🔴 Only a run covering EVERYONE writes the business-wide setting. Moving
+   * ten reps to eight calls a day is not a decision about the other 45, and
+   * saving it as the default would silently apply it to all of them the next
+   * time anybody pressed Generate Routes.
+   *
+   * When it does save, it saves FIRST. A rebuild that succeeded against a
+   * setting that failed to save would leave the plan and the stated target
+   * disagreeing, and the next Generate would quietly undo the whole thing.
    */
-  const applyCallsPerDayToAll = async () => {
+  const applyCallsPerDay = async () => {
     setApplying(true);
     setError("");
     try {
-      const res = await fetch("/api/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ callsPerDay: callsPerDay ?? null }),
-      });
-      if (!res.ok) throw new Error("Could not save the calls per day setting.");
-      setSavedCallsPerDay(callsPerDay);
+      if (!isSubset) {
+        const res = await fetch("/api/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ callsPerDay: callsPerDay ?? null }),
+        });
+        if (!res.ok) throw new Error("Could not save the calls per day setting.");
+        setSavedCallsPerDay(callsPerDay);
+      }
       setPreviewNote(null);
-      await generateRoutes({ allReps: true });
+      await generateRoutes({ repCodes: targetReps.map((r) => r.code) });
     } catch (err) {
       setError(String(err));
     } finally {
       setApplying(false);
     }
   };
-
-  // Debounced preview. Waits for the typing to stop, so dragging 8 to 12
-  // fires one rebuild rather than five.
+  // Debounced preview. Waits for the typing to stop, so dragging 8 to 12 fires
+  // one rebuild rather than five.
+  //
+  // Deliberately does NOT fire when the selection is everybody: rebuilding all
+  // 55 reps on every keystroke is a two-minute job and a Google bill. A whole-
+  // book change goes through the button, where it is asked for on purpose.
   useEffect(() => {
-    if (!settingsLoaded || !selectedRep || !canGenerate) return;
+    if (!settingsLoaded || !canGenerate) return;
+    if (selectedReps.size === 0) return;
     if (callsPerDay === savedCallsPerDay) return;
-    const t = setTimeout(() => previewForRep(selectedRep, callsPerDay), 700);
+    const codes = [...selectedReps];
+    const t = setTimeout(() => previewForReps(codes, callsPerDay), 700);
     return () => clearTimeout(t);
-    // previewForRep is recreated every render; depending on it would refire
+    // previewForReps is recreated every render; depending on it would refire
     // the timer on every keystroke elsewhere on the page.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [callsPerDay, selectedRep, settingsLoaded, savedCallsPerDay, canGenerate, selectedTypeId]);
-
-  const generateRoutes = async (opts: { allReps?: boolean } = {}) => {
+  }, [callsPerDay, selectedReps, settingsLoaded, savedCallsPerDay, canGenerate, selectedTypeId]);
+  const generateRoutes = async (opts: { repCodes?: string[] } = {}) => {
     setGenerating(true);
     setError("");
     try {
       const payload: Record<string, unknown> = {};
-      if (selectedRep && !opts.allReps) payload.repCodes = [selectedRep];
+      // An explicit list wins. Otherwise a plain Generate covers whoever is
+      // ticked, and everybody when nothing is.
+      const codes = opts.repCodes ?? (selectedReps.size > 0 ? [...selectedReps] : []);
+      if (codes.length > 0 && codes.length < filteredReps.length) payload.repCodes = codes;
       if (selectedTypeId) payload.typeId = selectedTypeId;
       // Sent explicitly so a full run uses what the box says, not what was
       // last saved. They are the same after Apply, and differ if someone
@@ -298,9 +362,9 @@ export default function RoutesPage() {
 
   // Get current rep's plan
   const currentPlan: RepRoutePlan | null = useMemo(() => {
-    if (!routes || !selectedRep) return routes?.repPlans?.[0] || null;
-    return routes.repPlans.find((p) => p.repCode === selectedRep) || null;
-  }, [routes, selectedRep]);
+    if (!routes || !viewingRep) return routes?.repPlans?.[0] || null;
+    return routes.repPlans.find((p) => p.repCode === viewingRep) || null;
+  }, [routes, viewingRep]);
 
   // Build week/day grid lookup
   const grid = useMemo(() => {
@@ -518,41 +582,63 @@ export default function RoutesPage() {
             </div>
 
             <div className="flex-1 min-w-[16rem] text-xs text-gray-500">
-              {!selectedRep ? (
+              {selectedReps.size === 0 ? (
                 <span>
-                  Pick a rep above to see this number applied to their week before you commit everyone to it.
+                  Tick reps in the <span className="font-medium">Reps</span> list below to try this on
+                  a few of them first. With none ticked it applies to everyone.
                 </span>
               ) : previewing ? (
-                <span className="text-gray-700">Rebuilding that rep&rsquo;s week&hellip;</span>
+                <span className="text-gray-700">
+                  Rebuilding {selectedReps.size === 1 ? "that rep" : `${selectedReps.size} reps`}&hellip;
+                </span>
               ) : previewNote ? (
                 <span className="text-green-700 font-medium">{previewNote}</span>
               ) : (
                 <span>
-                  Change the number to rebuild this rep&rsquo;s week on its own. Nobody else moves until you apply it.
+                  Change the number to rebuild{" "}
+                  {selectedReps.size === 1 ? "this rep" : `these ${selectedReps.size} reps`} on their own.
+                  Nobody else moves until you apply it.
                 </span>
               )}
-              {/* What the SAVED plan runs on, so an uncommitted number in the
-                  box can never be mistaken for the business setting. */}
+              {/* What the SAVED default is, so an uncommitted number in the box
+                  can never be mistaken for the business setting. */}
               <div className="mt-1 text-gray-400">
-                Everyone is on{" "}
+                Everyone defaults to{" "}
                 {savedCallsPerDay ? `${savedCallsPerDay} calls a day` : "no target (days sized by working hours)"}.
+                {isSubset && (
+                  <span className="text-gray-500">
+                    {" "}Applying to a subset changes those reps only, and leaves this default alone.
+                  </span>
+                )}
               </div>
             </div>
-
             <button
-              onClick={applyCallsPerDayToAll}
-              disabled={applying || generating || callsPerDay === savedCallsPerDay}
+              onClick={applyCallsPerDay}
+              disabled={
+                applying ||
+                generating ||
+                targetReps.length === 0 ||
+                // A whole-book apply is only pointless when the default already
+                // matches. A SUBSET apply is never pointless: those reps may be
+                // on something else entirely.
+                (!isSubset && callsPerDay === savedCallsPerDay)
+              }
               className="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-700 disabled:opacity-40 transition-colors flex items-center gap-2"
             >
               {applying && (
                 <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
               )}
               {applying
-                ? "Applying to every rep..."
-                : callsPerDay === savedCallsPerDay
+                ? `Applying to ${targetReps.length === 1 ? "1 rep" : `${targetReps.length} reps`}...`
+                : !isSubset && callsPerDay === savedCallsPerDay
                   ? "Applied to everyone"
-                  : `Apply ${callsPerDay ? `${callsPerDay} calls/day` : "no target"} to ${filteredReps.length === 1 ? "this rep" : `all ${filteredReps.length} reps`}`}
-            </button>
+                  : `Apply ${callsPerDay ? `${callsPerDay} calls/day` : "no target"} to ${
+                      isSubset
+                        ? targetReps.length === 1
+                          ? "1 rep"
+                          : `${targetReps.length} reps`
+                        : `all ${targetReps.length} reps`
+                    }`}            </button>
           </div>
         </div>
       )}
@@ -567,7 +653,8 @@ export default function RoutesPage() {
             onChange={(e) => {
               const val = e.target.value;
               setSelectedTypeId(val);
-              setSelectedRep("");
+              setViewingRep("");
+              setSelectedReps(new Set());
               setSelectedCell(null);
               if (!val) {
                 // Reload generic routes when "Latest Routes" selected
@@ -592,7 +679,8 @@ export default function RoutesPage() {
             value={selectedTeam}
             onChange={(e) => {
               setSelectedTeam(e.target.value);
-              setSelectedRep("");
+              setViewingRep("");
+              setSelectedReps(new Set());
               setSelectedCell(null);
             }}
             className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
@@ -606,22 +694,44 @@ export default function RoutesPage() {
           </select>
         )}
 
-        {/* Rep dropdown — hidden for rep users (auto-selected) */}
+        {/* Reps — a tick list, because the useful unit is a SUBSET. Hidden for
+            rep users, who are pinned to themselves. */}
         {!isRep && (
+          <FilterDropdown
+            label="Reps"
+            options={filteredReps.map((r) => ({
+              value: r.code,
+              // The target each rep is actually on, right in the list, so
+              // picking who to change does not need a second screen.
+              label: `${r.name} (${r.code}) · ${repCallsPerDay[r.code] ? `${repCallsPerDay[r.code]}/day` : "no target"}`,
+            }))}
+            selected={selectedReps}
+            onChange={(next) => {
+              setSelectedReps(next);
+              setSelectedCell(null);
+            }}
+          />
+        )}
+
+        {/* Which of them the grid is drawing. Only worth showing once there is
+            a choice to make: with one rep ticked there is nothing to pick. */}
+        {!isRep && selectedReps.size > 1 && (
           <select
-            value={selectedRep}
+            value={viewingRep}
             onChange={(e) => {
-              setSelectedRep(e.target.value);
+              setViewingRep(e.target.value);
               setSelectedCell(null);
             }}
             className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
+            title="Whose week the grid below is showing"
           >
-            <option value="">Select Rep</option>
-            {filteredReps.map((r) => (
-              <option key={r.code} value={r.code}>
-                {r.name} ({r.code})
-              </option>
-            ))}
+            {filteredReps
+              .filter((r) => selectedReps.has(r.code))
+              .map((r) => (
+                <option key={r.code} value={r.code}>
+                  Showing {r.name}
+                </option>
+              ))}
           </select>
         )}
 
@@ -664,11 +774,11 @@ export default function RoutesPage() {
               <option value={3}>3 mo</option>
             </select>
             <a
-              href={`/api/routes/repsly-export?months=${repslyMonths}&format=xlsx${selectedTypeId ? `&typeId=${selectedTypeId}` : ""}${selectedRep ? `&repCode=${selectedRep}` : ""}`}
+              href={`/api/routes/repsly-export?months=${repslyMonths}&format=xlsx${selectedTypeId ? `&typeId=${selectedTypeId}` : ""}${viewingRep ? `&repCode=${viewingRep}` : ""}`}
               className="bg-gray-800 text-white px-3 py-1.5 rounded-md text-xs font-medium hover:bg-gray-900 transition-colors"
-              title={selectedRep ? "Export this rep's call cycle for Repsly" : "Export all reps' call cycle for Repsly"}
+              title={viewingRep ? "Export this rep's call cycle for Repsly" : "Export all reps' call cycle for Repsly"}
             >
-              Export {selectedRep ? "rep" : "all"}
+              Export {viewingRep ? "rep" : "all"}
             </a>
           </div>
         )}

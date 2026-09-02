@@ -417,6 +417,16 @@ export interface RepRoutePlan {
   repName: string;
   homeLatLng: { lat: number; lng: number } | null;
   workingHoursPerDay: number;
+  /**
+   * The calls-per-day target THIS rep's week was built on, or absent for a week
+   * sized by working hours alone.
+   *
+   * Per rep, not only per document, because reps are deliberately rebuilt in
+   * subsets: ten on eight calls a day while the rest stay where they were. A
+   * single figure on the document could not describe that, and would quietly
+   * misreport 54 of 64 weeks the moment anyone used a subset.
+   */
+  callsPerDay?: number;
   generatedAt: string; // ISO datetime
   days: RouteDayPlan[];
   stats: {

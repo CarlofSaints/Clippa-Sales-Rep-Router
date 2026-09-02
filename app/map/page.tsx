@@ -33,11 +33,21 @@ function RepSearchSelect({
   value,
   onChange,
   colors,
+  callsPerDay,
 }: {
   reps: Rep[];
   value: string;
   onChange: (code: string) => void;
   colors: Record<string, string>;
+  /**
+   * Rep code to the calls-per-day target their week was built on.
+   *
+   * Read from the saved PLAN, never from the settings blob. Reps are rebuilt
+   * in subsets, so the business-wide setting and what a given rep's week
+   * actually runs on routinely differ, and showing the setting here would
+   * describe a week that rep does not have.
+   */
+  callsPerDay: Record<string, number | undefined>;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -68,6 +78,13 @@ function RepSearchSelect({
   }, [reps, search]);
 
   const selected = reps.find((r) => r.code === value);
+
+  // Absent is a fact worth stating: it means the week was sized by working
+  // hours, not that nobody has looked at it. A blank cell reads as broken.
+  const targetLabel = (code: string) => {
+    const t = callsPerDay[code];
+    return t ? `${t}/day` : "no target";
+  };
 
   const pick = (code: string) => {
     onChange(code);
@@ -139,6 +156,21 @@ function RepSearchSelect({
                     {r.name}
                   </span>
                   <span className="ml-auto text-[10px] text-gray-400 font-mono flex-shrink-0">{r.code}</span>
+                  {/* What this rep's week is actually built on. */}
+                  <span
+                    className={`shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                      callsPerDay[r.code]
+                        ? "bg-blue-50 text-blue-700"
+                        : "bg-gray-100 text-gray-500"
+                    }`}
+                    title={
+                      callsPerDay[r.code]
+                        ? `${r.name}'s week is built on ${callsPerDay[r.code]} calls a day`
+                        : `${r.name}'s week is sized by their working hours, with no calls-per-day target`
+                    }
+                  >
+                    {targetLabel(r.code)}
+                  </span>
                 </button>
               ))
             )}
@@ -237,6 +269,18 @@ function MapPageInner() {
   }, [reps, isRep, isTeamManager, session?.repCode, session?.teamId]);
 
   // Visible rep codes for store filtering
+  /**
+   * Each rep's calls-per-day target, taken off the saved plan.
+   *
+   * Rebuilt whenever the plan changes, including after a subset run, so the
+   * dropdown keeps up with ten reps having been moved to a new number while
+   * the rest stayed put.
+   */
+  const repCallsPerDay = useMemo(() => {
+    const out: Record<string, number | undefined> = {};
+    for (const p of routes?.repPlans ?? []) out[p.repCode] = p.callsPerDay;
+    return out;
+  }, [routes]);
   const visibleRepCodes = useMemo(() => {
     return new Set(scopedReps.map((r) => r.code));
   }, [scopedReps]);
@@ -373,6 +417,7 @@ function MapPageInner() {
             reps={scopedReps}
             value={filterRep}
             colors={repColors}
+            callsPerDay={repCallsPerDay}
             onChange={(code) => {
               setFilterRep(code);
               if (code) setShowRoute(true);

@@ -95,6 +95,9 @@ export async function POST(request: NextRequest) {
           repName: rep.name,
           homeLatLng: parseHome(rep),
           workingHoursPerDay: rep.workingHoursPerDay ?? 8.5,
+          // A rep with no stores still carries the target, so the Map dropdown
+          // does not show a blank beside them and read as "not set".
+          callsPerDay: callsPerDay && callsPerDay > 0 ? callsPerDay : undefined,
           generatedAt: new Date().toISOString(),
           days: [],
           stats: { totalStores: 0, unassignedStores: [] },
