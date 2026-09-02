@@ -12,6 +12,7 @@ import { MAP_STATUS_LABEL, MAP_STATUS_HINT, FLAG_LABEL, type MapRow, type MapSta
 import { rankStores, salesForRanking } from "@/lib/storeRanking";
 import { storeStatus, closedReasonLabel } from "@/lib/closedStores";
 import { canonicalRepCode } from "@/lib/allocationSource";
+import { suffixOf } from "@/lib/imsReconCore";
 import type { SortValue } from "@/lib/tableSort";
 
 const DAYS = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
@@ -638,6 +639,20 @@ function StoresPageInner() {
   };
 
   /**
+   * Router stores indexed by Place ID suffix, for the duplicate hint on the
+   * export. Built once from the whole store list, not the filtered view: a
+   * duplicate is a duplicate whether or not the other store is on screen.
+   */
+  const routerBySuffix = useMemo(() => {
+    const out = new Map<string, string[]>();
+    for (const s of stores) {
+      const suf = suffixOf(String(s.placeId || s.id).trim().toUpperCase());
+      if (!suf) continue;
+      out.set(suf, [...(out.get(suf) ?? []), s.placeId || s.id]);
+    }
+    return out;
+  }, [stores]);
+  /**
    * The filters in force, in words. A filtered file that does not say it is
    * filtered is how someone concludes there are only 99 stores in the business.
    */
@@ -752,7 +767,8 @@ function StoresPageInner() {
       const notes: (string | number)[][] = [
         ["Stores export"],
         ["Generated", new Date().toLocaleString("en-ZA")],
-        ["Rows in this file", filtered.length],
+        ["Rows on the Stores sheet", filtered.length],
+        ["Rows on the IMS-only outlets sheet", visibleGhosts.length],
         ["Stores in the system", stores.length],
         [],
         ["Filters applied"],
@@ -767,12 +783,90 @@ function StoresPageInner() {
         ["", "It does NOT read FREQUENCY, DURATION, DAY or WEEK — those come from the Channels page or from editing a store, and a change made in this file will not come back in."],
         ["", "MONTHLY SALES is deliberately not in this file. The import does not read it, so a figure here would be one nobody could change from this file — it stays a screen-only column on the Stores page."],
         ["", "Store Upload (under Admin) is the other door: use it to ADD stores, or to load rep allocations and monthly sales. It writes the rep and sales columns, so only send it a file where those are correct."],
+        [],
+        ["The IMS-only outlets sheet"],
+        ["", "These are outlets the client INVOICED in the snapshot window that have no store in this router at all, matched on Place ID. They are on no map, in no call cycle, and no rep is ever sent to them."],
+        ["", "They are fixed in IMS, not here. Correct the Place ID or the rep allocation on the client side, and the next Refresh snapshot picks the outlet up on its own — nothing needs to be imported back into this app."],
+        ["", "WHAT IS WRONG says which of four things applies: the outlet is simply missing from the router; IMS names a rep code that is not a person here; IMS names no rep at all; or the Place ID is not even in the IMS outlet master, meaning IMS invoiced something it has no shop record for."],
+        ["", "POSSIBLE DUPLICATE OF is a HINT, not a verdict. Place IDs are PREFIX-SUFFIX, where the suffix identifies the physical shop and the prefix the account it is invoiced through, so a shared suffix often means the same shop billed through a second account. Many suffixes are shared by several stores, so check before acting: creating a new account for a shop already being visited is worse than leaving it unrouted."],
+        ["", "An outlet whose IMS rep code is not a rep in this router appears on NOBODY's row on Rep Sales & Activity, so filtering this export by rep will not show it. Clear the rep filter, or filter Map Status to 'In IMS only, no rep', to see those."],
       ];
       const notesWs = utils.aoa_to_sheet(notes);
       notesWs["!cols"] = [{ wch: 22 }, { wch: 110 }];
 
       const wb = utils.book_new();
       utils.book_append_sheet(wb, ws, "Stores");
+
+      /**
+       * The outlets IMS invoices that this router has no store for.
+       *
+       * Its own sheet, because it is a different KIND of row and a different
+       * job: these are not corrected here and sent back, they are corrected in
+       * IMS. Once IMS carries the right Place ID, the next snapshot picks the
+       * outlet up on its own and it stops being unrouted — no import needed.
+       *
+       * Which is why the columns are IMS's own fields rather than this app's,
+       * and why POSSIBLE DUPLICATE OF is here: the single worst outcome would
+       * be Clippa creating a new account for a shop we already visit.
+       */
+      if (visibleGhosts.length > 0) {
+        const ghostHeader = [
+          "IMS PLACE ID",
+          "IMS STORE NAME",
+          "IMS PROVINCE",
+          "IMS CHANNEL",
+          "IMS REP CODE",
+          "REP NAME IN THE ROUTER",
+          "IS THAT REP IN THE ROUTER?",
+          "IMS SAYS CLOSED",
+          "6-MONTH SALES",
+          "WHAT IS WRONG",
+          "POSSIBLE DUPLICATE OF",
+        ];
+        const ghostRows: (string | number)[][] = [ghostHeader];
+
+        for (const g of visibleGhosts) {
+          const code = (g.imsRepCode || "").trim();
+          const rep = code ? repMap.get(canonicalRepCode(code)) ?? repMap.get(code) : undefined;
+          const suffix = suffixOf(String(g.placeId || "").trim().toUpperCase());
+          const twins = suffix ? routerBySuffix.get(suffix) ?? [] : [];
+
+          // The diagnosis, in the order somebody would act on it.
+          const problem = !g.imsName
+            ? "Invoiced, but this Place ID is not in the IMS outlet master at all"
+            : !code
+              ? "IMS holds the outlet but names no rep against it"
+              : !rep
+                ? `IMS allocates it to ${code}, which is not a rep in the router`
+                : "The outlet is not in the router, so nobody is routed to it";
+
+          ghostRows.push([
+            g.placeId || "",
+            g.imsName || "",
+            g.imsProvince || "",
+            g.imsChannel || "",
+            code,
+            rep?.name || "",
+            code ? (rep ? "Yes" : "No") : "No rep code",
+            g.flags?.closedInIms ? "Yes" : "No",
+            g.sixMonthSales ?? 0,
+            problem,
+            // A hint, never a verdict: a suffix shared by several router
+            // stores proves nothing on its own.
+            twins.length ? `${twins.slice(0, 3).join(", ")}${twins.length > 3 ? ` (+${twins.length - 3} more)` : ""}` : "",
+          ]);
+        }
+
+        const gws = utils.aoa_to_sheet(ghostRows);
+        gws["!cols"] = [
+          { wch: 16 }, { wch: 38 }, { wch: 18 }, { wch: 22 }, { wch: 14 },
+          { wch: 26 }, { wch: 24 }, { wch: 16 }, { wch: 16 }, { wch: 62 }, { wch: 34 },
+        ];
+        gws["!freeze"] = { xSplit: "0", ySplit: "1" };
+        gws["!autofilter"] = { ref: utils.encode_range({ s: { c: 0, r: 0 }, e: { c: ghostHeader.length - 1, r: ghostRows.length - 1 } }) };
+        utils.book_append_sheet(wb, gws, "IMS-only outlets");
+      }
+
       utils.book_append_sheet(wb, notesWs, "Notes");
 
       const buf = write(wb, { type: "array", bookType: "xlsx" });
@@ -883,7 +977,7 @@ function StoresPageInner() {
           {can("export_data") && (
             <button
               onClick={exportExcel}
-              disabled={exporting || filtered.length === 0}
+              disabled={exporting || filtered.length + visibleGhosts.length === 0}
               title={
                 activeFilters.length
                   ? "Downloads the filtered list you are looking at — the filters are listed on the Notes sheet"
@@ -893,7 +987,9 @@ function StoresPageInner() {
             >
               {exporting
                 ? "Building..."
-                : `Export Excel (${filtered.length.toLocaleString("en-ZA")}${activeFilters.length ? " filtered" : ""})`}
+                : `Export Excel (${(filtered.length + visibleGhosts.length).toLocaleString("en-ZA")}${
+                    activeFilters.length ? " filtered" : ""
+                  })`}
             </button>
           )}
           {/* The return leg of the export. Deliberately not a link to Store
