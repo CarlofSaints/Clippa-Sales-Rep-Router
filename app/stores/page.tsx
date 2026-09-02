@@ -2,7 +2,7 @@
 
 import { Suspense, useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
-import { Store, Channel, Rep, Team, FREQUENCY_OPTIONS, FrequencyType, getFrequencyLabel, SA_PROVINCES } from "@/lib/types";
+import { Store, Channel, Rep, Team, FREQUENCY_OPTIONS, FrequencyType, getFrequencyLabel, SA_PROVINCES, type SubChannel } from "@/lib/types";
 import { useSession } from "@/components/SessionProvider";
 import StoreImportModal from "@/components/StoreImportModal";
 import { useTableSort, useSortedRows, SortableTh } from "@/components/TableSort";
@@ -170,6 +170,7 @@ function GhostRow({ row, repName }: { row: MapRow; repName: (code: string) => st
       </td>
       <MapStatusCell row={row} />
       <td className="px-3 py-2 truncate">{row.imsChannel || "—"}</td>
+      <td className="px-3 py-2 truncate" title="What IMS files this outlet under">{row.imsSubChannel || "—"}</td>
       <td className="px-3 py-2 truncate">{row.imsProvince || "—"}</td>
       <td className="px-3 py-2">{"—"}</td>
       <td className="px-3 py-2">{"—"}</td>
@@ -462,6 +463,7 @@ function StoresPageInner() {
     { key: "status", label: "Status", w: 90 },
     { key: "mapStatus", label: "Map Status", w: 150 },
     { key: "channel", label: "Channel", w: 130 },
+    { key: "subChannel", label: "Sub-channel", w: 130 },
     { key: "province", label: "Province", w: 110 },
     { key: "region", label: "Region", w: 110 },
     { key: "gpsLat", label: "Latitude", w: 100 },
@@ -495,6 +497,8 @@ function StoresPageInner() {
     // Sorts by status, so every "In IMS only" row groups together.
     mapStatus: (s) => imsMap[String(s.placeId || s.id).trim().toUpperCase()]?.status ?? null,
     channel: (s) => channelMap.get(s.channelId)?.name || s.channelId,
+    // Unfiled stores sink rather than sorting first under an empty string.
+    subChannel: (s) => (s.subChannelId ? subChannelMap.get(s.subChannelId)?.name ?? s.subChannelId : null),
     province: (s) => s.province || null,
     region: (s) => s.region || null,
     gpsLat: (s) => (s.gpsLat?.trim() ? Number(s.gpsLat) : null),
@@ -610,6 +614,20 @@ function StoresPageInner() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  /**
+   * Sub-channels, for naming what a store is filed under and for the editor.
+   *
+   * Failing to load them must not blank the column into looking like missing
+   * data, so the row falls back to showing the raw id in amber.
+   */
+  const [subChannels, setSubChannels] = useState<SubChannel[]>([]);
+  useEffect(() => {
+    fetch("/api/sub-channels")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => setSubChannels(Array.isArray(d) ? d : []))
+      .catch(() => {});
+  }, []);
+  const subChannelMap = useMemo(() => new Map(subChannels.map((c) => [c.id, c])), [subChannels]);
   const badCoordCount = useMemo(
     () => stores.filter((s) => !checkCoords(s.gpsLat, s.gpsLng).ok).length,
     [stores]
@@ -903,6 +921,7 @@ function StoresPageInner() {
       // "Active" for a closed store reopens it the moment anything else on the
       // row is saved.
       closed: store.closed === true,
+      subChannelId: store.subChannelId ?? "",
     });
   };
 
@@ -1212,12 +1231,33 @@ function StoresPageInner() {
                         <td className="px-3 py-2">
                           <select
                             value={editData.channelId || ""}
-                            onChange={(e) => setEditData({ ...editData, channelId: e.target.value })}
+                            onChange={(e) =>
+                              // Changing the channel drops the sub-channel: it
+                              // belongs to the old one. The server does the same,
+                              // but doing it here too keeps the open form honest.
+                              setEditData({ ...editData, channelId: e.target.value, subChannelId: "" })
+                            }
                             className="border border-gray-200 rounded px-1 py-0.5 text-xs w-full"
                           >
                             {channels.map((c) => (
                               <option key={c.id} value={c.id}>{c.name}</option>
                             ))}
+                          </select>
+                        </td>
+                        <td className="px-3 py-2">
+                          {/* Only the sub-channels of THIS store's channel. One
+                              from another retailer would never resolve. */}
+                          <select
+                            value={editData.subChannelId || ""}
+                            onChange={(e) => setEditData({ ...editData, subChannelId: e.target.value })}
+                            className="border border-gray-200 rounded px-1 py-0.5 text-xs w-full"
+                          >
+                            <option value="">None</option>
+                            {subChannels
+                              .filter((sc) => sc.channelId === (editData.channelId || store.channelId))
+                              .map((sc) => (
+                                <option key={sc.id} value={sc.id}>{sc.name}</option>
+                              ))}
                           </select>
                         </td>
                         <td className="px-3 py-2">
@@ -1351,6 +1391,19 @@ function StoresPageInner() {
                     ) : (
                       <>
                         <td className="px-3 py-2 text-gray-600">{ch?.name || store.channelId}</td>
+                        {/* Absent is a fact: the store follows its channel. A
+                            blank cell would read as missing data. */}
+                        <td className="px-3 py-2 text-gray-600 truncate">
+                          {store.subChannelId ? (
+                            subChannelMap.get(store.subChannelId)?.name ?? (
+                              <span className="text-amber-700" title="This store points at a sub-channel that no longer exists, so it follows its channel.">
+                                {store.subChannelId}
+                              </span>
+                            )
+                          ) : (
+                            <span className="text-gray-300" title="No sub-channel: this store follows its channel">&mdash;</span>
+                          )}
+                        </td>
                         <td className="px-3 py-2 text-gray-500">{store.province || "\u2014"}</td>
                         <td className="px-3 py-2 text-gray-500">{store.region || "\u2014"}</td>
                         <td

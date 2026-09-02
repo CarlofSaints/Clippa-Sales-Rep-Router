@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStores, saveStores, getChannels, getStoreOverrides, saveStoreOverrides } from "@/lib/data";
+import { getStores, saveStores, getChannels, getStoreOverrides, saveStoreOverrides, getSubChannels } from "@/lib/data";
 import { Store, FrequencyType } from "@/lib/types";
 import { getSession } from "@/lib/auth";
 import { logActivity } from "@/lib/activityLog";
@@ -24,6 +24,25 @@ export async function PUT(request: NextRequest) {
     if (idx === -1) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
     if (updates.repCode !== undefined) stores[idx].repCode = updates.repCode;
+
+    // 🔴 Moving a store to a different channel invalidates its sub-channel.
+    //
+    // A sub-channel belongs to exactly one channel, so a store filed under
+    // "PNP Hyper" that is moved to Makro would keep pointing at a sub-channel
+    // of a retailer it is no longer part of — and `callPolicy` would happily
+    // apply Pick n Pay's decision to a Makro store. Cleared here, so the store
+    // falls back to its new channel until somebody files it again.
+    //
+    // Skipped when the same request also sets a sub-channel: that is a
+    // deliberate move of both, and the validation below checks the pair.
+    if (
+      updates.channelId !== undefined &&
+      updates.channelId !== stores[idx].channelId &&
+      updates.subChannelId === undefined &&
+      stores[idx].subChannelId
+    ) {
+      delete stores[idx].subChannelId;
+    }
     if (updates.channelId !== undefined) stores[idx].channelId = updates.channelId;
     if (updates.gpsLat !== undefined) stores[idx].gpsLat = updates.gpsLat;
     if (updates.gpsLng !== undefined) stores[idx].gpsLng = updates.gpsLng;
@@ -43,6 +62,35 @@ export async function PUT(request: NextRequest) {
     if (updates.weekNumber !== undefined) stores[idx].weekNumber = updates.weekNumber;
     if (updates.region !== undefined) stores[idx].region = updates.region;
     if (updates.province !== undefined) stores[idx].province = updates.province;
+
+    // Which sub-channel this store sits in, set by hand.
+    //
+    // Empty string clears it, so the store follows its channel again — a real
+    // choice, and the one to reach for when IMS has filed a shop wrongly.
+    //
+    // ⚠️ Validated against the store's OWN channel. A sub-channel belonging to
+    // a different channel would never resolve: callPolicy looks the sub-channel
+    // up and finds a parent that does not match, so the store would silently
+    // take a policy from a retailer it is not part of.
+    if (updates.subChannelId !== undefined) {
+      const wanted = String(updates.subChannelId || "").trim();
+      if (!wanted) {
+        delete stores[idx].subChannelId;
+      } else {
+        const subChannels = await getSubChannels();
+        const sub = subChannels.find((c) => c.id === wanted);
+        if (!sub) {
+          return NextResponse.json({ error: "That sub-channel does not exist." }, { status: 400 });
+        }
+        if (sub.channelId !== stores[idx].channelId) {
+          return NextResponse.json(
+            { error: `${sub.name} belongs to a different channel than this store.` },
+            { status: 400 }
+          );
+        }
+        stores[idx].subChannelId = wanted;
+      }
+    }
 
     // Active or closed, set by a person.
     //
