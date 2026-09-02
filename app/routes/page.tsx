@@ -49,6 +49,20 @@ export default function RoutesPage() {
   } | null>(null);
   const [error, setError] = useState("");
   const [routeTypes, setRouteTypes] = useState<RouteTypeInfo[]>([]);
+
+  // Calls per day.
+  //
+  // `saved` is what every rep's week is currently built on; `callsPerDay` is
+  // what the box says right now. They are separate because typing a number
+  // must be able to preview ONE rep without committing the other 63 to it.
+  // Null in either means no target, which is a real setting and not an unset
+  // one: it hands day sizing back to the clock.
+  const [callsPerDay, setCallsPerDay] = useState<number | null>(null);
+  const [savedCallsPerDay, setSavedCallsPerDay] = useState<number | null>(null);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewNote, setPreviewNote] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
   const [selectedTypeId, setSelectedTypeId] = useState("");
 
   const isAdmin = session?.role === "superAdmin" || session?.role === "admin";
@@ -130,13 +144,118 @@ export default function RoutesPage() {
     return scoped;
   }, [reps, isRep, isTeamManager, isAdmin, session?.repCode, session?.teamId, selectedTeam]);
 
-  const generateRoutes = async () => {
+  // 🔴 Seeded from the server, never defaulted in the markup. A box that starts
+  // on 8 while the business is on no target would apply 8 the first time
+  // anyone touched anything else on this page.
+  useEffect(() => {
+    fetch("/api/settings", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        const v = typeof d?.callsPerDay === "number" ? d.callsPerDay : null;
+        setCallsPerDay(v);
+        setSavedCallsPerDay(v);
+      })
+      .catch(() => {})
+      .finally(() => setSettingsLoaded(true));
+  }, []);
+
+  /**
+   * Rebuild ONE rep at the number in the box, without saving it.
+   *
+   * One rep is a second or two and gets the full Google budget, so the manager
+   * can see what 8 calls a day actually looks like before committing everyone
+   * to it. The server merges the result into the saved plan rather than
+   * replacing it, so the other reps keep the week they already had.
+   */
+  const previewForRep = async (repCode: string, calls: number | null) => {
+    setPreviewing(true);
+    setError("");
+    const started = Date.now();
+    try {
+      const res = await fetch("/api/routes/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repCodes: [repCode],
+          ...(selectedTypeId ? { typeId: selectedTypeId } : {}),
+          // Explicit null asks for no target. Omitting it would inherit the
+          // saved setting, which is the opposite of what the box says.
+          callsPerDay: calls,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      const doc = await res.json();
+      setRoutes(doc);
+      const plan = doc.repPlans?.find((p: RepRoutePlan) => p.repCode === repCode);
+      const perDay = plan?.days?.map((d: RouteDayPlan) => d.stops.length) ?? [];
+      const seconds = ((Date.now() - started) / 1000).toFixed(1);
+      setPreviewNote(
+        plan
+          ? `${plan.repName} rebuilt at ${calls ? `${calls} calls/day` : "no target"} in ${seconds}s` +
+            (perDay.length ? ` — ${Math.min(...perDay)} to ${Math.max(...perDay)} calls a day` : "")
+          : null
+      );
+    } catch (err) {
+      setError(String(err));
+      setPreviewNote(null);
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
+  /**
+   * Commit the number, then rebuild everybody on it.
+   *
+   * The setting is saved FIRST. A rebuild that succeeded against a setting that
+   * failed to save would leave the plan and the stated target disagreeing, and
+   * the next person to press Generate would silently undo the whole thing.
+   */
+  const applyCallsPerDayToAll = async () => {
+    setApplying(true);
+    setError("");
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ callsPerDay: callsPerDay ?? null }),
+      });
+      if (!res.ok) throw new Error("Could not save the calls per day setting.");
+      setSavedCallsPerDay(callsPerDay);
+      setPreviewNote(null);
+      await generateRoutes({ allReps: true });
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  // Debounced preview. Waits for the typing to stop, so dragging 8 to 12
+  // fires one rebuild rather than five.
+  useEffect(() => {
+    if (!settingsLoaded || !selectedRep || !canGenerate) return;
+    if (callsPerDay === savedCallsPerDay) return;
+    const t = setTimeout(() => previewForRep(selectedRep, callsPerDay), 700);
+    return () => clearTimeout(t);
+    // previewForRep is recreated every render; depending on it would refire
+    // the timer on every keystroke elsewhere on the page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callsPerDay, selectedRep, settingsLoaded, savedCallsPerDay, canGenerate, selectedTypeId]);
+
+  const generateRoutes = async (opts: { allReps?: boolean } = {}) => {
     setGenerating(true);
     setError("");
     try {
       const payload: Record<string, unknown> = {};
-      if (selectedRep) payload.repCodes = [selectedRep];
+      if (selectedRep && !opts.allReps) payload.repCodes = [selectedRep];
       if (selectedTypeId) payload.typeId = selectedTypeId;
+      // Sent explicitly so a full run uses what the box says, not what was
+      // last saved. They are the same after Apply, and differ if someone
+      // presses Generate Routes with an uncommitted number in the box.
+      payload.callsPerDay = callsPerDay ?? null;
       const res = await fetch("/api/routes/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -323,6 +442,14 @@ export default function RoutesPage() {
                       {routes.callCycleTypeName}
                     </span>
                   )}
+                  {/* Read off the PLAN, not the setting. The setting can be
+                      changed without regenerating, and showing it here would
+                      describe a week nobody has. */}
+                  {routes.config.callsPerDay ? (
+                    <span className="ml-2 inline-block bg-blue-50 text-blue-700 text-xs font-medium px-2 py-0.5 rounded">
+                      {routes.config.callsPerDay} calls/day
+                    </span>
+                  ) : null}
                 </>
               : "No routes generated yet"}
           </p>
@@ -338,7 +465,7 @@ export default function RoutesPage() {
           )}
           {canGenerate && (
             <button
-              onClick={generateRoutes}
+              onClick={() => generateRoutes()}
               disabled={generating}
               className="bg-clippa-red text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50 transition-colors flex items-center gap-2"
             >
@@ -356,6 +483,80 @@ export default function RoutesPage() {
           {error}
         </div>
       )}
+
+      {/* Calls per day */}
+      {canGenerate && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-4">
+          <div className="flex flex-wrap items-center gap-4">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Calls per day</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={30}
+                  value={callsPerDay ?? ""}
+                  placeholder="No target"
+                  onChange={(e) => {
+                    const raw = e.target.value.trim();
+                    if (raw === "") return setCallsPerDay(null);
+                    const v = Number(raw);
+                    setCallsPerDay(Number.isFinite(v) && v >= 1 ? Math.min(Math.round(v), 30) : null);
+                  }}
+                  className="w-28 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
+                />
+                {callsPerDay !== null && (
+                  <button
+                    onClick={() => setCallsPerDay(null)}
+                    className="text-xs text-gray-400 hover:text-gray-700"
+                    title="Size days by the working day instead of a fixed number of calls"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="flex-1 min-w-[16rem] text-xs text-gray-500">
+              {!selectedRep ? (
+                <span>
+                  Pick a rep above to see this number applied to their week before you commit everyone to it.
+                </span>
+              ) : previewing ? (
+                <span className="text-gray-700">Rebuilding that rep&rsquo;s week&hellip;</span>
+              ) : previewNote ? (
+                <span className="text-green-700 font-medium">{previewNote}</span>
+              ) : (
+                <span>
+                  Change the number to rebuild this rep&rsquo;s week on its own. Nobody else moves until you apply it.
+                </span>
+              )}
+              {/* What the SAVED plan runs on, so an uncommitted number in the
+                  box can never be mistaken for the business setting. */}
+              <div className="mt-1 text-gray-400">
+                Everyone is on{" "}
+                {savedCallsPerDay ? `${savedCallsPerDay} calls a day` : "no target (days sized by working hours)"}.
+              </div>
+            </div>
+
+            <button
+              onClick={applyCallsPerDayToAll}
+              disabled={applying || generating || callsPerDay === savedCallsPerDay}
+              className="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-700 disabled:opacity-40 transition-colors flex items-center gap-2"
+            >
+              {applying && (
+                <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+              )}
+              {applying
+                ? "Applying to every rep..."
+                : callsPerDay === savedCallsPerDay
+                  ? "Applied to everyone"
+                  : `Apply ${callsPerDay ? `${callsPerDay} calls/day` : "no target"} to ${filteredReps.length === 1 ? "this rep" : `all ${filteredReps.length} reps`}`}
+            </button>
+          </div>
+        </div>
+      )}
+
 
       {/* Filters row */}
       <div className="flex items-center gap-4 mb-6 flex-wrap">
@@ -757,7 +958,24 @@ export default function RoutesPage() {
             {(selectedDayPlan.totalVisitTime / 60).toFixed(1)}h visits |{" "}
             {(selectedDayPlan.totalTime / 60).toFixed(1)}h total |{" "}
             {Math.round(selectedDayPlan.totalDistance)}km
-            {selectedDayPlan.overCapacity && " — OVER CAPACITY"}
+            {/* By HOW MUCH, not just that it is over. "Over capacity" on half a
+                rep's days is noise; 8 minutes and two hours are different
+                problems. With a calls-per-day target this is the honest half of
+                the bargain — the day carries what was asked for AND says it
+                runs long, rather than quietly dropping the last call. */}
+            {selectedDayPlan.overCapacity && (
+              <span className="ml-1">
+                {selectedDayPlan.overrunMinutes
+                  ? `— OVER the working day by ${
+                      selectedDayPlan.overrunMinutes >= 60
+                        ? `${Math.floor(selectedDayPlan.overrunMinutes / 60)}h ${selectedDayPlan.overrunMinutes % 60}m`
+                        : `${selectedDayPlan.overrunMinutes}m`
+                    }`
+                  : /* A plan generated before the minutes were recorded. Saying
+                       what is known beats inventing a figure for it. */
+                    "— OVER CAPACITY"}
+              </span>
+            )}
           </div>
         </div>
       )}

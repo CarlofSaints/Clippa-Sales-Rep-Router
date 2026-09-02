@@ -83,6 +83,20 @@ export async function saveChannels(channels: Channel[]): Promise<void> {
 
 export interface AppSettings {
   outlierRadiusKm: number; // stores beyond this distance from a rep's area are flagged out-of-range
+  /**
+   * How many calls a rep should make in a day.
+   *
+   * Absent means "no target": days are sized by the clock alone, which is how
+   * this app worked before the setting existed. That absence is deliberate and
+   * is NOT the same as zero — every plan generated so far was built without a
+   * target, and defaulting one in would silently redraw all of them the next
+   * time anybody pressed Generate.
+   *
+   * When it IS set it beats the working day. See the note on `overrunMinutes`:
+   * the manager naming a number is an instruction, and the travel model is an
+   * estimate, so a day that runs long is reported rather than quietly cut.
+   */
+  callsPerDay?: number;
 }
 
 const DEFAULT_SETTINGS: AppSettings = { outlierRadiusKm: 150 };

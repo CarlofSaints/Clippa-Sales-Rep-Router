@@ -400,6 +400,15 @@ export interface RouteDayPlan {
   totalTime: number; // minutes (travel + visits)
   totalDistance: number; // km
   overCapacity: boolean;
+  /**
+   * How far past the rep's working day this one runs, in minutes.
+   *
+   * Only ever positive, and only present when a calls-per-day target pushed the
+   * day past its hours. Present BECAUSE the target wins: the manager asked for
+   * eight calls, so eight calls are scheduled, and this is how the plan admits
+   * the day is longer than the rep's hours instead of quietly dropping a store.
+   */
+  overrunMinutes?: number;
   polyline?: string; // encoded Google polyline
 }
 
@@ -426,6 +435,15 @@ export interface RoutePlanDocument {
   config: {
     useGoogleMaps: boolean;
     defaultStartTime: string; // "HH:mm"
+    /**
+     * The calls-per-day target this plan was built with, or absent for a plan
+     * built before the setting existed (or with no target at all).
+     *
+     * Recorded ON THE PLAN, not read from settings when the page renders. The
+     * setting can be changed without regenerating, and a page that showed the
+     * CURRENT setting beside an OLD plan would describe a week nobody has.
+     */
+    callsPerDay?: number;
   };
 }
 
