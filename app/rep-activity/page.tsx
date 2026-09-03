@@ -247,12 +247,21 @@ export default function RepActivityPage() {
         </div>
       )}
 
-      {/* Grid */}
+      {/* Grid.
+
+          The table scrolls inside its own box rather than with the page, which
+          is what lets the head stay put: `position: sticky` pins to the nearest
+          scrolling ancestor, and with the page as that ancestor the rounded
+          `overflow-hidden` wrapper around this table would have swallowed it.
+
+          Sticky sits on the CELLS (via [&>th]) rather than on <thead>, and each
+          one carries its own background — a transparent sticky row lets the body
+          rows scroll visibly underneath it. */}
       <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto overflow-y-auto max-h-[70vh]">
           <table className="w-full text-xs">
-            <thead className="bg-gray-50">
-              <tr className="text-left text-[10px] text-gray-500 uppercase tracking-wider">
+            <thead>
+              <tr className="text-left text-[10px] text-gray-500 uppercase tracking-wider [&>th]:sticky [&>th]:top-0 [&>th]:z-20 [&>th]:bg-gray-50 [&>th]:shadow-[inset_0_-1px_0_#e5e7eb]">
                 <SortableTh sortId="repCode" sort={sort} className="px-3 py-2">Rep Code</SortableTh>
                 <SortableTh sortId="repName" sort={sort} className="px-3 py-2">Rep Name</SortableTh>
                 <SortableTh sortId="teamName" sort={sort} className="px-3 py-2">Team</SortableTh>
@@ -385,10 +394,14 @@ export default function RepActivityPage() {
                 ))
               )}
             </tbody>
-            {/* Totals follow the filters, so a filtered view never shows the whole business. */}
+            {/* Totals follow the filters, so a filtered view never shows the whole business.
+                Pinned to the bottom of the box for the same reason the head is
+                pinned to the top: putting the table in a scroll box would
+                otherwise have hidden the totals behind 64 rows of scrolling,
+                which is worse than where they started. */}
             {!loading && sorted.length > 0 && (
-              <tfoot className="bg-gray-50 border-t border-gray-200">
-                <tr className="font-semibold text-gray-800">
+              <tfoot>
+                <tr className="font-semibold text-gray-800 [&>td]:sticky [&>td]:bottom-0 [&>td]:z-20 [&>td]:bg-gray-50 [&>td]:shadow-[inset_0_1px_0_#d1d5db]">
                   <td className="px-3 py-2" colSpan={3}>
                     {hasFilters ? `${totals.reps} reps (filtered)` : `${totals.reps} reps`}
                   </td>
