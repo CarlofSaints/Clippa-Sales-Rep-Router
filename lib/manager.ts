@@ -1,5 +1,31 @@
-import { SessionPayload } from "./types";
+import { SessionPayload, Team } from "./types";
 import { getReps, getTeams, getUsers } from "./data";
+
+/**
+ * An email address reduced to the thing worth comparing.
+ *
+ * Real, on live data 3 Sep 2026: a team manager was saved as
+ * `"ALEC@CLIPPASALES.COM "` — typed with a trailing space, stored verbatim.
+ * Four separate places match a manager to their login with
+ * `t.managerEmail.toLowerCase() === session.email.toLowerCase()`, and every one
+ * of them would have missed, so that manager's `teamId` would silently never
+ * resolve at sign-in. Nothing would say why.
+ */
+export function normaliseEmail(value: string | undefined | null): string {
+  return (value || "").trim().toLowerCase();
+}
+
+/**
+ * The team this person manages, if any.
+ *
+ * Exists so the four callers share ONE comparison. They had four copies of it,
+ * which is exactly the shape where a fix lands in three of them.
+ */
+export function findTeamForManager(teams: Team[], email: string | undefined | null): Team | undefined {
+  const wanted = normaliseEmail(email);
+  if (!wanted) return undefined;
+  return teams.find((t) => normaliseEmail(t.managerEmail) === wanted);
+}
 
 export interface ManagerInfo {
   name: string;

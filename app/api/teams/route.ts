@@ -13,18 +13,31 @@ export async function GET() {
   }
 }
 
+/**
+ * Whitespace off every text field before it is stored.
+ *
+ * `managerEmail` is the one that matters: it is a KEY, not a label. Four places
+ * match a manager to their login on it, and a manager really was saved as
+ * `"ALEC@CLIPPASALES.COM "` on 3 Sep 2026 — pasted with a trailing space, which
+ * every one of those comparisons would have missed. The comparisons trim now
+ * too, but a value that is wrong in the store will keep finding new readers.
+ */
+function tidy(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const teams = await getTeams();
     const newTeam: Team = {
       id: crypto.randomUUID(),
-      name: body.name || "",
-      managerId: body.managerId || "",
-      managerName: body.managerName || "",
-      managerEmail: body.managerEmail || "",
-      managerCell: body.managerCell || "",
-      area: body.area || "",
+      name: tidy(body.name),
+      managerId: tidy(body.managerId),
+      managerName: tidy(body.managerName),
+      managerEmail: tidy(body.managerEmail),
+      managerCell: tidy(body.managerCell),
+      area: tidy(body.area),
     };
     teams.push(newTeam);
     await saveTeams(teams);
@@ -45,6 +58,11 @@ export async function PUT(request: NextRequest) {
     const teams = await getTeams();
     const idx = teams.findIndex((t) => t.id === id);
     if (idx === -1) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    // Trim what was sent, not the whole record: a field the caller did not
+    // mention must stay exactly as it was, which is what Object.assign gives.
+    for (const [key, value] of Object.entries(updates)) {
+      if (typeof value === "string") (updates as Record<string, unknown>)[key] = value.trim();
+    }
     Object.assign(teams[idx], updates);
     await saveTeams(teams);
 

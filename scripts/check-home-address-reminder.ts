@@ -19,6 +19,7 @@ import {
   buildAdminSummaryEmail,
 } from "../lib/homeAddressReminder";
 import { remindersEnabled, type AppSettings } from "../lib/data";
+import { findTeamForManager, normaliseEmail } from "../lib/manager";
 import { isRepAllowedPath } from "../lib/repAccess";
 import { isPublicPath } from "../lib/publicPaths";
 import type { Rep, Store, Team, User, ReminderStateMap } from "../lib/types";
@@ -433,6 +434,43 @@ const team = (over: Partial<Team> = {}): Team => ({
   ok("an untouched settings blob has reminders on", remindersEnabled({ outlierRadiusKm: 150 } as AppSettings) === true);
   ok("explicitly off is off", remindersEnabled({ outlierRadiusKm: 150, homeAddressRemindersEnabled: false } as AppSettings) === false);
   ok("explicitly on is on", remindersEnabled({ outlierRadiusKm: 150, homeAddressRemindersEnabled: true } as AppSettings) === true);
+}
+
+// ── 8b. A manager email is a KEY, not a label ────────────────────────────
+{
+  // The real value stored on 3 Sep 2026: pasted with a trailing space and in
+  // caps. Every login-to-team match in the app compared it raw.
+  const messy = "ALEC@CLIPPASALES.COM ";
+  ok("case and whitespace are stripped for comparison", normaliseEmail(messy) === "alec@clippasales.com");
+  ok("an absent address normalises to empty", normaliseEmail(undefined) === "");
+  ok("a whitespace-only address normalises to empty", normaliseEmail("   ") === "");
+
+  const teams = [team({ id: "t1", name: "REGION B", managerEmail: messy })];
+  ok("a manager still finds their team", findTeamForManager(teams, "alec@clippasales.com")?.id === "t1");
+  ok("and from a messily typed session address too", findTeamForManager(teams, " Alec@Clippasales.com ")?.id === "t1");
+  // The bug this replaces: `t.managerEmail.toLowerCase() === email.toLowerCase()`
+  // missed, so the manager's teamId silently never resolved at sign-in.
+  ok(
+    "the old raw comparison would have missed",
+    teams.find((t) => t.managerEmail.toLowerCase() === "alec@clippasales.com") === undefined
+  );
+  ok("an empty address matches nobody", findTeamForManager(teams, "") === undefined);
+  // A blank manager email must never make every rep "match" the first team.
+  ok(
+    "a team with a blank manager email is not a wildcard",
+    findTeamForManager([team({ id: "t2", managerEmail: "  " })], "") === undefined
+  );
+
+  // And the reminder must count a messily-typed manager as reachable.
+  const plan = classifyReps({
+    reps: [rep({ id: "a", code: "GAU001", teamId: "t1", email: "a@example.com" })],
+    users: [user({ id: "ua", repId: "a" })],
+    teams,
+    stores: [],
+    state: {},
+  });
+  ok("a rep under a messily-typed manager is still emailed", plan.mailable.length === 1);
+  ok("and the digest sends to the trimmed address", plan.managerDigests[0].managerEmail === "ALEC@CLIPPASALES.COM");
 }
 
 // ── 9. The cron route's own front door ───────────────────────────────────
