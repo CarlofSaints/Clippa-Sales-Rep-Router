@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStores, saveStores, getChannels, saveChannels, getReps, saveReps, getStoreOverrides, getAllocationSettings } from "@/lib/data";
+import { getStores, saveStores, getChannels, saveChannels, getReps, saveReps, getStoreOverrides, getAllocationSettings, getRepCodeRules } from "@/lib/data";
 import { overriddenStoreIds } from "@/lib/channelDefaults";
 import { uploadScope } from "@/lib/uploadScope";
+import { resolveRepCode } from "@/lib/repCodeRules";
 import { Store, Channel, Rep } from "@/lib/types";
 import { getSession } from "@/lib/auth";
 import { logActivity } from "@/lib/activityLog";
@@ -42,6 +43,11 @@ export async function POST(request: NextRequest) {
     // store this app has never seen.
     const allocation = await getAllocationSettings();
     const repWritable = allocation.source !== "ims";
+    // Codes that are not a rep. A Places export naming one must not invent a
+    // rep record for it, and must not hand it a store — this route is where
+    // both would otherwise happen silently, because it auto-creates a rep from
+    // any code it has not seen.
+    const repCodeRules = await getRepCodeRules();
     const channelMap = new Map(existingChannels.map((c) => [c.name, c]));
     const repMap = new Map(existingReps.map((r) => [r.code, r]));
 
@@ -77,6 +83,9 @@ export async function POST(request: NextRequest) {
     // needs both: the reps it is speaking for, and the stores it lists for them.
     const repCodesInFile = new Set<string>();
     const placeIdsInFile = new Set<string>();
+    /** Codes the file used that are not a rep, and how many rows each claimed. */
+    const blockedRepCodes = new Map<string, number>();
+    let repCellsBlocked = 0;
 
     // Which fields this file is allowed to touch. Presence of the COLUMN decides
     // scope: absent means leave the field alone. See lib/uploadScope.ts for why
@@ -131,6 +140,17 @@ export async function POST(request: NextRequest) {
       placeIdsInFile.add(placeId.trim().toUpperCase());
       if (repCode) repCodesInFile.add(repCode.trim().toUpperCase());
 
+      // Decided once per row, then honoured everywhere below. A code that is
+      // not a rep is treated as if the cell were blank: the store keeps
+      // whatever it already had rather than being handed to a non-person, and
+      // the count says how many rows were refused so it is never a mystery.
+      const repBlocked = !!repCode && !resolveRepCode(repCode, repCodeRules).routable;
+      if (repBlocked) {
+        const c = repCode.trim().toUpperCase();
+        blockedRepCodes.set(c, (blockedRepCodes.get(c) ?? 0) + 1);
+        repCellsBlocked++;
+      }
+
       // Auto-create channel
       if (channelName && !channelMap.has(channelName)) {
         const ch: Channel = {
@@ -146,8 +166,9 @@ export async function POST(request: NextRequest) {
         channelMap.set(channelName, ch);
       }
 
-      // Auto-create rep
-      if (repCode && !repMap.has(repCode)) {
+      // Auto-create rep. This is the line that would have turned CMRINL into a
+      // person the first time a Places export mentioned it.
+      if (repCode && !repBlocked && !repMap.has(repCode)) {
         const r: Rep = {
           id: crypto.randomUUID(),
           code: repCode,
@@ -198,10 +219,10 @@ export async function POST(request: NextRequest) {
         // authority, a Places export must not be able to take a store back off
         // the rep IMS says owns it. Without this half, an IMS allocation
         // survives exactly until somebody loads a spreadsheet.
-        if (hasRepColumn && repCode) {
+        if (hasRepColumn && repCode && !repBlocked) {
           if (repWritable) existing.repCode = repCode;
           else repCellsIgnored++;
-        } else if (hasRepColumn) blankRepCells++;
+        } else if (hasRepColumn && !repCode) blankRepCells++;
         // Coordinates move as a pair, and only when the file carries them.
         if (hasGpsColumns) {
           // A blank pair in a file that HAS the columns is still "no value here",
@@ -223,7 +244,10 @@ export async function POST(request: NextRequest) {
           placeId,
           name: storeName,
           channelId,
-          repCode,
+          // A brand new store on a code that is not a rep arrives unallocated
+          // rather than allocated to nobody-in-particular. It then shows up on
+          // the coverage report as needing an owner, which is true.
+          repCode: repBlocked ? "" : repCode,
           gpsLat: lat,
           gpsLng: lng,
           monthlySales: sales,
@@ -278,6 +302,8 @@ export async function POST(request: NextRequest) {
         blankChannelCells,
         blankGpsCells,
         blankRepCells,
+        repCellsBlocked,
+        blockedRepCodes: Object.fromEntries(blockedRepCodes),
         replaceAllocation,
         repCodesInFile: Array.from(repCodesInFile).sort(),
         unassignedCount: unassigned.length,
@@ -316,6 +342,8 @@ export async function POST(request: NextRequest) {
       blankChannelCells,
       blankGpsCells,
       blankRepCells,
+      repCellsBlocked,
+      blockedRepCodes: Object.fromEntries(blockedRepCodes),
       repCellsIgnored,
       allocationSource: allocation.source,
       replaceAllocation,

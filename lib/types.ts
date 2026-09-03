@@ -366,6 +366,47 @@ export interface User {
 }
 
 /**
+ * A decision about ONE rep code, in either direction.
+ *
+ * `routable: true` is not redundant with having no record at all: it is how a
+ * code is rescued from a prefix rule that is otherwise correct. See
+ * `resolveRepCode` in lib/repCodeRules.
+ */
+export interface RepCodeDecision {
+  /** Normalised: trimmed and upper-cased. */
+  code: string;
+  routable: boolean;
+  /** Why, so the next person does not undo a deliberate call. */
+  note?: string;
+  decidedAt: string;
+  decidedBy: string;
+}
+
+/**
+ * "Every code starting with this is not a rep."
+ *
+ * Exists because IMS keeps adding regions to the same non-rep account: CMRINL,
+ * CMRWC, CMRKZN, CMRFS, CMREC and CMRMP already, and the next one would have
+ * appeared as routable opportunity the moment a snapshot refreshed. A list of
+ * individually ticked codes goes stale in exactly that way
+ * ([[a-tag-decided-once-at-upload-goes-stale]]).
+ */
+export interface RepCodePrefixRule {
+  id: string;
+  /** Normalised. At least two characters — see addRepCodePrefix. */
+  prefix: string;
+  /** What this family IS, e.g. "Third-party agent". Shown beside every match. */
+  label: string;
+  createdAt: string;
+  createdBy: string;
+}
+
+export interface RepCodeRules {
+  codes: RepCodeDecision[];
+  prefixes: RepCodePrefixRule[];
+}
+
+/**
  * Why a rep who needs a home address is not being emailed about it.
  *
  * `no_manager` is a rule, not a fault in the rep's record: nobody is chased

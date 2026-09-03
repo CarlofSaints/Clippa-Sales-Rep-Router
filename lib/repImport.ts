@@ -1,4 +1,5 @@
-import { Rep } from "./types";
+import { Rep, RepCodeRules } from "./types";
+import { resolveRepCode } from "./repCodeRules";
 
 /**
  * Loading a rep list from a spreadsheet.
@@ -85,7 +86,19 @@ export function looksLikeEmail(value: string): boolean {
  *   trade good data for bad. The report is there so a genuine reassignment gets
  *   noticed.
  */
-export function applyRepImport(existing: Rep[], rows: RepImportRow[]): RepImportResult {
+/**
+ * @param rules Which codes are not a rep. Optional, and absent means "no rules
+ * apply" — the behaviour before this existed, which keeps every existing caller
+ * and every assertion honest. When supplied, a code the rules exclude can never
+ * be CREATED as a rep, however the sheet is written. Updating a rep that
+ * already exists is left alone on purpose: the guard is against a spreadsheet
+ * inventing `CMRINL` as a person, not against maintaining a real record.
+ */
+export function applyRepImport(
+  existing: Rep[],
+  rows: RepImportRow[],
+  rules?: RepCodeRules
+): RepImportResult {
   const reps: Rep[] = existing.map((r) => ({ ...r }));
   const byCode = new Map(reps.map((r) => [r.code.trim().toUpperCase(), r]));
 
@@ -132,6 +145,23 @@ export function applyRepImport(existing: Rep[], rows: RepImportRow[]): RepImport
     const target = byCode.get(code);
 
     if (!target) {
+      // Carl's rule, 3 Sep 2026: a code that is not a rep must never become
+      // one. Rejected with the reason, and with what to do about it, because
+      // "rejected" on its own reads as a broken importer.
+      if (rules) {
+        const verdict = resolveRepCode(code, rules);
+        if (!verdict.routable) {
+          rejected.push({
+            row: rowNumber,
+            reason:
+              `${code} is marked as not a rep` +
+              (verdict.reason === "prefix" ? ` by the ${verdict.prefix}* rule` : "") +
+              `, so no rep record was created. Change it on the Rep Codes page if that is wrong.`,
+          });
+          return;
+        }
+      }
+
       const rep: Rep = {
         id: crypto.randomUUID(),
         code: (row.code || "").trim(),

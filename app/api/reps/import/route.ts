@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getReps, saveReps } from "@/lib/data";
+import { getReps, saveReps, getRepCodeRules } from "@/lib/data";
 import { requirePermission } from "@/lib/auth";
 import { logActivity } from "@/lib/activityLog";
 import { applyRepImport, parseRepSheet } from "@/lib/repImport";
@@ -49,8 +49,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const existing = await getReps();
-    const result = applyRepImport(existing, parsed.rows);
+    const [existing, repCodeRules] = await Promise.all([getReps(), getRepCodeRules()]);
+    const result = applyRepImport(existing, parsed.rows, repCodeRules);
 
     if (!preview && (result.created.length > 0 || result.updated.length > 0)) {
       await saveReps(result.reps);

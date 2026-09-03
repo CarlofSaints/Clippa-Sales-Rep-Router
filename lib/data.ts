@@ -1,5 +1,5 @@
 import { put, list, get } from "@vercel/blob";
-import { Channel, SubChannel, Rep, Store, User, Team, RoutePlanDocument, RolePermission, ROLE_DEFINITIONS, ALL_PERMISSIONS, CallCycleType, DEFAULT_CALL_CYCLE_TYPES, Region, StoreOverride, ReminderRun, ReminderStateMap } from "./types";
+import { Channel, SubChannel, Rep, Store, User, Team, RoutePlanDocument, RolePermission, ROLE_DEFINITIONS, ALL_PERMISSIONS, CallCycleType, DEFAULT_CALL_CYCLE_TYPES, Region, StoreOverride, ReminderRun, ReminderStateMap, RepCodeRules } from "./types";
 import type { PasswordResetRecord } from "./passwordReset";
 import { DEFAULT_COMMISSION, type CommissionSettings } from "./commission";
 import { DEFAULT_ALLOCATION, type AllocationSettings } from "./allocationSource";
@@ -141,6 +141,24 @@ export async function getSettings(): Promise<AppSettings> {
 
 export async function saveSettings(settings: AppSettings): Promise<void> {
   await writeJSON("settings", settings);
+}
+
+// ---------- Rep code rules ----------
+
+/**
+ * Which rep codes are not a rep. See lib/repCodeRules for what that governs.
+ *
+ * An absent blob means no rules yet, and `EMPTY_REP_CODE_RULES` says every code
+ * is a rep — which is how the app behaved before this existed. Defaulting the
+ * other way would have unrouted the entire book on first deploy.
+ */
+export async function getRepCodeRules(): Promise<RepCodeRules> {
+  const saved = await readJSON<Partial<RepCodeRules> | null>("rep-code-rules", null);
+  return { codes: saved?.codes ?? [], prefixes: saved?.prefixes ?? [] };
+}
+
+export async function saveRepCodeRules(rules: RepCodeRules): Promise<void> {
+  await writeJSON("rep-code-rules", rules);
 }
 
 // ---------- Home address reminders ----------
