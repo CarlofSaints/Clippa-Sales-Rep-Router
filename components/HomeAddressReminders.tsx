@@ -73,6 +73,11 @@ const BLOCK_LABEL: Record<BlockedRep["reason"], string> = {
   no_login: "No login yet",
 };
 
+/** Drops a leading capital so a standalone phrase reads inside a sentence. */
+function midSentence(text: string): string {
+  return text ? text.charAt(0).toLowerCase() + text.slice(1) : text;
+}
+
 function whenText(iso: string | null): string {
   if (!iso) return "never";
   const d = new Date(iso);
@@ -185,7 +190,9 @@ export default function HomeAddressReminders() {
                 have no home the router can use.{" "}
                 {status.enabled ? (
                   <>
-                    {mailableCount} will be emailed {status.schedule.toLowerCase()}.
+                    {/* Only the leading capital is dropped to fit the sentence.
+                        Lowercasing the whole string turned SAST into "sast". */}
+                    {mailableCount} will be emailed {midSentence(status.schedule)}.
                   </>
                 ) : (
                   <>Reminders are switched off, so nothing will be sent.</>
