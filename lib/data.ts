@@ -1,5 +1,5 @@
 import { put, list, get } from "@vercel/blob";
-import { Channel, SubChannel, Rep, Store, User, Team, RoutePlanDocument, RolePermission, ROLE_DEFINITIONS, ALL_PERMISSIONS, CallCycleType, DEFAULT_CALL_CYCLE_TYPES, Region, StoreOverride } from "./types";
+import { Channel, SubChannel, Rep, Store, User, Team, RoutePlanDocument, RolePermission, ROLE_DEFINITIONS, ALL_PERMISSIONS, CallCycleType, DEFAULT_CALL_CYCLE_TYPES, Region, StoreOverride, ReminderRun, ReminderStateMap } from "./types";
 import type { PasswordResetRecord } from "./passwordReset";
 import { DEFAULT_COMMISSION, type CommissionSettings } from "./commission";
 import { DEFAULT_ALLOCATION, type AllocationSettings } from "./allocationSource";
@@ -112,9 +112,27 @@ export interface AppSettings {
    * estimate, so a day that runs long is reported rather than quietly cut.
    */
   callsPerDay?: number;
+  /**
+   * Whether the Monday home-address reminder actually sends.
+   *
+   * Absent means ON. That is the unusual choice and it is deliberate: the
+   * feature was asked for as a live weekly job, so the switch exists to STOP it,
+   * not to start it. Defaulting absent to off would ship a cron that never fired
+   * and looked, from every screen, exactly like one that did.
+   *
+   * Turning it off leaves the cron firing and the run logged — it just sends
+   * nothing, and the run says why. A schedule that vanishes without trace is how
+   * you end up unable to answer "when did this last work?".
+   */
+  homeAddressRemindersEnabled?: boolean;
 }
 
 const DEFAULT_SETTINGS: AppSettings = { outlierRadiusKm: 150 };
+
+/** The reading of the switch above, in one place, so nothing re-guesses it. */
+export function remindersEnabled(settings: AppSettings): boolean {
+  return settings.homeAddressRemindersEnabled !== false;
+}
 
 export async function getSettings(): Promise<AppSettings> {
   const saved = await readJSON<Partial<AppSettings> | null>("settings", null);
@@ -124,6 +142,42 @@ export async function getSettings(): Promise<AppSettings> {
 export async function saveSettings(settings: AppSettings): Promise<void> {
   await writeJSON("settings", settings);
 }
+
+// ---------- Home address reminders ----------
+
+/**
+ * How many times each rep has been asked for their home address, keyed by rep id.
+ *
+ * Kept in its own blob rather than as fields on the Rep record. A weekly cron
+ * rewriting reps.json would be a read-modify-write over the whole rep table on a
+ * schedule, racing anybody editing a rep at the time — and losing their edit.
+ * Nothing else reads this, so it costs one small blob and no risk.
+ */
+export async function getReminderState(): Promise<ReminderStateMap> {
+  return readJSON<ReminderStateMap>("home-address-reminders", {});
+}
+
+export async function saveReminderState(state: ReminderStateMap): Promise<void> {
+  await writeJSON("home-address-reminders", state);
+}
+
+/**
+ * Every run of the reminder job, newest first.
+ *
+ * A cron that quietly stops firing is invisible: the only symptom is mail that
+ * did not arrive, which nobody notices. Recording every run — including the ones
+ * that sent nothing — is what makes "when did this last work?" answerable.
+ */
+export async function getReminderRuns(): Promise<ReminderRun[]> {
+  return readJSON<ReminderRun[]>("logs/home-address-reminders", []);
+}
+
+export async function appendReminderRun(run: ReminderRun): Promise<void> {
+  const runs = await getReminderRuns();
+  await writeJSON("logs/home-address-reminders", [run, ...runs].slice(0, MAX_REMINDER_RUNS));
+}
+
+const MAX_REMINDER_RUNS = 60;
 
 // ---------- Geocode cache (reverse-geocoded place names, keyed by rounded coord) ----------
 

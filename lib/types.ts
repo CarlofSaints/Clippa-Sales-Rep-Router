@@ -365,6 +365,55 @@ export interface User {
   repId?: string;
 }
 
+/** Why a rep who needs a home address cannot simply be emailed about it. */
+export type ReminderBlockReason = "no_email" | "no_login";
+
+/** What has been asked of one rep, and how that went. */
+export interface ReminderState {
+  repId: string;
+  repCode: string;
+  /** How many reminders this rep has been sent, ever. */
+  count: number;
+  firstSentAt: string;
+  lastSentAt: string;
+  lastResult: "sent" | "failed";
+  lastError?: string;
+}
+
+/** Keyed by rep id. A rep who has never been reminded simply has no entry. */
+export type ReminderStateMap = Record<string, ReminderState>;
+
+/**
+ * One firing of the home-address reminder job.
+ *
+ * A preview writes a run too, with `dryRun` true and nothing sent. That is
+ * deliberate: "I looked and there were 46" is a fact worth keeping, and it also
+ * means the run list can never mislead by showing only the sends.
+ */
+export interface ReminderRun {
+  id: string;
+  startedAt: string;
+  finishedAt: string;
+  trigger: "cron" | "manual";
+  dryRun: boolean;
+  /** Reps with no home the router can use, at the moment the run started. */
+  outstanding: number;
+  /** Of those, how many there was somewhere to write to. */
+  mailable: number;
+  sent: number;
+  failed: number;
+  /** Outstanding but uncontactable — no email, or no login to sign in with. */
+  blocked: number;
+  managersEmailed: number;
+  summarySent: boolean;
+  /** Reps who set a home since the last run, after having been reminded. */
+  settled: number;
+  /** Set when the run refused to do anything, e.g. the switch is off. */
+  skippedReason?: string;
+  /** Anything that went wrong at the run level rather than per rep. */
+  error?: string;
+}
+
 export interface RolePermission {
   role: UserRole;
   label: string;

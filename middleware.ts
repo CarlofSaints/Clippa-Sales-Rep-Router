@@ -21,7 +21,12 @@ import type { SessionPayload } from "@/lib/types";
 // Rather than make the route blanket-public, a CRON_SECRET bearer gets it past
 // the middleware. The route should verify the same bearer itself, so this is a
 // second gate rather than the only one.
-const BEARER_PATHS = ["/api/seed"];
+// Vercel Cron calls the app over the public internet with no cookie, so the
+// scheduled routes need the same door. The route re-checks the bearer itself.
+// ⚠️ If CRON_SECRET is unset this gate never opens and every scheduled run 401s
+// forever, silently — the mail simply stops arriving. Nothing on a screen would
+// say so, which is why /api/cron/... reports `cronSecretSet` to the Reps page.
+const BEARER_PATHS = ["/api/seed", "/api/cron"];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;

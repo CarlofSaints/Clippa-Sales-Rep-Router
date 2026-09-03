@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { Rep } from "@/lib/types";
 import { useSession } from "@/components/SessionProvider";
 import { useTableSort, useSortedRows, SortableTh } from "@/components/TableSort";
+import HomeAddressReminders from "@/components/HomeAddressReminders";
 
 interface GeocodeOutcome {
   repId: string;
@@ -451,6 +452,11 @@ export default function RepsPage() {
           </button>
         </div>
       </div>
+
+      {/* Who the app is chasing for a home address, and when it next writes to
+          them. It sits above the table because the mail goes out whether anybody
+          opens this page or not — the list of names should not be buried. */}
+      {canManageReps && <HomeAddressReminders />}
 
       {geocodeError && (
         <div className="p-3 rounded-lg text-sm mb-6 bg-red-50 text-red-700">{geocodeError}</div>

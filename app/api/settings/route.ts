@@ -43,6 +43,19 @@ export async function PUT(request: NextRequest) {
       }
     }
 
+    // The Monday home-address reminder. Only a real boolean moves it: a stray
+    // "false" string from a form would otherwise silently switch off a job whose
+    // only failure symptom is mail that stops arriving.
+    if (typeof body.homeAddressRemindersEnabled === "boolean") {
+      const previous = next.homeAddressRemindersEnabled !== false;
+      if (body.homeAddressRemindersEnabled !== previous) {
+        next.homeAddressRemindersEnabled = body.homeAddressRemindersEnabled;
+        changes.push(
+          `home address reminders ${body.homeAddressRemindersEnabled ? "back on" : "off"}`
+        );
+      }
+    }
+
     await saveSettings(next);
 
     const session = await getSession();
