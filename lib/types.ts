@@ -365,8 +365,14 @@ export interface User {
   repId?: string;
 }
 
-/** Why a rep who needs a home address cannot simply be emailed about it. */
-export type ReminderBlockReason = "no_email" | "no_login";
+/**
+ * Why a rep who needs a home address is not being emailed about it.
+ *
+ * `no_manager` is a rule, not a fault in the rep's record: nobody is chased
+ * unless their team manager is copied on the same run. An automated mail with
+ * no human behind it gets ignored, and there is nobody to follow it up.
+ */
+export type ReminderBlockReason = "no_email" | "no_login" | "no_manager";
 
 /** What has been asked of one rep, and how that went. */
 export interface ReminderState {

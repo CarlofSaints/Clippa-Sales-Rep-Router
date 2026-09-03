@@ -44,6 +44,14 @@ export interface OutstandingRep {
   /** Reminders already sent, before this run. */
   timesReminded: number;
   lastRemindedAt: string | null;
+  /**
+   * Set when this rep will NOT be written to, and why. Absent means they will.
+   *
+   * Carried on the rep rather than kept in a second list so the two can never
+   * disagree about the same person — every table that shows a rep can also show
+   * why they are or are not being mailed, from the one field.
+   */
+  blockedReason?: ReminderBlockReason;
 }
 
 export interface BlockedRep extends OutstandingRep {
@@ -61,9 +69,9 @@ export interface SettledRep {
 export interface ReminderPlan {
   /** Every rep the router cannot start from home, regardless of contactability. */
   outstanding: OutstandingRep[];
-  /** Of those, the ones there is somewhere to write to. */
+  /** Of those, the ones that will actually be written to. */
   mailable: OutstandingRep[];
-  /** Of those, the ones there is NOT — with the reason, so it can be fixed. */
+  /** Of those, the ones that will NOT — with the reason, so it can be fixed. */
   blocked: BlockedRep[];
   /** Reps who have a home fix now and had been reminded before. */
   settled: SettledRep[];
@@ -71,9 +79,12 @@ export interface ReminderPlan {
   managerDigests: ManagerDigest[];
   /**
    * Outstanding reps with no manager to copy — no team, or a team whose manager
-   * has no email address. Reported rather than silently dropped: on live data
-   * this is most of them, and a summary that did not say so would read as if
-   * every manager had been told.
+   * has no email address. These are HELD BACK, not merely uncopied: nobody is
+   * chased without their manager on the same run.
+   *
+   * Reported loudly rather than silently dropped. On live data this is most of
+   * them (37 of 46 on 3 Sep 2026), so a summary that did not say so would read
+   * as a mail-out that had gone out.
    */
   repsWithNoManagerContact: number;
   totalReps: number;
@@ -189,34 +200,38 @@ export function classifyReps(input: ClassifyInput): ReminderPlan {
   // driving should be the first name he sees, not whoever sorts alphabetically.
   outstanding.sort((a, b) => b.activeStores - a.activeStores || a.code.localeCompare(b.code));
 
-  const mailable: OutstandingRep[] = [];
-  const blocked: BlockedRep[] = [];
   const repById = new Map(reps.map((r) => [r.id, r]));
+  let repsWithNoManagerContact = 0;
 
+  // The blocking rules, most specific first. A rep is written to only when all
+  // three hold: somewhere to send it, an account to sign into, and a manager
+  // who is copied on the same run.
   for (const o of outstanding) {
     const rep = repById.get(o.repId)!;
-    if (!hasUsableEmail(rep)) {
-      blocked.push({ ...o, reason: "no_email" });
-      continue;
-    }
-    if (!findRepLogin(rep, users)) {
-      blocked.push({ ...o, reason: "no_login" });
-      continue;
-    }
-    mailable.push(o);
+    const managerReachable = hasUsableEmail({ email: o.managerEmail });
+    if (!managerReachable) repsWithNoManagerContact++;
+
+    if (!hasUsableEmail(rep)) o.blockedReason = "no_email";
+    else if (!findRepLogin(rep, users)) o.blockedReason = "no_login";
+    // Carl's rule, 3 Sep 2026: nobody is chased unless their manager is chased
+    // with them. An automated mail nobody is following up gets ignored, and on
+    // this data most reps have no team at all — a mail-out to all 45 would have
+    // been 37 people accountable to nobody.
+    else if (!managerReachable) o.blockedReason = "no_manager";
   }
 
-  // Managers are copied about their own team only, and only when there is an
-  // address to copy. A team whose manager record has a blank email is common
-  // here — one of the three live teams is exactly that — so it is counted.
+  const mailable = outstanding.filter((o) => !o.blockedReason);
+  const blocked = outstanding
+    .filter((o) => o.blockedReason)
+    .map((o) => ({ ...o, reason: o.blockedReason! }));
+
+  // Managers are copied about their own team only. The digest lists every one
+  // of their outstanding reps, INCLUDING any held back for a missing login —
+  // "this one needs an account" is exactly the thing a manager can act on.
   const digests = new Map<string, ManagerDigest>();
-  let repsWithNoManagerContact = 0;
   for (const o of outstanding) {
+    if (!hasUsableEmail({ email: o.managerEmail })) continue;
     const key = o.managerEmail.toLowerCase();
-    if (!key || !hasUsableEmail({ email: o.managerEmail })) {
-      repsWithNoManagerContact++;
-      continue;
-    }
     const existing = digests.get(key);
     if (existing) existing.reps.push(o);
     else
@@ -429,9 +444,29 @@ export function buildRepReminderEmail(input: RepReminderInput): {
   };
 }
 
-/** A plain HTML table of reps, used by both the manager and the admin mail. */
-function repTable(reps: OutstandingRep[], includeReminderCount: boolean): string {
-  const head = ["Rep", "Code", "Stores", ...(includeReminderCount ? ["Reminders"] : [])]
+/** What a row says about a rep who is not being written to this week. */
+function rowStatus(r: OutstandingRep): string {
+  if (!r.blockedReason) return "Emailed";
+  if (r.blockedReason === "no_login") return "Needs a login first";
+  if (r.blockedReason === "no_email") return "No email address";
+  return "Not emailed";
+}
+
+/**
+ * A plain HTML table of reps, used by both the manager and the admin mail.
+ *
+ * The status column is not decoration. A manager reading a list of names
+ * assumes every one of them got the mail, and would chase the one person who
+ * never did for ignoring a message they never received.
+ */
+function repTable(reps: OutstandingRep[], includeReminderCount: boolean, includeStatus = false): string {
+  const head = [
+    "Rep",
+    "Code",
+    "Stores",
+    ...(includeReminderCount ? ["Reminders"] : []),
+    ...(includeStatus ? ["Status"] : []),
+  ]
     .map(
       (h) =>
         `<th align="left" style="padding:6px 10px;font-family:Helvetica,Arial,sans-serif;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:${BRAND.grey};border-bottom:1px solid #f0e2e2;">${h}</th>`
@@ -444,6 +479,13 @@ function repTable(reps: OutstandingRep[], includeReminderCount: boolean): string
         escapeHtml(r.code),
         String(r.activeStores),
         ...(includeReminderCount ? [String(r.timesReminded)] : []),
+        ...(includeStatus
+          ? [
+              r.blockedReason
+                ? `<span style="color:${BRAND.redDark};">${escapeHtml(rowStatus(r))}</span>`
+                : escapeHtml(rowStatus(r)),
+            ]
+          : []),
       ];
       return `<tr>${cells
         .map(
@@ -497,17 +539,20 @@ export function buildManagerDigestEmail(input: ManagerDigestEmailInput): {
                   <strong>${stores} ${stores === 1 ? "store" : "stores"}</strong>.
                 </p>
                 <p style="margin:0;">
-                  ${n === 1 ? "This rep has" : "They have"} been emailed directly with instructions. You are copied so you know who to ask about it.
+                  Everyone marked <strong>Emailed</strong> below has been written to directly with
+                  instructions. You are copied so you know who to ask about it.
                 </p>
               </td>
             </tr>
             <tr>
-              <td style="padding:22px 32px 0 32px;">${repTable(input.reps, true)}</td>
+              <td style="padding:22px 32px 0 32px;">${repTable(input.reps, true, true)}</td>
             </tr>
             <tr>
               <td style="padding:22px 32px 0 32px;font-family:Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:${BRAND.grey};">
                 "Reminders" is how many times we have already asked. All they need to do is sign in,
-                open Account, and tap "Use my current location" while standing at home.
+                open Account, and tap "Use my current location" while standing at home. Anyone not
+                marked Emailed could not be written to &mdash; those need sorting out on the Rep
+                Router first.
               </td>
             </tr>
             <tr>
@@ -533,11 +578,12 @@ export function buildManagerDigestEmail(input: ManagerDigestEmailInput): {
       (r) =>
         `  ${r.code.padEnd(10)} ${r.name.padEnd(28)} ${String(r.activeStores).padStart(4)} stores   ${
           r.timesReminded
-        } reminder(s)`
+        } reminder(s)   ${rowStatus(r)}`
     ),
     ``,
-    `They have been emailed directly with instructions. You are copied so you know`,
-    `who to ask about it.`,
+    `Everyone marked Emailed has been written to directly with instructions. You are`,
+    `copied so you know who to ask about it. Anyone not marked Emailed could not be`,
+    `written to and needs sorting out on the Rep Router first.`,
     ``,
     `Thanks,`,
     `Clippa Rep Router`,
@@ -565,9 +611,10 @@ export interface AdminSummaryInput {
   trigger: "cron" | "manual";
 }
 
-const BLOCK_REASON_LABEL: Record<ReminderBlockReason, string> = {
+export const BLOCK_REASON_LABEL: Record<ReminderBlockReason, string> = {
   no_email: "No email address on file",
   no_login: "No login yet — create one on the Reps page",
+  no_manager: "No team manager to copy — put them in a team on the Teams page",
 };
 
 /**
@@ -611,20 +658,33 @@ export function buildAdminSummaryEmail(input: AdminSummaryInput): {
             </tr>`
     : "";
 
+  // Grouped by reason. Ungrouped, a list of 37 identical "no team manager"
+  // lines buries the two or three rows that are a genuinely different problem.
+  const byReason = new Map<ReminderBlockReason, BlockedRep[]>();
+  for (const b of plan.blocked) {
+    const list = byReason.get(b.reason);
+    if (list) list.push(b);
+    else byReason.set(b.reason, [b]);
+  }
+
   const blockedBlock = plan.blocked.length
     ? `
             <tr>
               <td style="padding:22px 32px 0 32px;font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:${BRAND.dark};">
-                <strong>Could not be emailed (${plan.blocked.length})</strong><br>
-                <span style="color:${BRAND.grey};font-size:13px;">These reps need a home address but there is no way to ask them for it.</span><br><br>
-                ${plan.blocked
+                <strong>Not emailed (${plan.blocked.length})</strong><br>
+                <span style="color:${BRAND.grey};font-size:13px;">These reps need a home address and were held back. Each line says what to fix.</span>
+                ${[...byReason.entries()]
+                  .map(
+                    ([reason, list]) => `<br><br>
+                <span style="color:${BRAND.redDark};font-weight:bold;">${BLOCK_REASON_LABEL[reason]} (${list.length})</span><br>
+                ${list
                   .map(
                     (b) =>
-                      `${escapeHtml(b.code)} ${escapeHtml(b.name)} &mdash; <span style="color:${BRAND.redDark};">${
-                        BLOCK_REASON_LABEL[b.reason]
-                      }</span> <span style="color:${BRAND.grey};">(${b.activeStores} stores)</span>`
+                      `${escapeHtml(b.code)} ${escapeHtml(b.name)} <span style="color:${BRAND.grey};">(${b.activeStores} stores)</span>`
                   )
-                  .join("<br>")}
+                  .join("<br>")}`
+                  )
+                  .join("")}
               </td>
             </tr>`
     : "";
@@ -662,7 +722,12 @@ export function buildAdminSummaryEmail(input: AdminSummaryInput): {
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
 ${stat("Reps with no home the router can use", plan.outstanding.length, `of ${plan.totalReps} reps`)}
 ${stat(dryRun ? "Would be emailed" : "Reminders sent", dryRun ? plan.mailable.length : sent)}
-${stat("Team managers copied", managersEmailed, plan.repsWithNoManagerContact > 0 ? `${plan.repsWithNoManagerContact} reps have no manager on file to copy` : "")}
+${stat("Team managers copied", managersEmailed)}
+${stat(
+  "Held back, no team manager",
+  plan.repsWithNoManagerContact,
+  plan.repsWithNoManagerContact > 0 ? "Put them in a team and they join the next run" : ""
+)}
 ${stat("Reps now anchored on home", plan.repsWithHome)}
                 </table>
               </td>
@@ -673,7 +738,7 @@ ${stat("Reps now anchored on home", plan.repsWithHome)}
               </td>
             </tr>
             <tr>
-              <td style="padding:0 32px;">${repTable(top, true)}</td>
+              <td style="padding:0 32px;">${repTable(top, true, true)}</td>
             </tr>
 ${settledBlock}
 ${blockedBlock}
@@ -693,10 +758,9 @@ ${failedBlock}
     ``,
     `Reps with no usable home: ${plan.outstanding.length} of ${plan.totalReps}`,
     `${dryRun ? "Would be emailed" : "Reminders sent"}:      ${dryRun ? plan.mailable.length : sent}`,
-    `Team managers copied:     ${managersEmailed}${
-      plan.repsWithNoManagerContact > 0
-        ? ` (${plan.repsWithNoManagerContact} reps have no manager on file to copy)`
-        : ""
+    `Team managers copied:     ${managersEmailed}`,
+    `Held back, no manager:    ${plan.repsWithNoManagerContact}${
+      plan.repsWithNoManagerContact > 0 ? ` (put them in a team and they join the next run)` : ""
     }`,
     `Reps anchored on home:    ${plan.repsWithHome}`,
     ``,
@@ -705,7 +769,7 @@ ${failedBlock}
       (r) =>
         `  ${r.code.padEnd(10)} ${r.name.padEnd(28)} ${String(r.activeStores).padStart(4)} stores   ${
           r.timesReminded
-        } reminder(s)`
+        } reminder(s)   ${rowStatus(r)}`
     ),
     ...(plan.settled.length
       ? [
@@ -717,10 +781,12 @@ ${failedBlock}
     ...(plan.blocked.length
       ? [
           ``,
-          `Could not be emailed (${plan.blocked.length}):`,
-          ...plan.blocked.map(
-            (b) => `  ${b.code} ${b.name} — ${BLOCK_REASON_LABEL[b.reason]} (${b.activeStores} stores)`
-          ),
+          `Not emailed (${plan.blocked.length}):`,
+          ...[...byReason.entries()].flatMap(([reason, list]) => [
+            ``,
+            `  ${BLOCK_REASON_LABEL[reason]} (${list.length}):`,
+            ...list.map((b) => `    ${b.code} ${b.name} (${b.activeStores} stores)`),
+          ]),
         ]
       : []),
     ...(failed.length

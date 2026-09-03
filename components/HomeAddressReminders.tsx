@@ -30,8 +30,10 @@ interface OutstandingRep {
   lastRemindedAt: string | null;
 }
 
+type BlockReason = "no_email" | "no_login" | "no_manager";
+
 interface BlockedRep extends OutstandingRep {
-  reason: "no_email" | "no_login";
+  reason: BlockReason;
 }
 
 interface ReminderRun {
@@ -68,9 +70,10 @@ interface ReminderStatus {
   runs: ReminderRun[];
 }
 
-const BLOCK_LABEL: Record<BlockedRep["reason"], string> = {
+const BLOCK_LABEL: Record<BlockReason, string> = {
   no_email: "No email address",
   no_login: "No login yet",
+  no_manager: "No team manager",
 };
 
 /** Drops a leading capital so a standalone phrase reads inside a sentence. */
@@ -200,8 +203,27 @@ export default function HomeAddressReminders() {
               </>
             )}
           </p>
+          {/* The held-back count belongs where the send count is, not two clicks
+              away. On live data it is 37 of 46, so a headline of "9 will be
+              emailed" with no explanation reads as the feature being broken. */}
+          {plan.repsWithNoManagerContact > 0 && (
+            <p className="text-sm text-amber-700 mt-1">
+              {plan.repsWithNoManagerContact} of them are held back because they are not in a team
+              with a manager. Put them in a team and they join the next run.
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
+          {/* On the header row, not inside the drawer. Hidden behind "Show who"
+              it may as well not exist — it was looked for and not found. */}
+          <button
+            onClick={() => run(true)}
+            disabled={busy !== ""}
+            title="Email yourself the list of who would be written to. No rep is contacted."
+            className="px-3 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+          >
+            {busy === "preview" ? "Building..." : "Email me the list"}
+          </button>
           <button
             onClick={() => setExpanded((v) => !v)}
             className="px-3 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
@@ -245,7 +267,7 @@ export default function HomeAddressReminders() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
             <Stat label="Outstanding" value={plan.outstanding.length} />
             <Stat label="Will be emailed" value={mailableCount} />
-            <Stat label="Cannot be reached" value={plan.blocked.length} tone={plan.blocked.length ? "warn" : "plain"} />
+            <Stat label="Held back" value={plan.blocked.length} tone={plan.blocked.length ? "warn" : "plain"} />
             <Stat label="Anchored on home" value={plan.repsWithHome} />
           </div>
 
@@ -259,6 +281,7 @@ export default function HomeAddressReminders() {
                     <th className="px-3 py-2 text-left font-medium">Reminded</th>
                     <th className="px-3 py-2 text-left font-medium">Manager copied</th>
                     <th className="px-3 py-2 text-left font-medium">Status</th>
+                    <th className="px-3 py-2 text-left font-medium">Team</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -297,6 +320,13 @@ export default function HomeAddressReminders() {
                             <span className="text-gray-500">Will be emailed</span>
                           )}
                         </td>
+                        <td className="px-3 py-2">
+                          {r.teamName ? (
+                            <span className="text-gray-700">{r.teamName}</span>
+                          ) : (
+                            <span className="text-gray-400">no team</span>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}
@@ -306,9 +336,14 @@ export default function HomeAddressReminders() {
           )}
 
           {plan.repsWithNoManagerContact > 0 && (
-            <p className="text-xs text-gray-500 mb-4">
-              {plan.repsWithNoManagerContact} of these reps have no team manager with an email address
-              on file, so nobody is copied about them. Teams are set on the Teams page.
+            <p className="text-xs text-amber-700 mb-4">
+              {plan.repsWithNoManagerContact} of these reps are not in a team with a manager who has
+              an email address, so they are held back &mdash; nobody is chased without their manager
+              being copied on the same run. Teams are set on the{" "}
+              <a href="/teams" className="underline">
+                Teams page
+              </a>
+              , and a team with a blank manager email counts as no manager.
             </p>
           )}
 
@@ -320,14 +355,6 @@ export default function HomeAddressReminders() {
           )}
 
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => run(true)}
-              disabled={busy !== ""}
-              title="Email yourself the list of who would be written to. No rep is contacted."
-              className="px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
-            >
-              {busy === "preview" ? "Building..." : "Email me the list"}
-            </button>
             {confirmSend ? (
               <>
                 <button

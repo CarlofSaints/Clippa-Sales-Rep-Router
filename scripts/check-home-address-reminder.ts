@@ -141,12 +141,13 @@ const team = (over: Partial<Team> = {}): Team => ({
 
 // ── 3. Who ends up on the list ───────────────────────────────────────────
 {
+  const teams = [team({ id: "t1", name: "REGION A", managerEmail: "manager.one@example.com" })];
   const reps = [
-    rep({ id: "a", code: "NW002", name: "Big Book", email: "big@example.com" }),
-    rep({ id: "b", code: "GAU001", name: "Small Book", email: "small@example.com" }),
-    rep({ id: "c", code: "KZN001", name: "No Email", email: "" }),
-    rep({ id: "d", code: "EP001", name: "No Login", email: "nologin@example.com" }),
-    rep({ id: "e", code: "MP001", name: "Done", email: "done@example.com", homeGpsLat: "-25.5", homeGpsLng: "30.9" }),
+    rep({ id: "a", code: "NW002", name: "Big Book", email: "big@example.com", teamId: "t1" }),
+    rep({ id: "b", code: "GAU001", name: "Small Book", email: "small@example.com", teamId: "t1" }),
+    rep({ id: "c", code: "KZN001", name: "No Email", email: "", teamId: "t1" }),
+    rep({ id: "d", code: "EP001", name: "No Login", email: "nologin@example.com", teamId: "t1" }),
+    rep({ id: "e", code: "MP001", name: "Done", email: "done@example.com", teamId: "t1", homeGpsLat: "-25.5", homeGpsLng: "30.9" }),
   ];
   const users = [
     user({ id: "ua", repId: "a" }),
@@ -163,7 +164,7 @@ const team = (over: Partial<Team> = {}): Team => ({
     e: { repId: "e", repCode: "MP001", count: 3, firstSentAt: "x", lastSentAt: "y", lastResult: "sent" },
   };
 
-  const plan = classifyReps({ reps, users, teams: [], stores, state });
+  const plan = classifyReps({ reps, users, teams, stores, state });
 
   ok("reps with a home are not chased", plan.outstanding.length === 4, String(plan.outstanding.length));
   ok("the biggest book is first", plan.outstanding[0].code === "NW002", plan.outstanding[0].code);
@@ -180,14 +181,67 @@ const team = (over: Partial<Team> = {}): Team => ({
     plan.blocked.find((b) => b.code === "EP001")?.reason === "no_login"
   );
   ok("every outstanding rep is either mailable or blocked", plan.mailable.length + plan.blocked.length === plan.outstanding.length);
+  // The reason each row can also say why. Two lists cannot drift from one field.
+  ok("a mailable rep carries no block reason", plan.mailable.every((m) => !m.blockedReason));
+  ok("a blocked rep carries the same reason on the row", plan.outstanding.find((o) => o.code === "EP001")?.blockedReason === "no_login");
   ok("a rep who has complied is reported", plan.settled.length === 1 && plan.settled[0].code === "MP001");
   ok("and says how many asks it took", plan.settled[0].timesReminded === 3);
   ok("the totals are the whole rep list", plan.totalReps === 5 && plan.repsWithHome === 1);
 
   // Never asked, so not news. Without this every correctly-set-up rep would be
   // listed as a fresh win in every summary, forever.
-  const quiet = classifyReps({ reps, users, teams: [], stores, state: {} });
+  const quiet = classifyReps({ reps, users, teams, stores, state: {} });
   ok("a rep who was never chased is not reported as a win", quiet.settled.length === 0);
+}
+
+// ── 3b. Nobody is chased without their manager (Carl's rule, 3 Sep 2026) ──
+{
+  const teams = [
+    team({ id: "t1", name: "REGION A", managerEmail: "manager.one@example.com" }),
+    // Live data really does have one of these: a team whose manager record has
+    // a blank email. It must count as NO manager, not as a manager.
+    team({ id: "t2", name: "REGION B", managerEmail: "" }),
+  ];
+  const reps = [
+    rep({ id: "a", code: "GAU001", teamId: "t1", email: "a@example.com" }),
+    rep({ id: "b", code: "PTA001", teamId: "t2", email: "b@example.com" }),
+    rep({ id: "c", code: "CPT001", teamId: "", email: "c@example.com" }),
+  ];
+  const users = reps.map((r) => user({ id: `u${r.id}`, repId: r.id }));
+  const plan = classifyReps({ reps, users, teams, stores: [], state: {} });
+
+  ok("a rep with a reachable manager is emailed", plan.mailable.length === 1 && plan.mailable[0].code === "GAU001");
+  ok(
+    "a rep whose team manager has no email is held back",
+    plan.blocked.find((b) => b.code === "PTA001")?.reason === "no_manager"
+  );
+  ok(
+    "a rep in no team at all is held back",
+    plan.blocked.find((b) => b.code === "CPT001")?.reason === "no_manager"
+  );
+  ok("held-back reps are still counted as outstanding", plan.outstanding.length === 3);
+  ok("and counted in the held-back total", plan.repsWithNoManagerContact === 2, String(plan.repsWithNoManagerContact));
+
+  // Order matters: a rep with no login AND no manager should be reported as the
+  // fixable data problem, not swallowed by the blanket rule.
+  const noLogin = classifyReps({
+    reps: [rep({ id: "z", code: "ZZ001", teamId: "", email: "z@example.com" })],
+    users: [],
+    teams,
+    stores: [],
+    state: {},
+  });
+  ok("a missing login is reported ahead of a missing manager", noLogin.blocked[0].reason === "no_login");
+
+  // Turning the rule off would be a silent 5x mail-out, so assert the shape of
+  // the whole outcome, not just one row.
+  ok("nothing is mailed when nobody has a manager", classifyReps({
+    reps: [rep({ id: "q", code: "QQ001", teamId: "", email: "q@example.com" })],
+    users: [user({ repId: "q" })],
+    teams: [],
+    stores: [],
+    state: {},
+  }).mailable.length === 0);
 }
 
 // ── 4. Reminder counts carry through ─────────────────────────────────────
@@ -236,6 +290,21 @@ const team = (over: Partial<Team> = {}): Team => ({
     plan.outstanding.length === 4,
     String(plan.outstanding.length)
   );
+
+  // A manager must hear about a rep of theirs who cannot be emailed at all —
+  // "this one needs a login" is the thing only the manager can chase.
+  const withGap = classifyReps({
+    reps: [
+      rep({ id: "m1", code: "GAU001", teamId: "t1", email: "m1@example.com" }),
+      rep({ id: "m2", code: "GAU002", teamId: "t1", email: "" }),
+    ],
+    users: [user({ id: "um1", repId: "m1" })],
+    teams,
+    stores: [],
+    state: {},
+  });
+  ok("the digest includes a rep who could not be mailed", withGap.managerDigests[0].reps.length === 2);
+  ok("but only one of them is actually mailed", withGap.mailable.length === 1);
 }
 
 // ── 6. The rep's mail ────────────────────────────────────────────────────
@@ -293,7 +362,11 @@ const team = (over: Partial<Team> = {}): Team => ({
   ok("the manager's mail names their team", mgr.subject.includes("REGION A"));
   ok("it lists their reps", mgr.html.includes("Big Book") && mgr.html.includes("Small Book"));
   // A manager who thinks they are first to hear chases people already chased.
-  ok("it says the reps were written to as well", /emailed directly/i.test(mgr.html));
+  ok("it says the reps were written to as well", /written to directly/i.test(mgr.html));
+  // And a manager who assumes EVERY name got the mail would chase the one
+  // person who never received it for ignoring it.
+  ok("every row says whether that rep was actually emailed", mgr.html.includes("Emailed"));
+  ok("and the plain text carries the same status", /Emailed/.test(mgr.text));
   ok("it does not leak reps from other teams", !mgr.html.includes("No Email"));
 
   const summary = buildAdminSummaryEmail({ plan, sent: 2, failed: [], dryRun: false, managersEmailed: 1, trigger: "cron" });
@@ -302,6 +375,33 @@ const team = (over: Partial<Team> = {}): Team => ({
   ok("it names the reps that could not be reached", summary.html.includes("No Email"));
   ok("and why", summary.html.includes("No email address on file"));
   ok("the biggest book is first in the table", summary.html.indexOf("Big Book") < summary.html.indexOf("Small Book"));
+
+  // 37 of 46 reps are held back on live data. An ungrouped list buries the two
+  // rows that are a different problem under 37 identical ones.
+  const heldBack = classifyReps({
+    reps: [
+      rep({ id: "h1", code: "AA001", name: "No Team One", email: "h1@example.com" }),
+      rep({ id: "h2", code: "AA002", name: "No Team Two", email: "h2@example.com" }),
+      rep({ id: "h3", code: "AA003", name: "No Account", email: "h3@example.com", teamId: "t1" }),
+    ],
+    users: [user({ id: "uh1", repId: "h1" }), user({ id: "uh2", repId: "h2" })],
+    teams: [team({ id: "t1" })],
+    stores: [],
+    state: {},
+  });
+  const grouped = buildAdminSummaryEmail({
+    plan: heldBack,
+    sent: 0,
+    failed: [],
+    dryRun: false,
+    managersEmailed: 0,
+    trigger: "cron",
+  });
+  ok("the summary heads the held-back list by count", grouped.html.includes("Not emailed (3)"));
+  ok("it groups them by reason", grouped.html.includes("No team manager to copy") && grouped.html.includes("(2)"));
+  ok("and says how to fix each", grouped.html.includes("Teams page") && grouped.html.includes("Reps page"));
+  ok("the plain text groups them too", grouped.text.includes("No team manager to copy") && grouped.text.includes("No Team One"));
+  ok("nobody is reported as sent", grouped.subject.includes("0 emailed"));
 
   const preview = buildAdminSummaryEmail({ plan, sent: 0, failed: [], dryRun: true, managersEmailed: 0, trigger: "manual" });
   // A preview that looked like a send would be read as 46 mails having gone out.
