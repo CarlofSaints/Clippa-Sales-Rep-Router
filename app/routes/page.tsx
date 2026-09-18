@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useSession } from "@/components/SessionProvider";
 import { FilterDropdown } from "@/components/FilterDropdown";
+import { cycleStartMonday, parseIsoDate } from "@/lib/repslySchedule";
 import {
   Rep,
   Team,
@@ -38,7 +39,10 @@ export default function RoutesPage() {
   const [gpsFixed, setGpsFixed] = useState<Set<string>>(new Set());
   const [confirmingRange, setConfirmingRange] = useState<string | null>(null);
   const [rangeConfirmed, setRangeConfirmed] = useState<Set<string>>(new Set());
-  const [repslyMonths, setRepslyMonths] = useState(3);
+  // Week 1 of the Repsly cycle starts on this Monday
+  const [repslyStart, setRepslyStart] = useState(() =>
+    cycleStartMonday(new Date()).toISOString().slice(0, 10),
+  );
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState("");
@@ -759,22 +763,21 @@ export default function RoutesPage() {
           </button>
         )}
 
-        {/* Export for Repsly (dated call cycle) */}
+        {/* Export for Repsly: each visit repeats every 4 weeks from its first date */}
         {routes && (
           <div className="flex items-center gap-1.5 border border-gray-200 rounded-lg pl-2 pr-1 py-1">
-            <span className="text-xs text-gray-500">Repsly</span>
-            <select
-              value={repslyMonths}
-              onChange={(e) => setRepslyMonths(Number(e.target.value))}
+            <span className="text-xs text-gray-500">Repsly, week 1 starts</span>
+            <input
+              type="date"
+              value={repslyStart}
+              min={cycleStartMonday(new Date()).toISOString().slice(0, 10)}
+              step={7}
+              onChange={(e) => setRepslyStart(e.target.value)}
               className="text-xs border border-gray-200 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-clippa-red"
-              title="Months of call cycle to generate"
-            >
-              <option value={1}>1 mo</option>
-              <option value={2}>2 mo</option>
-              <option value={3}>3 mo</option>
-            </select>
+              title="The Monday that becomes Wk1 in Repsly. Any other day moves to the next Monday."
+            />
             <a
-              href={`/api/routes/repsly-export?months=${repslyMonths}&format=xlsx${selectedTypeId ? `&typeId=${selectedTypeId}` : ""}${viewingRep ? `&repCode=${viewingRep}` : ""}`}
+              href={`/api/routes/repsly-export?format=xlsx${parseIsoDate(repslyStart) ? `&start=${repslyStart}` : ""}${selectedTypeId ? `&typeId=${selectedTypeId}` : ""}${viewingRep ? `&repCode=${viewingRep}` : ""}`}
               className="bg-gray-800 text-white px-3 py-1.5 rounded-md text-xs font-medium hover:bg-gray-900 transition-colors"
               title={viewingRep ? "Export this rep's call cycle for Repsly" : "Export all reps' call cycle for Repsly"}
             >
