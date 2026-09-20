@@ -441,6 +441,25 @@ export default function ChannelsPage() {
     source: (c) => (c.source ? CHANNEL_SOURCE_LABEL[c.source] : "Not recorded"),
   }, sort);
 
+  /**
+   * Sub-channels sort on their own state, not the channel grid's — the two
+   * tables sit on one page and share no columns, so one shared sort key would
+   * reorder a grid nobody touched.
+   *
+   * "Called on?" sorts on the three states as displayed, so the ones inheriting
+   * their channel's answer group together rather than scattering between the
+   * explicit yes and no.
+   */
+  const subSort = useTableSort("parent", "asc", ["stores"]);
+  const sortedSubChannels = useSortedRows<SubChannel>(subChannels, {
+    name: (sc) => sc.name,
+    parent: (sc) => channels.find((c) => c.id === sc.channelId)?.name ?? sc.channelId,
+    stores: (sc) => subCounts.get(sc.id)?.open ?? 0,
+    calledOn: (sc) =>
+      sc.notARepChannel === undefined ? "Inherits" : sc.notARepChannel ? "Not called on" : "Called on",
+    source: (sc) => (sc.source ? CHANNEL_SOURCE_LABEL[sc.source] : "Not recorded"),
+  }, subSort);
+
   const allVisibleSelected =
     filtered.length > 0 && filtered.every((ch) => selected.has(ch.id));
 
@@ -938,11 +957,13 @@ export default function ChannelsPage() {
           </div>
         </div>
       )}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100">
-        <div className="overflow-x-auto">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        {/* Bounded scroller so the head has something to stick to; each cell
+            carries its own background or the rows show through it. */}
+        <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-16rem)]">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wider">
+              <tr className="text-left text-xs text-gray-500 uppercase tracking-wider [&>th]:sticky [&>th]:top-0 [&>th]:z-20 [&>th]:bg-gray-50 [&>th]:shadow-[inset_0_-1px_0_#e5e7eb]">
                 <th className="px-6 py-3 w-8">
                   <input
                     type="checkbox"
@@ -1194,25 +1215,20 @@ export default function ChannelsPage() {
             ones the client already uses.
           </p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto overflow-y-auto max-h-[70vh]">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wider">
-                  <th className="px-6 py-3">Sub-channel</th>
-                  <th className="px-6 py-3">Under</th>
-                  <th className="px-6 py-3 text-right">Stores</th>
-                  <th className="px-6 py-3">Called on?</th>
-                  <th className="px-6 py-3">Came from</th>
+                <tr className="text-left text-xs text-gray-500 uppercase tracking-wider [&>th]:sticky [&>th]:top-0 [&>th]:z-20 [&>th]:bg-gray-50 [&>th]:shadow-[inset_0_-1px_0_#e5e7eb]">
+                  <SortableTh sortId="name" sort={subSort} className="px-6 py-3">Sub-channel</SortableTh>
+                  <SortableTh sortId="parent" sort={subSort} className="px-6 py-3">Under</SortableTh>
+                  <SortableTh sortId="stores" sort={subSort} align="right" className="px-6 py-3">Stores</SortableTh>
+                  <SortableTh sortId="calledOn" sort={subSort} className="px-6 py-3">Called on?</SortableTh>
+                  <SortableTh sortId="source" sort={subSort} className="px-6 py-3">Came from</SortableTh>
                   <th className="px-6 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {[...subChannels]
-                  .sort((a, b) => {
-                    const ca = channels.find((c) => c.id === a.channelId)?.name ?? a.channelId;
-                    const cb = channels.find((c) => c.id === b.channelId)?.name ?? b.channelId;
-                    return ca.localeCompare(cb) || a.name.localeCompare(b.name);
-                  })
+                {sortedSubChannels
                   .map((sc) => {
                     const parent = channels.find((c) => c.id === sc.channelId);
                     const inherited = parent?.notARepChannel === true ? "Not a rep channel" : "Reps call here";

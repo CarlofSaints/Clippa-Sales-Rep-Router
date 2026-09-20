@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Rep } from "@/lib/types";
 import { useSession } from "@/components/SessionProvider";
 import { useTableSort, useSortedRows, SortableTh } from "@/components/TableSort";
@@ -121,8 +121,30 @@ export default function RepsPage() {
   const [editData, setEditData] = useState<Partial<Rep>>({});
   const [saving, setSaving] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [search, setSearch] = useState("");
+  /**
+   * Matches on everything a person might have to hand: the code the sales data
+   * uses, the name, and the email or cell they were phoned on. Address too, so
+   * "Pretoria" finds a suburb's reps.
+   *
+   * A rep being EDITED stays visible whatever the search says. Typing in the
+   * search box while a row is open would otherwise make that row vanish with
+   * unsaved changes in it, which reads as the edit having been thrown away.
+   */
+  const visibleReps = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return reps;
+    return reps.filter(
+      (r) =>
+        r.id === editing ||
+        [r.code, r.name, r.email, r.cell, r.homeAddress].some((v) =>
+          (v || "").toLowerCase().includes(q),
+        ),
+    );
+  }, [reps, search, editing]);
+
   const sort = useTableSort("code", "asc", ["workingHoursPerDay"]);
-  const sortedReps = useSortedRows<Rep>(reps, {
+  const sortedReps = useSortedRows<Rep>(visibleReps, {
     code: (r) => r.code,
     name: (r) => r.name,
     email: (r) => r.email || null,
@@ -714,10 +736,39 @@ export default function RepsPage() {
 
       {/* Reps Table */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100">
-        <div className="overflow-x-auto">
+        <div className="flex items-center gap-3 px-6 py-3 border-b border-gray-100">
+          <div className="relative">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Escape") setSearch(""); }}
+              placeholder="Filter by name, code, email, cell or address..."
+              className="w-80 border border-gray-200 rounded-lg pl-3 pr-7 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                title="Clear the filter"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm px-1"
+              >
+                &times;
+              </button>
+            )}
+          </div>
+          {search && (
+            <span className="text-xs text-gray-500">
+              Showing {sortedReps.length} of {reps.length} reps
+            </span>
+          )}
+        </div>
+        {/* The head sticks to THIS scroller, so it needs its own bounded height —
+            let the page scroll instead and the head leaves with it. Each cell
+            carries the background: a transparent sticky row shows the rows
+            sliding underneath it. */}
+        <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-18rem)] rounded-b-xl">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wider">
+              <tr className="text-left text-xs text-gray-500 uppercase tracking-wider [&>th]:sticky [&>th]:top-0 [&>th]:z-20 [&>th]:bg-gray-50 [&>th]:shadow-[inset_0_-1px_0_#e5e7eb]">
                 <SortableTh sortId="code" sort={sort} className="px-6 py-3">Code</SortableTh>
                 <SortableTh sortId="name" sort={sort} className="px-6 py-3">Name</SortableTh>
                 <SortableTh sortId="email" sort={sort} className="px-6 py-3">Email</SortableTh>
@@ -870,6 +921,16 @@ export default function RepsPage() {
                   )}
                 </tr>
               ))}
+              {sortedReps.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="px-6 py-8 text-center text-sm text-gray-500">
+                    No rep matches &ldquo;{search}&rdquo;.{" "}
+                    <button onClick={() => setSearch("")} className="text-clippa-red hover:underline">
+                      Clear the filter
+                    </button>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
