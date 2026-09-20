@@ -6,7 +6,7 @@ import dynamic from "next/dynamic";
 import { useSession } from "@/components/SessionProvider";
 import { Store, Rep, Channel, Team, RoutePlanDocument, RouteDayPlan, WeekLabel, CallCycleStrategy } from "@/lib/types";
 import { decodePolyline } from "@/lib/google-maps";
-import { parseLatLng } from "@/lib/latlng";
+import { parseLatLng, haversineKm } from "@/lib/latlng";
 
 const MapView = dynamic(() => import("./MapView"), { ssr: false });
 
@@ -51,14 +51,14 @@ function RepSearchSelect({
    */
   callsPerDay: Record<string, number | undefined>;
   /**
-   * Rep code to whether their day starts at a real home address.
+   * Rep code to where the SAVED route actually starts their day.
    *
-   * False means the engine anchors them on the centroid of their own stores,
-   * which is a guess: the first and last drive of every day is wrong by
-   * however far they actually live from there. Worth seeing BEFORE picking the
-   * rep, because it explains a route that looks oddly ordered.
+   * "centroid" is the middle of their own stores, a guess: the first and last
+   * drive of every day is wrong by however far they really live from there.
+   * "stale" is the trap — they have a home address, but it was captured after
+   * the last generation, so the route on screen still ignores it.
    */
-  startsAtHome: Record<string, boolean>;
+  startsAtHome: Record<string, "home" | "centroid" | "stale">;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -170,17 +170,25 @@ function RepSearchSelect({
                   {/* Where this rep's day starts: their own address, or a guess. */}
                   <span
                     className={`shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                      startsAtHome[r.code]
+                      startsAtHome[r.code] === "home"
                         ? "bg-green-50 text-green-700"
-                        : "bg-amber-50 text-amber-700"
+                        : startsAtHome[r.code] === "stale"
+                          ? "bg-orange-100 text-orange-800"
+                          : "bg-amber-50 text-amber-700"
                     }`}
                     title={
-                      startsAtHome[r.code]
+                      startsAtHome[r.code] === "home"
                         ? `${r.name} starts and ends the day at their home address`
-                        : `${r.name} has no usable home GPS, so their day starts from the centre of their stores. Add their home address on the Reps page.`
+                        : startsAtHome[r.code] === "stale"
+                          ? `${r.name} has a home address, but it was captured after these routes were generated, so the saved route still starts from the centre of their stores. Regenerate routes.`
+                          : `${r.name} has no usable home GPS, so their day starts from the centre of their stores. Add their home address on the Reps page.`
                     }
                   >
-                    {startsAtHome[r.code] ? "home" : "centroid"}
+                    {startsAtHome[r.code] === "home"
+                      ? "home"
+                      : startsAtHome[r.code] === "stale"
+                        ? "centroid ⚠"
+                        : "centroid"}
                   </span>
                   {/* What this rep's week is actually built on. */}
                   <span
@@ -315,24 +323,61 @@ function MapPageInner() {
    * an out-of-range fix are exactly the values that differ.
    */
   const repStartsAtHome = useMemo(() => {
-    const out: Record<string, boolean> = {};
-    for (const r of scopedReps) out[r.code] = !!parseLatLng(r.homeGpsLat, r.homeGpsLng);
+    const anchors = new Map((routes?.repPlans ?? []).map((p) => [p.repCode, p.homeLatLng]));
+    const out: Record<string, "home" | "centroid" | "stale"> = {};
+    for (const r of scopedReps) {
+      const home = parseLatLng(r.homeGpsLat, r.homeGpsLng);
+      if (!home) {
+        out[r.code] = "centroid";
+        continue;
+      }
+      const anchor = anchors.get(r.code);
+      // Half a kilometre of slack: the anchor is stored rounded, and a route
+      // that starts across the street is the same route.
+      out[r.code] =
+        anchor && haversineKm(home.lat, home.lng, anchor.lat, anchor.lng) > 0.5 ? "stale" : "home";
+    }
     return out;
-  }, [scopedReps]);
+  }, [scopedReps, routes]);
 
   const visibleRepCodes = useMemo(() => {
     return new Set(scopedReps.map((r) => r.code));
   }, [scopedReps]);
+
+  /**
+   * The stores the generated plan visits on the chosen day and week, or null
+   * when neither is chosen and every store stands.
+   *
+   * 🔴 Day used to filter on `store.dayOfWeek`, a field left over from the old
+   * Repsly upload that is BLANK on all 7 080 stores — so picking a day emptied
+   * the map and read as "this rep has no routes". The day a store is visited is
+   * decided by route generation, so the plan is the only thing that can answer
+   * it. See [[a-comment-can-be-wrong-grep-the-data]].
+   */
+  const scheduledStoreIds = useMemo(() => {
+    if (!filterDay && !filterWeek) return null;
+    const ids = new Set<string>();
+    for (const plan of routes?.repPlans ?? []) {
+      if (filterRep && plan.repCode !== filterRep) continue;
+      if (!isAdmin && !visibleRepCodes.has(plan.repCode)) continue;
+      for (const dp of plan.days) {
+        if (filterDay && dp.day !== filterDay) continue;
+        if (filterWeek && dp.week !== filterWeek) continue;
+        for (const stop of dp.stops) ids.add(stop.storeId);
+      }
+    }
+    return ids;
+  }, [routes, filterDay, filterWeek, filterRep, isAdmin, visibleRepCodes]);
 
   const filtered = useMemo(() => {
     return stores.filter((s) => {
       // Role-based scoping for non-admin users
       if (!isAdmin && !visibleRepCodes.has(s.repCode)) return false;
       if (filterRep && s.repCode !== filterRep) return false;
-      if (filterDay && s.dayOfWeek !== filterDay) return false;
+      if (scheduledStoreIds && !scheduledStoreIds.has(s.id)) return false;
       return true;
     });
-  }, [stores, filterRep, filterDay, isAdmin, visibleRepCodes]);
+  }, [stores, filterRep, scheduledStoreIds, isAdmin, visibleRepCodes]);
 
   // Get matching route day plans for selected rep (optionally filtered by week/day)
   const matchingDayPlans: RouteDayPlan[] = useMemo(() => {
@@ -398,11 +443,21 @@ function MapPageInner() {
     // whether this rep has a home: a bare parseFloat accepts (0,0) and a
     // lat/lng outside South Africa, both of which the engine rejects.
     const home = parseLatLng(rep.homeGpsLat, rep.homeGpsLng);
+    const planned = routes?.repPlans.find((p) => p.repCode === filterRep)?.homeLatLng;
+
     if (home) {
+      // 🔴 A plan is a SNAPSHOT: it stores the anchor it was built on. A home
+      // address captured after the last generation leaves the saved route still
+      // running from the store centroid, so pinning the house would draw a
+      // start the route does not have. Pin where the route actually starts and
+      // say how far that is from home. See [[derived-data-keeps-the-old-bug]].
+      const apartKm = planned ? haversineKm(home.lat, home.lng, planned.lat, planned.lng) : 0;
+      if (planned && apartKm > 0.5) {
+        return { ...planned, derived: true, repName: rep.name, homeNotInRouteKm: apartKm };
+      }
       return { ...home, derived: false, address: rep.homeAddress, repName: rep.name };
     }
 
-    const planned = routes?.repPlans.find((p) => p.repCode === filterRep)?.homeLatLng;
     if (planned) return { lat: planned.lat, lng: planned.lng, derived: true, repName: rep.name };
 
     return null;
@@ -501,6 +556,7 @@ function MapPageInner() {
 
         <span className="text-sm text-gray-500 ml-auto">
           {filtered.length} stores shown
+          {scheduledStoreIds && ` scheduled on ${[filterWeek, filterDay].filter(Boolean).join(" ")}`}
           {allRouteStops.length > 0 && ` | Route: ${allRouteStops.length} stops across ${matchingDayPlans.length} day${matchingDayPlans.length !== 1 ? "s" : ""}`}
         </span>
       </div>
@@ -509,6 +565,16 @@ function MapPageInner() {
       {showRoute && !filterRep && (
         <div className="bg-amber-50 border-b border-amber-200 px-6 py-2 text-xs text-amber-700">
           Select a rep to display their route.
+        </div>
+      )}
+
+      {/* A day or week can only be answered by a generated plan. Saying so beats
+          an empty map, which reads as the rep having no stores. */}
+      {scheduledStoreIds && filtered.length === 0 && (
+        <div className="bg-amber-50 border-b border-amber-200 px-6 py-2 text-xs text-amber-700">
+          {!routes
+            ? "No routes have been generated yet, so nothing is scheduled for a day or a week. Generate routes on the Routes page."
+            : `Nothing is scheduled for ${[filterWeek, filterDay].filter(Boolean).join(" ")}${filterRep ? " for this rep" : ""} in the current plan. It may predate the stores you are looking for — regenerate routes on the Routes page.`}
         </div>
       )}
 
