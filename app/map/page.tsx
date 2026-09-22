@@ -15,6 +15,7 @@ import {
   type NotInCycleResult,
 } from "@/lib/notInCycle";
 import { TeamFilter } from "@/components/TeamFilter";
+import { buildStoreRanks } from "@/lib/storeRanks";
 import { EMPTY_SELECTION, filterRepsByTeam, isActive, type TeamSelection } from "@/lib/teamFilter";
 
 const MapView = dynamic(() => import("./MapView"), { ssr: false });
@@ -342,8 +343,14 @@ function MapPageInner() {
    */
   useEffect(() => {
     if (!filterRep) return;
+    // 🔴 Wait for the reps to arrive. On the first render `reps` is still empty,
+    // so "not in scope" is true of EVERYONE — this cleared the rep chosen by
+    // the ?rep= parameter before the page had loaded anything, which silently
+    // broke every "View on Map" link from the Routes page.
+    // See [[empty-state-vs-not-loaded-yet]].
+    if (reps.length === 0) return;
     if (!scopedReps.some((r) => r.code === filterRep)) setFilterRep("");
-  }, [filterRep, scopedReps]);
+  }, [filterRep, scopedReps, reps.length]);
 
   // Visible rep codes for store filtering
   /**
@@ -386,6 +393,23 @@ function MapPageInner() {
   const visibleRepCodes = useMemo(() => {
     return new Set(scopedReps.map((r) => r.code));
   }, [scopedReps]);
+
+  /**
+   * Store ranks, built over everything this user may see — NOT over what is
+   * currently on screen.
+   *
+   * 🔴 Built from the filtered list, "overall rank" read "2nd of 3" on a day
+   * with three measured stops, and the overall, rep and day ranks all collapsed
+   * to the same number. A rank is only worth showing if its denominator is the
+   * population it claims: overall means every store, rep means that rep's
+   * portfolio, day means that day's calls. Only role scoping applies here,
+   * because that is a limit on what may be seen rather than a view of it.
+   */
+  const storeRanks = useMemo(() => {
+    const roleCodes = new Set(roleScopedReps.map((r) => r.code));
+    const rankable = isAdmin ? stores : stores.filter((s) => roleCodes.has(s.repCode));
+    return buildStoreRanks(rankable);
+  }, [stores, isAdmin, roleScopedReps]);
 
   /**
    * The stores the generated plan visits on the chosen day and week, or null
@@ -731,6 +755,7 @@ function MapPageInner() {
           routeLines={routeLines.length > 0 ? routeLines : undefined}
           repHome={repHome}
           storeReasons={showNotInCycle ? notInCycle.reasonOf : undefined}
+          storeRanks={storeRanks}
           showRoute={allRouteStops.length > 0}
           singleDay={matchingDayPlans.length === 1}
           fitKey={`${selectedTypeId}|${filterRep}|${filterWeek}|${filterDay}`}

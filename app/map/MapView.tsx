@@ -7,7 +7,12 @@ import "leaflet/dist/leaflet.css";
 import { Store, Rep, Channel, RouteStop, RouteDayPlan } from "@/lib/types";
 import { dayTotals } from "@/lib/dayTotals";
 import { parseLatLng } from "@/lib/latlng";
+import { knownSixMonthSales } from "@/lib/storeValue";
+import { buildDayRanks, formatRank, type StoreRank, type StoreRanks } from "@/lib/storeRanks";
 import { REASONS, type NotInCycleReason } from "@/lib/notInCycle";
+
+/** Stable empty map, so a missing prop does not remount every popup. */
+const EMPTY_RANKS: Map<string, StoreRanks> = new Map();
 
 /**
  * One day's line on the map. `road` false means no saved Google geometry, so
@@ -68,6 +73,12 @@ interface Props {
    * colour, the size and the first line of the popup all follow from it.
    */
   storeReasons?: Map<string, NotInCycleReason>;
+  /**
+   * Overall and per-rep rank per store, built by the page over everything the
+   * user may see. Passed in rather than computed here so the denominators are
+   * the populations they claim, not whatever happens to be on screen.
+   */
+  storeRanks?: Map<string, StoreRanks>;
   showRoute?: boolean;
   singleDay?: boolean; // true when exactly one day plan is on the map
   /** Changes when the rep, day or week changes: the map re-fits to the new route. */
@@ -136,6 +147,52 @@ function numberedIcon(num: number, background: string = "#DC2626"): L.DivIcon {
  */
 function possessive(name: string): string {
   return /s$/i.test(name.trim()) ? `${name.trim()}'` : `${name.trim()}'s`;
+}
+
+/**
+ * Six-month sales and where the store stands, for either popup.
+ *
+ * Shared so the plain store card and the route-stop card can never drift into
+ * describing the same shop differently. `dayRank` is passed only where a day is
+ * actually on screen — a plain store pin has no day to be ranked within.
+ */
+function SalesAndRanks({
+  store,
+  ranks,
+  dayRank,
+  fmt6,
+}: {
+  store: Store | undefined;
+  ranks: StoreRanks | undefined;
+  dayRank?: StoreRank | null;
+  fmt6: (n: number | null | undefined) => string;
+}) {
+  const sales = store ? knownSixMonthSales(store) : null;
+
+  // 🔴 No figure is stated as such. Ranking a store nobody has measured, or
+  // printing R 0,00 against it, invents a fact about 38.5% of the base.
+  if (sales === null) {
+    return <p className="text-gray-400">No sales figure from IMS for this store</p>;
+  }
+
+  const rows: [string, string | null][] = [
+    ["6-month sales", fmt6(sales)],
+    ["Overall rank", formatRank(ranks?.overall ?? null)],
+    ["Rep rank", formatRank(ranks?.rep ?? null)],
+    ["Rank this day", formatRank(dayRank ?? null)],
+  ];
+
+  return (
+    <>
+      {rows.map(([label, value]) =>
+        value ? (
+          <p key={label}>
+            <span className="text-gray-500">{label}:</span> {value}
+          </p>
+        ) : null
+      )}
+    </>
+  );
 }
 
 
@@ -261,12 +318,17 @@ function RouteStopMarkers({
   singleDay,
   lineColors,
   storeById,
+  ranks,
+  dayRanks,
   fmt6,
 }: {
   routeStops: MapRouteStop[];
   singleDay?: boolean;
   lineColors: string[];
   storeById: Map<string, Store>;
+  ranks: Map<string, StoreRanks>;
+  /** Keyed "week|day", because a store ranks differently on each day it is visited. */
+  dayRanks: Map<string, Map<string, StoreRank>>;
   fmt6: (n: number | null | undefined) => string;
 }) {
   const fanned = useFannedPositions(routeStops);
@@ -303,7 +365,12 @@ function RouteStopMarkers({
                 )}
                 {/* In route view the plain store pins are dimmed to 0.2, so this
                     is the only card most stops will ever show. */}
-                <p><span className="text-gray-500">6-month sales:</span> {fmt6(storeById.get(stop.storeId)?.sixMonthSales)}</p>
+                <SalesAndRanks
+                  store={storeById.get(stop.storeId)}
+                  ranks={ranks.get(stop.storeId)}
+                  dayRank={dayRanks.get(`${stop.week}|${stop.day}`)?.get(stop.storeId) ?? null}
+                  fmt6={fmt6}
+                />
                 {moved && (
                   <p className="text-gray-400">Nudged to clear another stop at the same spot</p>
                 )}
@@ -326,6 +393,7 @@ export default function MapView({
   routeLines,
   repHome,
   storeReasons,
+  storeRanks,
   showRoute,
   singleDay,
   fitKey,
@@ -348,6 +416,29 @@ export default function MapView({
 
   /** Route stops carry only a storeId, so the sales come from the store behind it. */
   const storeById = useMemo(() => new Map(stores.map((s) => [s.id, s])), [stores]);
+
+  /**
+   * Overall and per-rep standing, built by the PAGE over everything the user
+   * may see — never over the stores currently drawn.
+   *
+   * 🔴 Computed here from `stores` it said "Overall rank: 2nd of 3" on a
+   * single-day view, because `stores` is the filtered set. All three ranks
+   * collapsed to the same number and the feature said nothing.
+   */
+  const ranks = storeRanks ?? EMPTY_RANKS;
+
+  /** Standing within each day on screen — a store can rank differently on each. */
+  const dayRanks = useMemo(
+    () =>
+      buildDayRanks(
+        (routeDays ?? []).map((d) => ({
+          key: `${d.week}|${d.day}`,
+          storeIds: d.stops.map((s) => s.storeId),
+        })),
+        storeById
+      ),
+    [routeDays, storeById]
+  );
 
   // Per-day polyline colors (cycle through for multi-day views)
   const lineColors = ["#DC2626", "#2563EB", "#16A34A", "#D97706", "#7C3AED", "#0891B2", "#DB2777", "#65A30D"];
@@ -462,8 +553,10 @@ export default function MapView({
                   {/* Labelled "Avg monthly", because it is sixMonthSales/6 and
                       an unqualified "Sales" beside a six-month figure reads as a
                       contradiction. */}
-                  <p><span className="text-gray-500">Avg monthly:</span> {fmt(store.monthlySales)}</p>
-                  <p><span className="text-gray-500">6-month sales:</span> {fmt6(store.sixMonthSales)}</p>
+                  {knownSixMonthSales(store) !== null && (
+                    <p><span className="text-gray-500">Avg monthly:</span> {fmt(store.monthlySales)}</p>
+                  )}
+                  <SalesAndRanks store={store} ranks={ranks.get(store.id)} fmt6={fmt6} />
                   <p><span className="text-gray-500">ID:</span> {store.placeId}</p>
                 </div>
               </Popup>
@@ -521,6 +614,8 @@ export default function MapView({
             singleDay={singleDay}
             lineColors={lineColors}
             storeById={storeById}
+            ranks={ranks}
+            dayRanks={dayRanks}
             fmt6={fmt6}
           />
         )}
