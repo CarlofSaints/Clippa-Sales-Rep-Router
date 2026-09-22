@@ -108,6 +108,17 @@ eq("an unknown cycle week is skipped, not guessed", odd.length, 0);
 
 eq("no plans, no rows", buildRepslyScheduleRows([], places, start).length, 0);
 
+// 🔴 "10:60" is not a time, and 50 stops in the plan saved on 20 Sep carry one.
+// Repsly reads this column, so the export normalises rather than trusting the
+// plan to have been regenerated since the engine stopped writing them.
+eq("a stop time of 10:60 is exported as 11:00",
+  buildRepslyScheduleRows(
+    [plan("GAU053", [day("Wk1", "Monday", [stop("s1", 1, "10:60")])])],
+    places,
+    start
+  )[0].time,
+  "11:00");
+
 // ── Workbook ──
 const withDrops = plan("GAU053", [day("Wk1", "Monday", [stop("w", 1, "08:00")])]);
 withDrops.stats.unassignedStores = [

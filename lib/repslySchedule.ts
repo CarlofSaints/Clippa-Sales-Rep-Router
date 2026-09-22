@@ -15,6 +15,7 @@
  */
 
 import type { DayLabel, RepRoutePlan } from "./types";
+import { parseClock, formatClock } from "./clock";
 
 export const CYCLE_WEEKS = 4;
 
@@ -94,7 +95,12 @@ export function buildRepslyScheduleRows(
           placeId: placeIdByStoreId.get(stop.storeId) || stop.storeId,
           fromDate,
           repeatEveryWeeks: CYCLE_WEEKS,
-          time: stop.arrivalTime,
+          // 🔴 Normalised, not copied. The engine used to round the minutes
+          // AFTER dividing, so 50 stop times in the plan saved on 20 Sep read
+          // "10:60" — not a time, and this column is what Repsly imports.
+          // Fixed at source, but the file is built from whatever plan is saved,
+          // so it must not depend on that plan having been regenerated.
+          time: formatClock(parseClock(stop.arrivalTime)),
           duration: stop.visitDuration,
           repName: plan.repName,
           storeName: stop.storeName,

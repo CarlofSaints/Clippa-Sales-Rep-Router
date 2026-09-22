@@ -588,6 +588,7 @@ function MapPageInner() {
           channelMap={channelMap}
           repColors={repColors}
           routeStops={allRouteStops.length > 0 ? allRouteStops : undefined}
+          routeDays={matchingDayPlans.length > 0 ? matchingDayPlans : undefined}
           routeLines={routeLines.length > 0 ? routeLines : undefined}
           repHome={repHome}
           showRoute={allRouteStops.length > 0}
