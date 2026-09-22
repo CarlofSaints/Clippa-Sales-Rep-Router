@@ -12,6 +12,7 @@ import {
 import { getOptimizedRoute, hasGoogleMapsKey } from "./google-maps";
 import { parseLatLng, haversineKm, DEFAULT_SPEED_KMH, driveMinutes } from "./latlng";
 import { parseClock, formatClock } from "./clock";
+import { medianKnownValue, rankingValue, splitByValue } from "./storeValue";
 
 const WEEKS: WeekLabel[] = ["Wk1", "Wk2", "Wk3", "Wk4"];
 const DAYS: DayLabel[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
@@ -61,6 +62,33 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
+/**
+ * A placeholder stop for a store that was cut before the day was ever built.
+ *
+ * Rebalancing refuses to place a store it has no coordinates for — that refusal
+ * is what stopped invented lat/lng 0,0 being written into saved plans and real
+ * shops being drawn in the Gulf of Guinea. A store dropped by value never
+ * reaches the router, so it has no planned stop to carry; this gives it the one
+ * thing rebalancing actually needs. The timings are zeros because they are
+ * recomputed the moment the store is placed on a real day.
+ */
+function stopFromStore(store: Store): RouteStop | undefined {
+  const fix = parseLatLng(store.gpsLat, store.gpsLng);
+  if (!fix) return undefined;
+  return {
+    storeId: store.id,
+    storeName: store.name,
+    lat: fix.lat,
+    lng: fix.lng,
+    visitDuration: store.duration || 30,
+    travelTimeFromPrev: 0,
+    distanceFromPrev: 0,
+    arrivalTime: "00:00",
+    departureTime: "00:00",
+    sequence: 0,
+  };
+}
+
 // ──────────────────────────────────────────────
 // Public API
 // ──────────────────────────────────────────────
@@ -106,6 +134,13 @@ export async function generateRepRoute(
   // optimisation still runs) from a sensible anchor in the middle of their patch.
   const home = parseLatLng(rep.homeGpsLat, rep.homeGpsLng) ?? storeCentroid(routable);
   const workingMinutes = (rep.workingHoursPerDay ?? DEFAULT_WORKING_HOURS) * 60;
+
+  /**
+   * What a "typical" store is worth for THIS rep, used to rank the 38.5% of
+   * stores IMS has never given a sales figure for. Computed over the rep's own
+   * portfolio so a quieter patch is judged against itself.
+   */
+  const repMedianValue = medianKnownValue(routable);
 
   // Step 1: Distribute stores across weeks based on frequency
   const weekAssignments = distributeToWeeks(routable);
@@ -153,6 +188,37 @@ export async function generateRepRoute(
     for (let dayIdx = 0; dayIdx < DAYS.length; dayIdx++) {
       const dayStores = clusters[dayIdx] || [];
       if (dayStores.length === 0) continue;
+
+      // 🔴 Cut the day to the calls-per-day target HERE, by VALUE, before the
+      // route is optimised.
+      //
+      // It used to be cut afterwards by popping stops off the end of the
+      // optimised order — whichever shops happened to fall last on the drive.
+      // That is blind to what a shop is worth, and on the live book it left
+      // 1 279 stores unvisited carrying R6.59m a month, including a R158k
+      // SUPERSPAR, while keeping R500 outlets two stops earlier.
+      //
+      // Deciding BEFORE the build matters twice over: the day is optimised
+      // from the stores it will actually contain, so the driving order is
+      // right for the survivors rather than being the old order with holes in
+      // it, and the legs cannot go stale. See [[stale-total-after-trimming-the-last-row]].
+      if (callsPerDay && callsPerDay > 0 && dayStores.length > callsPerDay) {
+        const { keep, drop } = splitByValue(dayStores, callsPerDay, repMedianValue);
+        for (const s of drop) {
+          unassigned.push({
+            storeId: s.id,
+            storeName: s.name,
+            reason: `Over the ${callsPerDay} calls per day target`,
+            // Carried so rebalancing can still place this store on a quieter
+            // day. Built from the store rather than from a planned stop,
+            // because this one never got as far as being planned.
+            stop: stopFromStore(s),
+          });
+        }
+        pending.push({ week, dayIdx, dayStores: keep });
+        continue;
+      }
+
       pending.push({ week, dayIdx, dayStores });
     }
   }
@@ -210,7 +276,18 @@ export async function generateRepRoute(
     }
   }
 
-  // Step 4: Try to fit unassigned stores into days with remaining capacity
+  // Step 4: Try to fit unassigned stores into days with remaining capacity.
+  //
+  // Best-selling first, for the same reason the day was cut by value: when only
+  // some of the overflow will fit, the ones that fit should be the ones worth
+  // the most. Tie-broken on id so a re-run places them in the same order.
+  const valueOf = new Map(routable.map((s) => [s.id, rankingValue(s, repMedianValue)]));
+  unassigned.sort(
+    (a, b) =>
+      (valueOf.get(b.storeId) ?? 0) - (valueOf.get(a.storeId) ?? 0) ||
+      a.storeId.localeCompare(b.storeId)
+  );
+
   const stillUnassigned = await rebalanceOverflow(
     dayPlans,
     unassigned,
