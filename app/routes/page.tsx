@@ -7,6 +7,7 @@ import { cycleStartMonday, parseIsoDate } from "@/lib/repslySchedule";
 import { dayTotals } from "@/lib/dayTotals";
 import { roadRoutingOf } from "@/lib/roadRouting";
 import { CoordinateEntry } from "@/components/CoordinateEntry";
+import { parseLatLng } from "@/lib/latlng";
 import { TeamFilter } from "@/components/TeamFilter";
 import {
   EMPTY_SELECTION,
@@ -384,6 +385,7 @@ export default function RoutesPage() {
   /** How much of the saved plan is a real drive rather than a straight line. */
   const roadRouting = useMemo(() => roadRoutingOf(routes), [routes]);
 
+
   // Get current rep's plan
   const currentPlan: RepRoutePlan | null = useMemo(() => {
     if (!routes) return null;
@@ -396,6 +398,23 @@ export default function RoutesPage() {
     const inScope = new Set(filteredReps.map((r) => r.code));
     return routes.repPlans.find((p) => inScope.has(p.repCode)) || null;
   }, [routes, viewingRep, filteredReps]);
+
+  /**
+   * The viewed rep's already-placed stores, so the pin picker opens on their
+   * patch rather than the middle of the country, with the rest of the round
+   * drawn around the pin as a sanity check.
+   */
+  const placedForViewedRep = useMemo(() => {
+    const code = currentPlan?.repCode ?? viewingRep;
+    if (!code) return [];
+    const out: { lat: number; lng: number; name: string }[] = [];
+    for (const s of stores) {
+      if (s.repCode !== code) continue;
+      const fix = parseLatLng(s.gpsLat, s.gpsLng);
+      if (fix) out.push({ lat: fix.lat, lng: fix.lng, name: s.name });
+    }
+    return out;
+  }, [stores, currentPlan, viewingRep]);
 
   // Build week/day grid lookup
   const grid = useMemo(() => {
@@ -924,6 +943,8 @@ export default function RoutesPage() {
                         }}
                         onSave={() => saveGps(g.storeIds)}
                         saving={gpsSaving === primary}
+                        storeName={g.storeName}
+                        nearby={placedForViewedRep}
                         compact
                       />
                     </span>

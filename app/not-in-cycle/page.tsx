@@ -33,6 +33,7 @@ import {
 import { buildStoreRanks, formatRank } from "@/lib/storeRanks";
 import { knownSixMonthSales } from "@/lib/storeValue";
 import { isClosed } from "@/lib/closedStores";
+import { parseLatLng } from "@/lib/latlng";
 import type {
   Channel,
   Rep,
@@ -144,6 +145,24 @@ export default function NotInCyclePage() {
     const codes = new Set(roleScopedReps.map((r) => r.code));
     return buildStoreRanks(isAdmin ? stores : stores.filter((s) => codes.has(s.repCode)));
   }, [stores, isAdmin, roleScopedReps]);
+
+  /**
+   * Each rep's stores that DO have a coordinate, so the pin picker opens on
+   * their patch rather than on the middle of the country — and so the rest of
+   * the round is drawn around the pin as a sanity check.
+   */
+  const placedByRep = useMemo(() => {
+    const out = new Map<string, { lat: number; lng: number; name: string }[]>();
+    for (const s of stores) {
+      const fix = parseLatLng(s.gpsLat, s.gpsLng);
+      if (!fix) continue;
+      const list = out.get(s.repCode);
+      const entry = { lat: fix.lat, lng: fix.lng, name: s.name };
+      if (list) list.push(entry);
+      else out.set(s.repCode, [entry]);
+    }
+    return out;
+  }, [stores]);
 
   const repByCode = useMemo(() => new Map(reps.map((r) => [r.code, r])), [reps]);
   const channelById = useMemo(() => new Map(channels.map((c) => [c.id, c])), [channels]);
@@ -411,6 +430,8 @@ export default function NotInCyclePage() {
                                 }
                                 onSave={() => saveGps(r.store.id)}
                                 saving={saving === r.store.id}
+                                storeName={r.store.name}
+                                nearby={placedByRep.get(r.store.repCode) ?? []}
                               />
                             </div>
                           )

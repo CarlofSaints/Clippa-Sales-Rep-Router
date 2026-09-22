@@ -24,6 +24,7 @@
 
 import type { Channel, RoutePlanDocument, Store, StoreOverride, SubChannel } from "./types";
 import { exclusionReason, approvedOverrideStoreIds } from "./routable";
+import { checkCoordinate } from "./saCoordinates";
 
 export type NotInCycleReason =
   | "over_target"
@@ -219,11 +220,30 @@ export function findNotInCycle({
     // to raise a target that was never the problem.
     const excluded = exclusionReason(store, channelsById, excused, subById);
     const dropped = droppedReason.get(store.id);
+
+    /**
+     * 🔴 A coordinate outside South Africa is BROKEN, not distant.
+     *
+     * Ten stores carry one, every single case a store name that was geocoded
+     * without a country: "BUILD IT MONTANA" sits in Montana USA, "PICK N PAY
+     * FAMILY BUSY CORNER" in San Francisco, "THE COFFEE COMPANY" in Brooklyn.
+     * The outlier check does catch them, but it reports "Out of range (16 952
+     * km from rep's area) — confirm to include", which offers a button that
+     * would put a San Francisco pharmacy into a Gauteng rep's Tuesday.
+     *
+     * Reported as an unusable coordinate instead, which is both true and
+     * actionable: it lands on the fixable list with a pin picker beside it.
+     */
+    const foreign =
+      !excluded && checkCoordinate(store.gpsLat ?? "", store.gpsLng ?? "").problem !== null;
+
     const reason: NotInCycleReason = excluded
       ? excluded
-      : dropped
-        ? reasonFromUnassigned(dropped)
-        : "not_in_plan";
+      : foreign
+        ? "bad_gps"
+        : dropped
+          ? reasonFromUnassigned(dropped)
+          : "not_in_plan";
 
     missing.push({ store, reason });
     reasonOf.set(store.id, reason);

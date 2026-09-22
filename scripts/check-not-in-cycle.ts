@@ -157,6 +157,36 @@ const base = { channels, overrides: [] as StoreOverride[], subChannels: [] as Su
   );
 }
 
+// ── 🔴 A foreign coordinate is BROKEN, not distant ────────────────────────
+// Ten live stores carry one, every case a store name geocoded without a
+// country: "BUILD IT MONTANA" in Montana USA, "PICK N PAY FAMILY BUSY CORNER"
+// in San Francisco. The outlier check calls that "out of range — confirm to
+// include", which offers a button that would put San Francisco on a Gauteng
+// rep's Tuesday.
+{
+  const stores = [
+    store("montana", { gpsLat: "46.879682", gpsLng: "-110.362566" }),
+    store("sanfran", { gpsLat: "37.788982", gpsLng: "-122.398301" }),
+    store("joburg", { gpsLat: "-26.1075", gpsLng: "28.0567" }),
+  ];
+  const routes = doc([], [
+    { storeId: "montana", storeName: "m", reason: "Out of range (15699 km from rep's area) — confirm to include" },
+    { storeId: "sanfran", storeName: "s", reason: "Out of range (16952 km from rep's area) — confirm to include" },
+    { storeId: "joburg", storeName: "j", reason: "Out of range (45 km from rep's area) — confirm to include" },
+  ]);
+  const r = findNotInCycle({ ...base, stores, routes });
+  ok("a Montana coordinate reads as an unusable coordinate",
+    r.reasonOf.get("montana") === "bad_gps", String(r.reasonOf.get("montana")));
+  ok("so does a San Francisco one",
+    r.reasonOf.get("sanfran") === "bad_gps", String(r.reasonOf.get("sanfran")));
+  ok("🔴 and neither is offered as 'confirm to include'",
+    r.reasonOf.get("montana") !== "out_of_range" && r.reasonOf.get("sanfran") !== "out_of_range");
+  ok("a genuinely distant SOUTH AFRICAN store is still a real outlier",
+    r.reasonOf.get("joburg") === "out_of_range", String(r.reasonOf.get("joburg")));
+  ok("and the broken ones are counted as un-plottable",
+    r.notPlottable === 2, String(r.notPlottable));
+}
+
 // ── Closure beats whatever the router said ────────────────────────────────
 // A shut shop reported as "over the calls-per-day target" would send somebody
 // to raise a target that was never the problem.

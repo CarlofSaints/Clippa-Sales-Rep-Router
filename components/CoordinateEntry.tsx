@@ -16,7 +16,13 @@
  */
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { checkCoordinate, splitPastedPair, SA_LAT, SA_LNG } from "@/lib/saCoordinates";
+import type { NearbyStore } from "./PinDropMap";
+
+// Leaflet touches `window` on import, so the picker must never be part of the
+// server render — the same reason the main map is loaded this way.
+const PinDropMap = dynamic(() => import("./PinDropMap"), { ssr: false });
 
 interface Props {
   lat: string;
@@ -27,10 +33,25 @@ interface Props {
   /** Shown above the boxes, e.g. the store name. */
   label?: string;
   compact?: boolean;
+  /** Enables "Drop a pin" — without a name and some context there is no map worth opening. */
+  storeName?: string;
+  /** The rep's other placed stores, for centring the picker and for context. */
+  nearby?: NearbyStore[];
 }
 
-export function CoordinateEntry({ lat, lng, onChange, onSave, saving, label, compact }: Props) {
+export function CoordinateEntry({
+  lat,
+  lng,
+  onChange,
+  onSave,
+  saving,
+  label,
+  compact,
+  storeName,
+  nearby,
+}: Props) {
   const [touched, setTouched] = useState(false);
+  const [picking, setPicking] = useState(false);
   const check = checkCoordinate(lat, lng);
   const ready = check.problem === null && check.lat !== null;
   const showProblem = touched && check.message !== null;
@@ -80,6 +101,17 @@ export function CoordinateEntry({ lat, lng, onChange, onSave, saving, label, com
       <div className="flex items-end gap-2 flex-wrap">
         {box("lat")}
         {box("lng")}
+        {/* Offered FIRST in reading order after the boxes, because for a store
+            with no address it is the easier of the two ways in — there is
+            nothing to look up, only somewhere to point. */}
+        {storeName && (
+          <button
+            onClick={() => setPicking(true)}
+            className="px-3 py-1.5 border border-gray-300 text-gray-700 rounded text-xs font-medium hover:bg-gray-50"
+          >
+            Drop a pin
+          </button>
+        )}
         <button
           onClick={onSave}
           disabled={!ready || saving}
@@ -89,6 +121,20 @@ export function CoordinateEntry({ lat, lng, onChange, onSave, saving, label, com
           {saving ? "Saving..." : "Save GPS"}
         </button>
       </div>
+
+      {picking && storeName && (
+        <PinDropMap
+          storeName={storeName}
+          nearby={nearby ?? []}
+          initial={ready ? { lat: check.lat!, lng: check.lng! } : null}
+          onCancel={() => setPicking(false)}
+          onPick={(la, ln) => {
+            setTouched(true);
+            onChange(String(la), String(ln));
+            setPicking(false);
+          }}
+        />
+      )}
 
       {/* The rule, where it is needed, before anything goes wrong. */}
       {!showProblem && (
