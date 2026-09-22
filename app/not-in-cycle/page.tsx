@@ -17,6 +17,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSession } from "@/components/SessionProvider";
 import { useTableSort, useSortedRows, SortableTh } from "@/components/TableSort";
 import { TeamFilter } from "@/components/TeamFilter";
+import { CoordinateEntry } from "@/components/CoordinateEntry";
 import {
   EMPTY_SELECTION,
   filterRepsByTeam,
@@ -67,6 +68,39 @@ export default function NotInCyclePage() {
   // somebody can act on, and "not in the cycle" is a to-do list, not an archive.
   const [status, setStatus] = useState<StatusFilter>("open");
   const [search, setSearch] = useState("");
+
+  // Coordinates being typed, and the ones already written.
+  const [edits, setEdits] = useState<Record<string, { lat: string; lng: string }>>({});
+  const [saving, setSaving] = useState<string | null>(null);
+  const [saved, setSaved] = useState<Set<string>>(new Set());
+
+  /**
+   * Write one store's coordinate.
+   *
+   * The row is NOT removed afterwards. The store is still outside the cycle
+   * until routes are regenerated, and quietly dropping it from the list would
+   * claim a fix that has not happened yet. It says "saved, regenerate" instead.
+   */
+  const saveGps = async (storeId: string) => {
+    const edit = edits[storeId];
+    if (!edit) return;
+    setSaving(storeId);
+    try {
+      const res = await fetch("/api/stores", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: storeId, gpsLat: edit.lat, gpsLng: edit.lng }),
+      });
+      if (res.ok) {
+        setSaved((p) => new Set(p).add(storeId));
+        setStores((prev) =>
+          prev.map((s) => (s.id === storeId ? { ...s, gpsLat: edit.lat, gpsLng: edit.lng } : s))
+        );
+      }
+    } finally {
+      setSaving(null);
+    }
+  };
 
   useEffect(() => {
     Promise.all([
@@ -358,8 +392,32 @@ export default function NotInCyclePage() {
                         <div className={isCorrectlyOut(r.why) ? "text-gray-500" : "text-gray-800"}>
                           {REASONS[r.why].label}
                         </div>
-                        {REASONS[r.why].action && (
-                          <div className="text-xs text-gray-400">{REASONS[r.why].action}</div>
+                        {/* 🔴 Fixable HERE. A coordinate is the one reason on
+                            this list somebody can clear in ten seconds, and
+                            sending them to another page to do it is how 1 786
+                            stores stayed unrouted. */}
+                        {r.why === "bad_gps" ? (
+                          saved.has(r.store.id) ? (
+                            <div className="text-xs text-green-700">
+                              Saved — regenerate routes to bring it into the cycle.
+                            </div>
+                          ) : (
+                            <div className="mt-1">
+                              <CoordinateEntry
+                                lat={edits[r.store.id]?.lat ?? ""}
+                                lng={edits[r.store.id]?.lng ?? ""}
+                                onChange={(lat, lng) =>
+                                  setEdits((p) => ({ ...p, [r.store.id]: { lat, lng } }))
+                                }
+                                onSave={() => saveGps(r.store.id)}
+                                saving={saving === r.store.id}
+                              />
+                            </div>
+                          )
+                        ) : (
+                          REASONS[r.why].action && (
+                            <div className="text-xs text-gray-400">{REASONS[r.why].action}</div>
+                          )
                         )}
                       </div>
                     </div>

@@ -6,6 +6,7 @@ import { FilterDropdown } from "@/components/FilterDropdown";
 import { cycleStartMonday, parseIsoDate } from "@/lib/repslySchedule";
 import { dayTotals } from "@/lib/dayTotals";
 import { roadRoutingOf } from "@/lib/roadRouting";
+import { CoordinateEntry } from "@/components/CoordinateEntry";
 import { TeamFilter } from "@/components/TeamFilter";
 import {
   EMPTY_SELECTION,
@@ -911,26 +912,20 @@ export default function RoutesPage() {
                     </span>
                   )}
                   {isGps && !fixed && (
-                    <span className="flex items-center gap-1 ml-1">
-                      <input
-                        value={gpsValue(primary, "lat")}
-                        onChange={(e) => setGpsField(primary, "lat", e.target.value)}
-                        placeholder="lat e.g. -26.1"
-                        className="w-28 border border-amber-300 rounded px-2 py-0.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-clippa-red"
+                    <span className="ml-1">
+                      {/* Was two boxes labelled only by placeholder, which
+                          vanishes as soon as anyone types into it. */}
+                      <CoordinateEntry
+                        lat={gpsValue(primary, "lat")}
+                        lng={gpsValue(primary, "lng")}
+                        onChange={(la, ln) => {
+                          setGpsField(primary, "lat", la);
+                          setGpsField(primary, "lng", ln);
+                        }}
+                        onSave={() => saveGps(g.storeIds)}
+                        saving={gpsSaving === primary}
+                        compact
                       />
-                      <input
-                        value={gpsValue(primary, "lng")}
-                        onChange={(e) => setGpsField(primary, "lng", e.target.value)}
-                        placeholder="lng e.g. 28.0"
-                        className="w-28 border border-amber-300 rounded px-2 py-0.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-clippa-red"
-                      />
-                      <button
-                        onClick={() => saveGps(g.storeIds)}
-                        disabled={gpsSaving === primary}
-                        className="px-2 py-0.5 bg-clippa-red text-white rounded text-xs font-medium hover:bg-red-700 disabled:opacity-50"
-                      >
-                        {gpsSaving === primary ? "Saving..." : "Save GPS"}
-                      </button>
                     </span>
                   )}
                   {isGps && fixed && (
