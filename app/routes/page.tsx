@@ -5,6 +5,14 @@ import { useSession } from "@/components/SessionProvider";
 import { FilterDropdown } from "@/components/FilterDropdown";
 import { cycleStartMonday, parseIsoDate } from "@/lib/repslySchedule";
 import { dayTotals } from "@/lib/dayTotals";
+import { TeamFilter } from "@/components/TeamFilter";
+import {
+  EMPTY_SELECTION,
+  filterRepsByTeam,
+  isActive,
+  NO_TEAM,
+  type TeamSelection,
+} from "@/lib/teamFilter";
 import {
   Rep,
   Team,
@@ -46,7 +54,7 @@ export default function RoutesPage() {
   );
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
-  const [selectedTeam, setSelectedTeam] = useState("");
+  const [teamSel, setTeamSel] = useState<TeamSelection>(EMPTY_SELECTION);
   // Which reps a target applies to. A set, because the useful unit is a
   // SUBSET: ten reps moved to eight calls a day while the rest stay put.
   const [selectedReps, setSelectedReps] = useState<Set<string>>(new Set());
@@ -148,13 +156,13 @@ export default function RoutesPage() {
       scoped = reps.filter((r) => r.teamId === session.teamId);
     }
 
-    // Team filter (admin only — teamManagers already scoped)
-    if (selectedTeam && isAdmin) {
-      scoped = scoped.filter((r) => r.teamId === selectedTeam);
+    // Team leader / team filter (admin only — teamManagers already scoped)
+    if (isAdmin) {
+      scoped = filterRepsByTeam(teams, teamSel, scoped);
     }
 
     return scoped;
-  }, [reps, isRep, isTeamManager, isAdmin, session?.repCode, session?.teamId, selectedTeam]);
+  }, [reps, teams, isRep, isTeamManager, isAdmin, session?.repCode, session?.teamId, teamSel]);
 
 
   /**
@@ -358,8 +366,14 @@ export default function RoutesPage() {
     // Determine which teamId to export
     if (isTeamManager && session?.teamId) {
       params.set("teamId", session.teamId);
-    } else if (selectedTeam) {
-      params.set("teamId", selectedTeam);
+    } else if (teamSel.teamId && teamSel.teamId !== NO_TEAM) {
+      // A single real team still goes by id, so the file keeps the team's name.
+      params.set("teamId", teamSel.teamId);
+    } else if (isActive(teamSel)) {
+      // A leader with several teams, or "No team": no single id can say it, so
+      // the exact reps on screen are named instead. Without this the export
+      // silently widens to everyone while the screen shows a subset.
+      params.set("repCodes", filteredReps.map((r) => r.code).join(","));
     }
     if (includeTimes) params.set("includeTimes", "1");
     window.location.href = `/api/routes/export?${params.toString()}`;
@@ -367,9 +381,16 @@ export default function RoutesPage() {
 
   // Get current rep's plan
   const currentPlan: RepRoutePlan | null = useMemo(() => {
-    if (!routes || !viewingRep) return routes?.repPlans?.[0] || null;
-    return routes.repPlans.find((p) => p.repCode === viewingRep) || null;
-  }, [routes, viewingRep]);
+    if (!routes) return null;
+    if (viewingRep) return routes.repPlans.find((p) => p.repCode === viewingRep) || null;
+    // 🔴 With nobody picked this fell back to repPlans[0] — the first rep in the
+    // whole document, in the order it was generated. Under a team filter that
+    // is routinely a rep the filter just excluded, so the header, the grid and
+    // the unassigned list all described somebody who is not on screen. The
+    // default has to come from what the user is actually looking at.
+    const inScope = new Set(filteredReps.map((r) => r.code));
+    return routes.repPlans.find((p) => inScope.has(p.repCode)) || null;
+  }, [routes, viewingRep, filteredReps]);
 
   // Build week/day grid lookup
   const grid = useMemo(() => {
@@ -702,25 +723,22 @@ export default function RoutesPage() {
           </select>
         )}
 
-        {/* Team Leader filter — visible to admins */}
+        {/* Team leader + team — visible to admins */}
         {isAdmin && (
-          <select
-            value={selectedTeam}
-            onChange={(e) => {
-              setSelectedTeam(e.target.value);
+          <TeamFilter
+            teams={teams}
+            value={teamSel}
+            reps={reps}
+            onChange={(next) => {
+              setTeamSel(next);
+              // Everything downstream is about a rep who may no longer be in
+              // scope. Clearing is the honest reset: a stale selection would
+              // keep drawing a rep the filter has just excluded.
               setViewingRep("");
               setSelectedReps(new Set());
               setSelectedCell(null);
             }}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
-          >
-            <option value="">All Team Leaders</option>
-            {teams.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.managerName || "Unassigned"} — {t.name}
-              </option>
-            ))}
-          </select>
+          />
         )}
 
         {/* Reps — a tick list, because the useful unit is a SUBSET. Hidden for

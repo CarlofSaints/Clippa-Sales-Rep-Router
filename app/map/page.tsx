@@ -4,9 +4,18 @@ import { Suspense, useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useSession } from "@/components/SessionProvider";
-import { Store, Rep, Channel, Team, RoutePlanDocument, RouteDayPlan, WeekLabel, CallCycleStrategy } from "@/lib/types";
+import { Store, Rep, Channel, Team, RoutePlanDocument, RouteDayPlan, WeekLabel, CallCycleStrategy, StoreOverride, SubChannel } from "@/lib/types";
 import { decodePolyline } from "@/lib/google-maps";
 import { parseLatLng, haversineKm } from "@/lib/latlng";
+import {
+  findNotInCycle,
+  isCorrectlyOut,
+  REASONS,
+  type NotInCycleReason,
+  type NotInCycleResult,
+} from "@/lib/notInCycle";
+import { TeamFilter } from "@/components/TeamFilter";
+import { EMPTY_SELECTION, filterRepsByTeam, isActive, type TeamSelection } from "@/lib/teamFilter";
 
 const MapView = dynamic(() => import("./MapView"), { ssr: false });
 import type { RouteLine } from "./MapView";
@@ -225,6 +234,11 @@ function MapPageInner() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [routes, setRoutes] = useState<RoutePlanDocument | null>(null);
+  // Needed to answer "is this store eligible at all" with the SAME rule the
+  // router uses. Without them a store excused by an approved override would be
+  // reported as "in a channel nobody calls on", which is the opposite of true.
+  const [overrides, setOverrides] = useState<StoreOverride[]>([]);
+  const [subChannels, setSubChannels] = useState<SubChannel[]>([]);
   const [loading, setLoading] = useState(true);
   const [routeTypes, setRouteTypes] = useState<RouteTypeInfo[]>([]);
   const [selectedTypeId, setSelectedTypeId] = useState("");
@@ -238,6 +252,9 @@ function MapPageInner() {
   const [filterDay, setFilterDay] = useState(searchParams.get("day") || "");
   const [filterWeek, setFilterWeek] = useState(searchParams.get("week") || "");
   const [showRoute, setShowRoute] = useState(searchParams.get("route") === "on");
+  /** "Not in the cycle" mode: show the stores no day visits, and say why. */
+  const [showNotInCycle, setShowNotInCycle] = useState(searchParams.get("missing") === "on");
+  const [teamSel, setTeamSel] = useState<TeamSelection>(EMPTY_SELECTION);
 
   useEffect(() => {
     Promise.all([
@@ -247,12 +264,16 @@ function MapPageInner() {
       fetch("/api/teams").then((r) => r.json()).catch(() => []),
       fetch("/api/routes").then((r) => r.json()).catch(() => null),
       fetch("/api/routes/types").then((r) => r.json()).catch(() => []),
-    ]).then(([st, rp, ch, tm, rt, types]) => {
+      fetch("/api/store-overrides").then((r) => r.json()).catch(() => ({ overrides: [] })),
+      fetch("/api/sub-channels").then((r) => (r.ok ? r.json() : [])).catch(() => []),
+    ]).then(([st, rp, ch, tm, rt, types, ov, sub]) => {
       setStores(Array.isArray(st) ? st : []);
       setReps(Array.isArray(rp) ? rp : []);
       setChannels(Array.isArray(ch) ? ch : []);
       setTeams(Array.isArray(tm) ? tm : []);
       setRoutes(rt && typeof rt === "object" && "repPlans" in rt ? rt : null);
+      setOverrides(Array.isArray(ov?.overrides) ? ov.overrides : Array.isArray(ov) ? ov : []);
+      setSubChannels(Array.isArray(sub) ? sub : []);
 
       const typesArr: RouteTypeInfo[] = Array.isArray(types) ? types : [];
       setRouteTypes(typesArr);
@@ -292,8 +313,9 @@ function MapPageInner() {
   const repMap = useMemo(() => new Map(reps.map((r) => [r.code, r])), [reps]);
   const channelMap = useMemo(() => new Map(channels.map((c) => [c.id, c])), [channels]);
 
-  // Scoped reps based on role
-  const scopedReps = useMemo(() => {
+  // Scoped reps based on role. Role scoping first, ALWAYS — the team filter is
+  // a convenience on top of what this user may see, never a way past it.
+  const roleScopedReps = useMemo(() => {
     if (isRep && session?.repCode) {
       return reps.filter((r) => r.code === session.repCode);
     }
@@ -302,6 +324,26 @@ function MapPageInner() {
     }
     return reps; // admin sees all
   }, [reps, isRep, isTeamManager, session?.repCode, session?.teamId]);
+
+  const teamFilterActive = isActive(teamSel);
+
+  const scopedReps = useMemo(
+    () => filterRepsByTeam(teams, teamSel, roleScopedReps),
+    [teams, teamSel, roleScopedReps]
+  );
+
+  /**
+   * 🔴 Drop a chosen rep the team filter has just excluded.
+   *
+   * Without this the rep select holds a value with no matching option, which a
+   * browser renders as the FIRST option — so the control would name one rep
+   * while the map drew another's route, and everything on screen would look
+   * consistent. See [[select-value-with-no-option]].
+   */
+  useEffect(() => {
+    if (!filterRep) return;
+    if (!scopedReps.some((r) => r.code === filterRep)) setFilterRep("");
+  }, [filterRep, scopedReps]);
 
   // Visible rep codes for store filtering
   /**
@@ -370,19 +412,57 @@ function MapPageInner() {
     return ids;
   }, [routes, filterDay, filterWeek, filterRep, isAdmin, visibleRepCodes]);
 
+  /**
+   * The stores no day of the cycle visits, and why — see `lib/notInCycle.ts`.
+   *
+   * Computed whether or not the mode is on, so the toggle can carry the count
+   * before you press it. A control that makes you turn it on to find out
+   * whether it has anything to say is a control you stop pressing.
+   */
+  const notInCycle = useMemo(
+    () =>
+      findNotInCycle({
+        stores,
+        channels,
+        overrides,
+        subChannels,
+        routes,
+        repCode: filterRep || undefined,
+        // Scoped when the user is limited by role OR has chosen a team, so the
+        // panel counts exactly the reps on screen.
+        visibleRepCodes: isAdmin && !teamFilterActive ? undefined : visibleRepCodes,
+      }),
+    [stores, channels, overrides, subChannels, routes, filterRep, isAdmin, teamFilterActive, visibleRepCodes]
+  );
+
   const filtered = useMemo(() => {
     return stores.filter((s) => {
       // Role-based scoping for non-admin users
       if (!isAdmin && !visibleRepCodes.has(s.repCode)) return false;
+      // 🔴 And the same narrowing for an admin who has CHOSEN a team. Without
+      // this the team selects moved the rep dropdown and left all 7 080 stores
+      // on the map — a filter that looks applied and has done nothing.
+      //
+      // Only when the filter is active, deliberately: with no team chosen,
+      // `visibleRepCodes` is every rep, and applying it would silently drop the
+      // stores whose rep code matches no rep record at all (the CMR* agent
+      // codes and friends), which admins are currently shown.
+      if (isAdmin && teamFilterActive && !visibleRepCodes.has(s.repCode)) return false;
       if (filterRep && s.repCode !== filterRep) return false;
+      // 🔴 In this mode the week and day filters are deliberately ignored.
+      // "Never visited" is a question about the whole four-week cycle, and a
+      // store visited only in Wk3 is IN the cycle even while Wk1 is on screen.
+      // Letting the day filter through would answer a different question under
+      // the same label.
+      if (showNotInCycle) return notInCycle.reasonOf.has(s.id);
       if (scheduledStoreIds && !scheduledStoreIds.has(s.id)) return false;
       return true;
     });
-  }, [stores, filterRep, scheduledStoreIds, isAdmin, visibleRepCodes]);
+  }, [stores, filterRep, scheduledStoreIds, isAdmin, teamFilterActive, visibleRepCodes, showNotInCycle, notInCycle]);
 
   // Get matching route day plans for selected rep (optionally filtered by week/day)
   const matchingDayPlans: RouteDayPlan[] = useMemo(() => {
-    if (!showRoute || !routes || !filterRep) return [];
+    if (!showRoute || showNotInCycle || !routes || !filterRep) return [];
     const repPlan = routes.repPlans.find((p) => p.repCode === filterRep);
     if (!repPlan) return [];
     return repPlan.days.filter((d) => {
@@ -390,7 +470,7 @@ function MapPageInner() {
       if (filterDay && d.day !== filterDay) return false;
       return d.stops.length > 0;
     });
-  }, [showRoute, routes, filterRep, filterWeek, filterDay]);
+  }, [showRoute, showNotInCycle, routes, filterRep, filterWeek, filterDay]);
 
   // Flatten all matching stops, tagging each with the day plan it came from.
   // Sequence numbers restart at 1 in every day, so without this a Monday view
@@ -509,6 +589,13 @@ function MapPageInner() {
           </select>
         )}
 
+        {/* Team leader + team. Admin only: a team manager is already pinned to
+            their own team, so the control could only ever narrow to what they
+            are already looking at. */}
+        {isAdmin && (
+          <TeamFilter teams={teams} value={teamSel} onChange={setTeamSel} reps={roleScopedReps} />
+        )}
+
         {/* Rep dropdown — hidden for rep users (auto-selected) */}
         {!isRep && (
           <RepSearchSelect
@@ -524,10 +611,16 @@ function MapPageInner() {
           />
         )}
 
+        {/* Disabled, not ignored. "Never visited" is a question about the whole
+            four-week cycle, so a day cannot narrow it — and a dropdown that
+            still looks live while having no effect is worse than one that says
+            why it is off. */}
         <select
           value={filterDay}
           onChange={(e) => setFilterDay(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
+          disabled={showNotInCycle}
+          title={showNotInCycle ? "A store is in the cycle or it is not — a single day cannot answer that" : undefined}
+          className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
         >
           <option value="">All Days</option>
           {["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"].map((d) => (
@@ -537,7 +630,9 @@ function MapPageInner() {
         <select
           value={filterWeek}
           onChange={(e) => setFilterWeek(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red"
+          disabled={showNotInCycle}
+          title={showNotInCycle ? "A store is in the cycle or it is not — a single week cannot answer that" : undefined}
+          className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-clippa-red disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
         >
           <option value="">All Weeks</option>
           {WEEKS.map((w) => (
@@ -545,20 +640,63 @@ function MapPageInner() {
           ))}
         </select>
 
-        {/* Route toggle */}
-        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+        {/* Route toggle. Off in "not in the cycle" mode: with no day or week to
+            narrow it the map would draw all twenty days at once, and a screen
+            asking what is NOT on the route is not helped by twenty overlapping
+            routes. */}
+        <label
+          className={`flex items-center gap-2 text-sm select-none ${
+            showNotInCycle ? "text-gray-400 cursor-not-allowed" : "text-gray-600 cursor-pointer"
+          }`}
+          title={showNotInCycle ? "Untick “Stores not in the cycle” to draw a route" : undefined}
+        >
           <input
             type="checkbox"
-            checked={showRoute}
+            checked={showRoute && !showNotInCycle}
+            disabled={showNotInCycle}
             onChange={(e) => setShowRoute(e.target.checked)}
-            className="rounded border-gray-300 text-clippa-red focus:ring-clippa-red"
+            className="rounded border-gray-300 text-clippa-red focus:ring-clippa-red disabled:cursor-not-allowed"
           />
           Show Route
         </label>
 
+        {/* Named for what it SHOWS, and carrying the count before it is pressed.
+            "Unrouted only" would describe the filter; this describes the shops. */}
+        <label
+          className={`flex items-center gap-2 text-sm cursor-pointer select-none rounded-lg px-2 py-1 ${
+            showNotInCycle ? "bg-amber-50 text-amber-800" : "text-gray-600"
+          }`}
+        >
+          <input
+            type="checkbox"
+            checked={showNotInCycle}
+            onChange={(e) => setShowNotInCycle(e.target.checked)}
+            className="rounded border-gray-300 text-clippa-red focus:ring-clippa-red"
+          />
+          Stores not in the cycle
+          <span
+            className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${
+              notInCycle.missing.length > 0
+                ? "bg-amber-200 text-amber-900"
+                : "bg-gray-100 text-gray-500"
+            }`}
+          >
+            {notInCycle.missing.length}
+          </span>
+        </label>
+
         <span className="text-sm text-gray-500 ml-auto">
-          {filtered.length} stores shown
-          {scheduledStoreIds && ` scheduled on ${[filterWeek, filterDay].filter(Boolean).join(" ")}`}
+          {/* 🔴 "shown" would be wrong here by exactly the stores the panel is
+              warning about: one of these has no coordinate, so it is counted
+              and cannot be drawn. Say what is true of the SET, and let the
+              panel account for what the map cannot render.
+              See [[cap-what-you-draw-not-what-you-count]]. */}
+          {showNotInCycle
+            ? `${filtered.length} not in the cycle, of ${notInCycle.totalStores}`
+            : `${filtered.length} stores shown`}
+          {!showNotInCycle && scheduledStoreIds
+            ? ` scheduled on ${[filterWeek, filterDay].filter(Boolean).join(" ")}`
+            : ""}
           {allRouteStops.length > 0 && ` | Route: ${allRouteStops.length} stops across ${matchingDayPlans.length} day${matchingDayPlans.length !== 1 ? "s" : ""}`}
         </span>
       </div>
@@ -572,7 +710,7 @@ function MapPageInner() {
 
       {/* A day or week can only be answered by a generated plan. Saying so beats
           an empty map, which reads as the rep having no stores. */}
-      {scheduledStoreIds && filtered.length === 0 && (
+      {!showNotInCycle && scheduledStoreIds && filtered.length === 0 && (
         <div className="bg-amber-50 border-b border-amber-200 px-6 py-2 text-xs text-amber-700">
           {!routes
             ? "No routes have been generated yet, so nothing is scheduled for a day or a week. Generate routes on the Routes page."
@@ -581,7 +719,8 @@ function MapPageInner() {
       )}
 
       {/* Map */}
-      <div className="flex-1">
+      <div className="flex-1 relative">
+        {showNotInCycle && <NotInCyclePanel result={notInCycle} hasRoutes={!!routes} />}
         <MapView
           stores={filtered}
           repMap={repMap}
@@ -591,10 +730,110 @@ function MapPageInner() {
           routeDays={matchingDayPlans.length > 0 ? matchingDayPlans : undefined}
           routeLines={routeLines.length > 0 ? routeLines : undefined}
           repHome={repHome}
+          storeReasons={showNotInCycle ? notInCycle.reasonOf : undefined}
           showRoute={allRouteStops.length > 0}
           singleDay={matchingDayPlans.length === 1}
           fitKey={`${selectedTypeId}|${filterRep}|${filterWeek}|${filterDay}`}
         />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Why the cycle misses the stores on screen, broken down and ranked.
+ *
+ * The map alone can only say WHERE the gaps are. The question a manager
+ * actually has is what to do about them, and the answers are different enough
+ * that one number would be useless: 22 stores over a target he can raise and 1
+ * store with a broken coordinate are not the same problem.
+ *
+ * Ranked so the fixable ones lead, and the two that are correctly out are
+ * separated below a rule — they are context, not a to-do list.
+ */
+function NotInCyclePanel({
+  result,
+  hasRoutes,
+}: {
+  result: NotInCycleResult;
+  hasRoutes: boolean;
+}) {
+  const rows = (Object.keys(REASONS) as NotInCycleReason[])
+    .filter((r) => result.counts[r] > 0)
+    .sort((a, b) => REASONS[a].rank - REASONS[b].rank);
+
+  const actionable = rows.filter((r) => !isCorrectlyOut(r));
+  const correctlyOut = rows.filter(isCorrectlyOut);
+  const toFix = actionable.reduce((s, r) => s + result.counts[r], 0);
+
+  return (
+    <div className="absolute top-4 right-4 z-[1000] w-72 bg-white/95 backdrop-blur rounded-lg shadow-lg text-xs overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-100">
+        <div className="font-semibold text-gray-900">Not in the cycle</div>
+        <div className="text-gray-500 mt-0.5">
+          {result.scheduled} of {result.totalStores} stores are visited.{" "}
+          <span className="font-semibold text-amber-700">{toFix}</span> could be and{" "}
+          {toFix === 1 ? "is" : "are"} not.
+        </div>
+      </div>
+
+      {!hasRoutes ? (
+        <div className="px-4 py-3 text-amber-700">
+          No routes have been generated yet, so nothing is in a cycle. Generate
+          routes on the Routes page.
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="px-4 py-3 text-green-700">
+          Every store this rep can be sent to is in the cycle.
+        </div>
+      ) : (
+        <div className="px-4 py-3 space-y-2.5">
+          {actionable.map((r) => (
+            <ReasonRow key={r} reason={r} count={result.counts[r]} />
+          ))}
+
+          {correctlyOut.length > 0 && (
+            <div className="pt-2 mt-1 border-t border-gray-100 space-y-2.5">
+              {/* Shown, never silently subtracted — a count that drops without
+                  explanation is the thing people stop trusting the page over. */}
+              <div className="text-gray-400 uppercase tracking-wide text-[10px] font-semibold">
+                Correctly out
+              </div>
+              {correctlyOut.map((r) => (
+                <ReasonRow key={r} reason={r} count={result.counts[r]} />
+              ))}
+            </div>
+          )}
+
+          {/* 🔴 The honest footnote. These stores have no usable coordinate, so
+              there is physically nowhere to draw them — without this line the
+              panel counts more stores than the map shows and looks wrong. */}
+          {result.notPlottable > 0 && (
+            <p className="pt-2 mt-1 border-t border-gray-100 text-gray-500">
+              {result.notPlottable} of these {result.notPlottable === 1 ? "is" : "are"} not on
+              the map at all — without a coordinate there is nowhere to put{" "}
+              {result.notPlottable === 1 ? "it" : "them"}.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReasonRow({ reason, count }: { reason: NotInCycleReason; count: number }) {
+  const r = REASONS[reason];
+  return (
+    <div className="flex gap-2">
+      <span
+        className="mt-1 w-2.5 h-2.5 rounded-full shrink-0 ring-2 ring-white"
+        style={{ background: r.colour }}
+      />
+      <div className="min-w-0">
+        <div className="font-medium text-gray-800">
+          {count} · {r.label}
+        </div>
+        {r.action && <div className="text-gray-500">{r.action}</div>}
       </div>
     </div>
   );

@@ -1,0 +1,244 @@
+/**
+ * Assertions for "why is this store not in the cycle".
+ *
+ * Run: npx tsx scripts/check-not-in-cycle.ts
+ *
+ * Every reason here sends somebody to do something different — raise a target,
+ * fix a coordinate, confirm an outlier, or nothing at all. The cases that
+ * matter most are the ones where the wrong label sends them to the wrong place,
+ * and the ones where a store is quietly counted as missing when it is not.
+ */
+
+import { findNotInCycle, isCorrectlyOut, REASONS, type NotInCycleReason } from "../lib/notInCycle";
+import type {
+  Channel,
+  RoutePlanDocument,
+  RouteDayPlan,
+  Store,
+  StoreOverride,
+  SubChannel,
+} from "../lib/types";
+
+let passed = 0;
+let failed = 0;
+
+function ok(label: string, condition: boolean, detail = "") {
+  if (condition) {
+    passed++;
+    console.log(`PASS  ${label}`);
+  } else {
+    failed++;
+    console.log(`FAIL  ${label}${detail ? `  — ${detail}` : ""}`);
+  }
+}
+
+function store(id: string, over: Partial<Store> = {}): Store {
+  return {
+    id,
+    placeId: id,
+    name: `Store ${id}`,
+    channelId: "spar",
+    repCode: "R1",
+    gpsLat: "-26.1",
+    gpsLng: "28.0",
+    monthlySales: 0,
+    frequency: "monthly",
+    duration: 30,
+    dayOfWeek: "",
+    weekNumber: "",
+    ...over,
+  } as Store;
+}
+
+const channels: Channel[] = [
+  { id: "spar", name: "SPAR", frequency: "monthly", duration: 30 } as Channel,
+  { id: "wholesale", name: "Wholesale", frequency: "monthly", duration: 30, notARepChannel: true } as Channel,
+];
+
+function day(stopIds: string[]): RouteDayPlan {
+  return {
+    day: "Monday",
+    week: "Wk1",
+    stops: stopIds.map((id, i) => ({
+      storeId: id,
+      storeName: `Store ${id}`,
+      lat: -26.1,
+      lng: 28.0,
+      visitDuration: 30,
+      travelTimeFromPrev: 10,
+      distanceFromPrev: 5,
+      arrivalTime: "08:00",
+      departureTime: "08:30",
+      sequence: i + 1,
+    })),
+    totalTravelTime: 10,
+    totalVisitTime: 30,
+    totalTime: 40,
+    totalDistance: 5,
+    overCapacity: false,
+  };
+}
+
+function doc(
+  days: RouteDayPlan[],
+  unassigned: { storeId: string; storeName: string; reason: string }[] = []
+): RoutePlanDocument {
+  return {
+    generatedAt: "2026-09-22T00:00:00.000Z",
+    repPlans: [
+      {
+        repCode: "R1",
+        repName: "Test Rep",
+        homeLatLng: { lat: -26, lng: 28 },
+        workingHoursPerDay: 8.5,
+        generatedAt: "2026-09-22T00:00:00.000Z",
+        days,
+        stats: { totalStores: 0, unassignedStores: unassigned },
+      },
+    ],
+  } as RoutePlanDocument;
+}
+
+const base = { channels, overrides: [] as StoreOverride[], subChannels: [] as SubChannel[] };
+
+// ── Each reason lands on the right store ──────────────────────────────────
+{
+  const stores = [
+    store("visited"),
+    store("target"),
+    store("capacity"),
+    store("range"),
+    store("gps", { gpsLat: "0", gpsLng: "0" }),
+    store("shut", { closed: true }),
+    store("nochannel", { channelId: "wholesale" }),
+    store("brandnew"),
+  ];
+  const routes = doc(
+    [day(["visited"])],
+    [
+      { storeId: "target", storeName: "Store target", reason: "Over the 8 calls per day target" },
+      { storeId: "capacity", storeName: "Store capacity", reason: "Over daily capacity" },
+      { storeId: "range", storeName: "Store range", reason: "Out of range (509 km from rep's area) — confirm to include" },
+      { storeId: "gps", storeName: "Store gps", reason: "Missing or invalid GPS coordinates" },
+    ]
+  );
+  const r = findNotInCycle({ ...base, stores, routes });
+
+  const expected: [string, NotInCycleReason][] = [
+    ["target", "over_target"],
+    ["capacity", "over_capacity"],
+    ["range", "out_of_range"],
+    ["gps", "bad_gps"],
+    ["shut", "closed"],
+    ["nochannel", "channel_not_called_on"],
+    ["brandnew", "not_in_plan"],
+  ];
+  for (const [id, reason] of expected) {
+    ok(`${id} reads as ${reason}`, r.reasonOf.get(id) === reason, `got ${r.reasonOf.get(id)}`);
+  }
+
+  ok("a visited store is not reported as missing", !r.reasonOf.has("visited"));
+  ok("the visited store is counted as scheduled", r.scheduled === 1, String(r.scheduled));
+  ok("the denominator is every store of the rep's", r.totalStores === 8, String(r.totalStores));
+  ok("seven stores are missing", r.missing.length === 7, String(r.missing.length));
+
+  // 🔴 A store with no usable coordinate cannot be drawn, so the panel has to
+  // say so or it counts more than the map shows.
+  ok("the store with no coordinate is counted as un-plottable", r.notPlottable === 1, String(r.notPlottable));
+
+  // Ranked: what can be acted on comes before what is correctly out.
+  const ranks = r.missing.map((m) => REASONS[m.reason].rank);
+  ok("the list is ordered by what a manager can act on", ranks.every((v, i) => i === 0 || ranks[i - 1] <= v), ranks.join(","));
+
+  ok(
+    "closed and channel-not-called-on are the two that are correctly out",
+    isCorrectlyOut("closed") && isCorrectlyOut("channel_not_called_on") &&
+      !isCorrectlyOut("over_target") && !isCorrectlyOut("not_in_plan")
+  );
+}
+
+// ── Closure beats whatever the router said ────────────────────────────────
+// A shut shop reported as "over the calls-per-day target" would send somebody
+// to raise a target that was never the problem.
+{
+  const stores = [store("shut", { closed: true })];
+  const routes = doc([], [{ storeId: "shut", storeName: "Store shut", reason: "Over the 8 calls per day target" }]);
+  const r = findNotInCycle({ ...base, stores, routes });
+  ok("a closed store is reported as closed, not as a target drop", r.reasonOf.get("shut") === "closed", String(r.reasonOf.get("shut")));
+}
+
+// ── An approved override keeps a store in a non-rep channel ───────────────
+{
+  const stores = [store("excused", { channelId: "wholesale" })];
+  const overrides = [{ storeId: "excused", approvalStatus: "approved" }] as StoreOverride[];
+  const routes = doc([], [{ storeId: "excused", storeName: "Store excused", reason: "Over daily capacity" }]);
+  const r = findNotInCycle({ ...base, overrides, stores, routes });
+  ok(
+    "an excused store is NOT blamed on its channel",
+    r.reasonOf.get("excused") === "over_capacity",
+    String(r.reasonOf.get("excused"))
+  );
+  const without = findNotInCycle({ ...base, stores, routes });
+  ok(
+    "without the override the same store IS its channel's fault",
+    without.reasonOf.get("excused") === "channel_not_called_on",
+    String(without.reasonOf.get("excused"))
+  );
+}
+
+// ── A store visited in ANY week is in the cycle ───────────────────────────
+// 🔴 The bug this must never have: `unassignedStores` holds one entry per
+// dropped VISIT, so a weekly store dropped from Wk3 appears there while still
+// being visited in Wk1. It is in the cycle.
+{
+  const stores = [store("weekly")];
+  const routes = doc(
+    [{ ...day(["weekly"]), week: "Wk1" }],
+    [{ storeId: "weekly", storeName: "Store weekly", reason: "Over the 8 calls per day target" }]
+  );
+  const r = findNotInCycle({ ...base, stores, routes });
+  ok("a store dropped from one week but kept in another is IN the cycle", !r.reasonOf.has("weekly"));
+  ok("and it counts as scheduled", r.scheduled === 1, String(r.scheduled));
+  ok("and nothing is reported as missing", r.missing.length === 0, String(r.missing.length));
+}
+
+// ── Scoping ───────────────────────────────────────────────────────────────
+{
+  const stores = [store("mine"), store("theirs", { repCode: "R2" })];
+  const routes = doc([]);
+  const mine = findNotInCycle({ ...base, stores, routes, repCode: "R1" });
+  ok("another rep's store is not counted against this rep", mine.totalStores === 1 && !mine.reasonOf.has("theirs"));
+
+  const scoped = findNotInCycle({ ...base, stores, routes, visibleRepCodes: new Set(["R2"]) });
+  ok("a user who may not see a rep is not shown their gaps", scoped.totalStores === 1 && !scoped.reasonOf.has("mine"));
+}
+
+// ── No plan at all ────────────────────────────────────────────────────────
+// Every store is missing, and every one of them for the honest reason: there is
+// nothing to be in. Never "over the calls-per-day target".
+{
+  const stores = [store("a"), store("b")];
+  const r = findNotInCycle({ ...base, stores, routes: null });
+  ok("with no plan, every store is missing", r.missing.length === 2);
+  ok(
+    "with no plan, nothing is blamed on a routing decision",
+    r.missing.every((m) => m.reason === "not_in_plan"),
+    r.missing.map((m) => m.reason).join(",")
+  );
+  ok("with no plan, nothing counts as scheduled", r.scheduled === 0);
+}
+
+// ── Every reason can be rendered ──────────────────────────────────────────
+for (const key of Object.keys(REASONS) as NotInCycleReason[]) {
+  const p = REASONS[key];
+  ok(`${key} has a label`, p.label.length > 0);
+  ok(`${key} has a colour`, /^#[0-9A-Fa-f]{6}$/.test(p.colour));
+  // The two that are correctly out are the only ones with nothing to do.
+  ok(
+    `${key} offers an action exactly when there is one`,
+    isCorrectlyOut(key) ? p.action === null : typeof p.action === "string" && p.action.length > 0
+  );
+}
+
+console.log(`\n${passed} passed, ${failed} failed`);
+if (failed > 0) process.exit(1);

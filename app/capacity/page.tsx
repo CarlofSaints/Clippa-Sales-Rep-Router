@@ -4,6 +4,13 @@ import { useState, useEffect, useMemo } from "react";
 import { useSession } from "@/components/SessionProvider";
 import { Team } from "@/lib/types";
 import { useTableSort, useSortedRows, SortableTh } from "@/components/TableSort";
+import { TeamFilter } from "@/components/TeamFilter";
+import {
+  EMPTY_SELECTION,
+  filterRepsByTeam,
+  isActive,
+  type TeamSelection,
+} from "@/lib/teamFilter";
 
 interface RepCapacity {
   repCode: string;
@@ -63,6 +70,7 @@ export default function CapacityPage() {
   const { session } = useSession();
   const [data, setData] = useState<CapacityResponse | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
+  const [teamSel, setTeamSel] = useState<TeamSelection>(EMPTY_SELECTION);
   const [loading, setLoading] = useState(true);
   const [outliers, setOutliers] = useState<OutlierResponse | null>(null);
   const [radiusInput, setRadiusInput] = useState("150");
@@ -133,13 +141,19 @@ export default function CapacityPage() {
     return (id: string) => m.get(id) || "Unassigned";
   }, [teams]);
 
-  // Role scoping
-  const reps = useMemo(() => {
+  // Role scoping. Always first: the team filter narrows what this user may
+  // already see, it never reaches past it.
+  const roleScopedReps = useMemo(() => {
     const all = data?.reps ?? [];
     if (isRep && session?.repCode) return all.filter((r) => r.repCode === session.repCode);
     if (isTeamManager && session?.teamId) return all.filter((r) => r.teamId === session.teamId);
     return all;
   }, [data, isRep, isTeamManager, session?.repCode, session?.teamId]);
+
+  const reps = useMemo(
+    () => (isAdmin ? filterRepsByTeam(teams, teamSel, roleScopedReps) : roleScopedReps),
+    [isAdmin, teams, teamSel, roleScopedReps]
+  );
 
   // Outlier stores scoped to the reps this user can see
   const visibleRepCodes = useMemo(() => new Set(reps.map((r) => r.repCode)), [reps]);
@@ -260,10 +274,28 @@ export default function CapacityPage() {
               "No routes generated yet — figures show allocation only"
             )}
           </p>
+          {/* Under the heading rather than beside the export, because every
+              number on this page — the roll-up, the recommendation and the
+              table — is scoped by it. */}
+          {isAdmin && (
+            <TeamFilter
+              teams={teams}
+              value={teamSel}
+              onChange={setTeamSel}
+              reps={roleScopedReps}
+              className="mt-3"
+            />
+          )}
         </div>
         {reps.length > 0 && (
           <a
-            href="/api/reps/capacity/export"
+            /* Carries the reps on screen, so the file matches what was filtered
+               rather than quietly widening back to everybody. */
+            href={
+              isActive(teamSel)
+                ? `/api/reps/capacity/export?repCodes=${encodeURIComponent(reps.map((r) => r.repCode).join(","))}`
+                : "/api/reps/capacity/export"
+            }
             className="px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

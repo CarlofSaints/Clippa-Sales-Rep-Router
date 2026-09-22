@@ -6,6 +6,8 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Store, Rep, Channel, RouteStop, RouteDayPlan } from "@/lib/types";
 import { dayTotals } from "@/lib/dayTotals";
+import { parseLatLng } from "@/lib/latlng";
+import { REASONS, type NotInCycleReason } from "@/lib/notInCycle";
 
 /**
  * One day's line on the map. `road` false means no saved Google geometry, so
@@ -58,6 +60,14 @@ interface Props {
     /** Set when the rep HAS a home but the saved route still starts this far from it. */
     homeNotInRouteKm?: number;
   } | null;
+  /**
+   * Why each store on screen is not in the cycle, in "not in the cycle" mode.
+   *
+   * Present only in that mode. Its presence is what switches a dot from "one of
+   * this rep's shops" to "a shop the cycle misses, for this reason" — the
+   * colour, the size and the first line of the popup all follow from it.
+   */
+  storeReasons?: Map<string, NotInCycleReason>;
   showRoute?: boolean;
   singleDay?: boolean; // true when exactly one day plan is on the map
   /** Changes when the rep, day or week changes: the map re-fits to the new route. */
@@ -315,6 +325,7 @@ export default function MapView({
   routeDays,
   routeLines,
   repHome,
+  storeReasons,
   showRoute,
   singleDay,
   fitKey,
@@ -393,11 +404,21 @@ export default function MapView({
 
         {/* Store markers */}
         {stores.map((store) => {
-          const lat = parseFloat(store.gpsLat);
-          const lng = parseFloat(store.gpsLng);
-          if (isNaN(lat) || isNaN(lng)) return null;
+          // 🔴 `parseLatLng`, not a bare `parseFloat`. parseFloat accepts the
+          // (0,0) placeholder and a lat/lng outside South Africa, so 1 767
+          // stores with unusable coordinates were being drawn — most of them
+          // stacked on null island off West Africa, dragging the fit with them.
+          // The home pin was moved onto this rule on 20 Sep and the store dots
+          // were left behind. See [[half-applied-shared-helper]].
+          const fix = parseLatLng(store.gpsLat, store.gpsLng);
+          if (!fix) return null;
+          const { lat, lng } = fix;
 
-          const color = repColors[store.repCode] || "#6B7280";
+          // In "not in the cycle" mode the axis that matters is WHY a store is
+          // missing, not whose it is, so the dot carries the reason's colour and
+          // stands at full strength over the route rather than fading behind it.
+          const reason = storeReasons?.get(store.id);
+          const colour = reason ? REASONS[reason].colour : repColors[store.repCode] || "#6B7280";
           const rep = repMap.get(store.repCode);
           const ch = channelMap.get(store.channelId);
 
@@ -405,18 +426,37 @@ export default function MapView({
             <CircleMarker
               key={store.id}
               center={[lat, lng]}
-              radius={showRoute ? 3 : 5}
+              radius={reason ? 6 : showRoute ? 3 : 5}
               pathOptions={{
-                fillColor: color,
-                color: color,
-                weight: 1,
-                opacity: showRoute ? 0.3 : 0.8,
-                fillOpacity: showRoute ? 0.2 : 0.6,
+                fillColor: colour,
+                color: reason ? "#ffffff" : colour,
+                weight: reason ? 2 : 1,
+                opacity: reason ? 1 : showRoute ? 0.3 : 0.8,
+                fillOpacity: reason ? 0.95 : showRoute ? 0.2 : 0.6,
               }}
             >
               <Popup>
                 <div className="text-xs space-y-1">
                   <p className="font-bold text-sm">{store.name}</p>
+                  {/* The answer first. Opening a dot in this mode is asking one
+                      question, and making it read past the channel and the
+                      sales to find it would be the same shrug as greying the
+                      store out. */}
+                  {reason && (
+                    <div
+                      className="rounded px-2 py-1 mb-1"
+                      style={{ background: `${REASONS[reason].colour}14` }}
+                    >
+                      <p className="font-semibold" style={{ color: REASONS[reason].colour }}>
+                        Not in the cycle — {REASONS[reason].label.toLowerCase()}
+                      </p>
+                      {REASONS[reason].action ? (
+                        <p className="text-gray-600">{REASONS[reason].action}</p>
+                      ) : (
+                        <p className="text-gray-600">This one is correctly out.</p>
+                      )}
+                    </div>
+                  )}
                   <p><span className="text-gray-500">Channel:</span> {ch?.name || store.channelId}</p>
                   <p><span className="text-gray-500">Rep:</span> {rep?.name || store.repCode}</p>
                   {/* Labelled "Avg monthly", because it is sixMonthSales/6 and

@@ -1,12 +1,16 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getReps, getStores, getRoutes, getTeams, getChannels, getStoreOverrides, getSubChannels } from "@/lib/data";
 import { computeCapacity } from "@/lib/capacity";
 import { requireSession } from "@/lib/auth";
 import XLSX from "xlsx";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    await requireSession();
+    const session = await requireSession();
+    const requestedParam = new URL(request.url).searchParams.get("repCodes") || "";
+    const requestedCodes = requestedParam
+      ? new Set(requestedParam.split(",").map((c) => c.trim()).filter(Boolean))
+      : null;
 
     const [reps, stores, doc, teams, channels, overrides, subChannels] = await Promise.all([
       getReps(),
@@ -41,7 +45,25 @@ export async function GET() {
       ],
     ];
 
-    const sorted = [...result.reps].sort((a, b) => b.utilization - a.utilization);
+    /**
+     * 🔴 Server-side scoping. This route asked only that you be SIGNED IN, so
+     * any rep or viewer could download every rep's capacity, hours and store
+     * counts. The page hid the link; hiding a link is not a permission.
+     * See [[permissions-were-decorative]].
+     */
+    let visible = result.reps;
+    if (session.role === "rep") {
+      visible = session.repCode ? visible.filter((r) => r.repCode === session.repCode) : [];
+    } else if (session.role === "teamManager") {
+      visible = visible.filter((r) => r.teamId && r.teamId === session.teamId);
+    } else if (session.role !== "admin" && session.role !== "superAdmin") {
+      // Fail closed, so a role added later does not inherit the whole book.
+      visible = [];
+    }
+    // Narrowing only, intersected with what the role already allows.
+    if (requestedCodes) visible = visible.filter((r) => requestedCodes.has(r.repCode));
+
+    const sorted = [...visible].sort((a, b) => b.utilization - a.utilization);
     for (const r of sorted) {
       rows.push([
         r.repCode,
