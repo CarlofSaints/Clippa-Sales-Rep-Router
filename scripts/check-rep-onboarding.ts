@@ -231,6 +231,11 @@ eq("a rep may read the guide", isRepAllowedPath("/guide"), true);
 eq("a rep may NOT open the rep list", isRepAllowedPath("/reps"), false);
 eq("a rep may NOT read the store table", isRepAllowedPath("/api/stores"), false);
 eq("a rep may NOT read routes", isRepAllowedPath("/api/routes"), false);
+eq("a rep may open their own route", isRepAllowedPath("/my-route"), true);
+eq("a rep may call their own route API", isRepAllowedPath("/api/my-route"), true);
+eq("a rep may NOT open the whole route book", isRepAllowedPath("/routes"), false);
+eq("a rep may NOT open the all-rep map", isRepAllowedPath("/map"), false);
+eq("a lookalike is not let through by /my-route", isRepAllowedPath("/my-routes-export"), false);
 eq("a rep may NOT reach coverage", isRepAllowedPath("/admin/coverage"), false);
 eq("a rep may NOT create logins", isRepAllowedPath("/api/reps/create-account"), false);
 // The reason the check is path-segment aware rather than a plain prefix match.
