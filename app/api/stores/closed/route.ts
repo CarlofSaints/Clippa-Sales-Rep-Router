@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { refuseEdit } from "@/lib/editGuard";
 import { requirePermission, getSession } from "@/lib/auth";
 import { getStores, saveStores } from "@/lib/data";
 import { getImsSnapshot } from "@/lib/imsSnapshot";
@@ -21,6 +22,9 @@ export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
+  const denied = await refuseEdit("storeUpload");
+  if (denied) return denied;
+
   try {
     await requirePermission("upload_stores");
 

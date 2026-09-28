@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { refuseEdit } from "@/lib/editGuard";
 import { requirePermission } from "@/lib/auth";
 import { getStores, saveStores } from "@/lib/data";
 import { isSqlProxyConfigured, sqlQuery } from "@/lib/sqlProxy";
@@ -26,6 +27,9 @@ interface ImsSale {
 const norm = (v: unknown) => String(v ?? "").trim().toUpperCase();
 
 export async function POST(request: NextRequest) {
+  const denied = await refuseEdit("storeUpload");
+  if (denied) return denied;
+
   try {
     await requirePermission("upload_stores");
 

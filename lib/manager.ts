@@ -1,5 +1,6 @@
 import { SessionPayload, Team } from "./types";
 import { getReps, getTeams, getUsers } from "./data";
+import { isTeamRole } from "./roles";
 
 /**
  * An email address reduced to the thing worth comparing.
@@ -55,7 +56,7 @@ export async function resolveManager(
     };
   }
 
-  if (session.role === "teamManager") {
+  if (isTeamRole(session.role)) {
     // Team manager → the superAdmin user (National Manager)
     const users = await getUsers();
     const superAdmin = users.find((u) => u.role === "superAdmin");

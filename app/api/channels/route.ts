@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { refuseEdit } from "@/lib/editGuard";
 import { getChannels, saveChannels, getStores, saveStores, getStoreOverrides } from "@/lib/data";
 import { Channel, FrequencyType } from "@/lib/types";
 import { getSession } from "@/lib/auth";
@@ -15,6 +16,9 @@ export async function GET() {
 }
 
 export async function PUT(request: NextRequest) {
+  const denied = await refuseEdit("channels");
+  if (denied) return denied;
+
   try {
     const body = await request.json();
     const { id, name, frequency, duration, notARepChannel } = body as Partial<Channel> & { id: string };
@@ -89,6 +93,9 @@ export async function PUT(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const denied = await refuseEdit("channels");
+  if (denied) return denied;
+
   try {
     const body = await request.json();
     const channels = await getChannels();
@@ -113,6 +120,9 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  const denied = await refuseEdit("channels");
+  if (denied) return denied;
+
   try {
     const body = await request.json();
     const ids: string[] = Array.isArray(body.ids)

@@ -346,7 +346,7 @@ export interface StoreOverride {
   updatedAt: string;
 }
 
-export type UserRole = "superAdmin" | "admin" | "teamManager" | "rep" | "viewer";
+export type UserRole = "superAdmin" | "admin" | "teamAdmin" | "teamManager" | "rep" | "viewer";
 
 export interface User {
   id: string;
@@ -482,10 +482,18 @@ export const ROLE_DEFINITIONS: RolePermission[] = [
     permissions: ["manage_teams", "manage_reps", "create_rep_accounts", "manage_stores", "manage_store_overrides", "manage_channels", "manage_routes", "generate_routes", "manage_call_cycles", "manage_channel_map", "manage_regions", "manage_repsly", "view_dashboard", "view_map", "view_routes", "upload_stores", "upload_data", "export_data"],
   },
   {
+    // A team manager who may also change channels, teams and bulk store loads.
+    // What each role may CHANGE is enforced in lib/roles.ts, not here.
+    role: "teamAdmin",
+    label: "Team Admin",
+    description: "Team manager who can also change channels, teams and store uploads",
+    permissions: ["manage_teams", "manage_reps", "manage_stores", "manage_store_overrides", "manage_channels", "manage_call_cycles", "view_dashboard", "view_map", "view_routes", "upload_stores", "export_data"],
+  },
+  {
     role: "teamManager",
     label: "Team Manager",
     description: "View and manage assigned team and reps",
-    permissions: ["manage_reps", "manage_stores", "manage_store_overrides", "view_dashboard", "view_map", "view_routes"],
+    permissions: ["manage_reps", "manage_stores", "manage_store_overrides", "manage_call_cycles", "view_dashboard", "view_map", "view_routes"],
   },
   {
     role: "rep",

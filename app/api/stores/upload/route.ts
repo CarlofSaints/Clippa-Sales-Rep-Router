@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { refuseEdit } from "@/lib/editGuard";
 import { getStores, saveStores, getChannels, saveChannels, getReps, saveReps, getStoreOverrides, getAllocationSettings, getRepCodeRules } from "@/lib/data";
 import { overriddenStoreIds } from "@/lib/channelDefaults";
 import { uploadScope } from "@/lib/uploadScope";
@@ -9,6 +10,9 @@ import { logActivity } from "@/lib/activityLog";
 import * as XLSX from "xlsx";
 
 export async function POST(request: NextRequest) {
+  const denied = await refuseEdit("storeUpload");
+  if (denied) return denied;
+
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File | null;

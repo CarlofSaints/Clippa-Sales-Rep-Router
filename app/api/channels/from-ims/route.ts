@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { refuseEdit } from "@/lib/editGuard";
 import { getChannels, saveChannels, getStores } from "@/lib/data";
 import { getImsSnapshot } from "@/lib/imsSnapshot";
 import { requirePermission, getSession } from "@/lib/auth";
@@ -49,6 +50,9 @@ function looksLikeTypoOf(candidate: string, existing: string[]): string | null {
 }
 
 export async function POST(request: NextRequest) {
+  const denied = await refuseEdit("channels");
+  if (denied) return denied;
+
   try {
     await requirePermission("manage_channels");
 

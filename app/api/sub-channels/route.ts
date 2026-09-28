@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { refuseEdit } from "@/lib/editGuard";
 import { getSubChannels, saveSubChannels, getStores, saveStores } from "@/lib/data";
 import { requirePermission, getSession } from "@/lib/auth";
 import { logActivity } from "@/lib/activityLog";
@@ -26,6 +27,9 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const denied = await refuseEdit("channels");
+  if (denied) return denied;
+
   try {
     await requirePermission("manage_channels");
     const body = await request.json();
@@ -69,6 +73,9 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
+  const denied = await refuseEdit("channels");
+  if (denied) return denied;
+
   try {
     await requirePermission("manage_channels");
     const body = await request.json();
@@ -120,6 +127,9 @@ export async function PUT(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  const denied = await refuseEdit("channels");
+  if (denied) return denied;
+
   try {
     await requirePermission("manage_channels");
     const id = request.nextUrl.searchParams.get("id");

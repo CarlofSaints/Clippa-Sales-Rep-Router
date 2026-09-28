@@ -27,6 +27,7 @@ import {
   DayLabel,
   CallCycleStrategy,
 } from "@/lib/types";
+import { isTeamRole } from "@/lib/roles";
 
 interface RouteTypeInfo {
   id: string;
@@ -92,7 +93,7 @@ export default function RoutesPage() {
   // granted without making someone an admin.
   const canGenerate = can("generate_routes");
   const canManageRoutes = can("manage_routes");
-  const isTeamManager = session?.role === "teamManager";
+  const isTeamManager = isTeamRole(session?.role);
   const isRep = session?.role === "rep";
 
   const load = () => {

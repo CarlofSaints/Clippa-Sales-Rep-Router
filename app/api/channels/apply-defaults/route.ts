@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { refuseEdit } from "@/lib/editGuard";
 import {
   getChannels,
   getStores,
@@ -93,12 +94,12 @@ export async function GET(request: NextRequest) {
 
 // POST — apply.
 export async function POST(request: NextRequest) {
+  const denied = await refuseEdit("channels");
+  if (denied) return denied;
+
   try {
     const session = await getSession();
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    if (session.role !== "superAdmin" && session.role !== "admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
 
     const body = await request.json().catch(() => ({}));
     const protectManualEdits = body.protectManualEdits !== false;

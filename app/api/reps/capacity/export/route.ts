@@ -3,6 +3,7 @@ import { getReps, getStores, getRoutes, getTeams, getChannels, getStoreOverrides
 import { computeCapacity } from "@/lib/capacity";
 import { requireSession } from "@/lib/auth";
 import XLSX from "xlsx";
+import { isTeamRole } from "@/lib/roles";
 
 export async function GET(request: NextRequest) {
   try {
@@ -54,7 +55,7 @@ export async function GET(request: NextRequest) {
     let visible = result.reps;
     if (session.role === "rep") {
       visible = session.repCode ? visible.filter((r) => r.repCode === session.repCode) : [];
-    } else if (session.role === "teamManager") {
+    } else if (isTeamRole(session.role)) {
       visible = visible.filter((r) => r.teamId && r.teamId === session.teamId);
     } else if (session.role !== "admin" && session.role !== "superAdmin") {
       // Fail closed, so a role added later does not inherit the whole book.

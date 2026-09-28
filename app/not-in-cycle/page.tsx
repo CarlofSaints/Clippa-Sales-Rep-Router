@@ -43,6 +43,7 @@ import type {
   SubChannel,
   Team,
 } from "@/lib/types";
+import { isTeamRole } from "@/lib/roles";
 
 type StatusFilter = "open" | "closed" | "all";
 
@@ -50,7 +51,7 @@ export default function NotInCyclePage() {
   const { session } = useSession();
   const isAdmin = session?.role === "superAdmin" || session?.role === "admin";
   const isRep = session?.role === "rep";
-  const isTeamManager = session?.role === "teamManager";
+  const isTeamManager = isTeamRole(session?.role);
 
   const [stores, setStores] = useState<Store[]>([]);
   const [reps, setReps] = useState<Rep[]>([]);

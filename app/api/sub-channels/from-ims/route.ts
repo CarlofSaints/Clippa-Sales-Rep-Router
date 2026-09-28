@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { refuseEdit } from "@/lib/editGuard";
 import { getChannels, getSubChannels, saveSubChannels, getStores, saveStores } from "@/lib/data";
 import { getImsSnapshot } from "@/lib/imsSnapshot";
 import { requirePermission, getSession } from "@/lib/auth";
@@ -28,6 +29,9 @@ const subId = (channelId: string, name: string) =>
   `${channelId}__${name.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
 
 export async function POST(request: NextRequest) {
+  const denied = await refuseEdit("channels");
+  if (denied) return denied;
+
   try {
     await requirePermission("manage_channels");
 

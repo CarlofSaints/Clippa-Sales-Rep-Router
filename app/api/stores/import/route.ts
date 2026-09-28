@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { refuseEdit } from "@/lib/editGuard";
 import { getStores, saveStores, getChannels, getStoreOverrides } from "@/lib/data";
 import { overriddenStoreIds } from "@/lib/channelDefaults";
 import { Channel, Store } from "@/lib/types";
@@ -29,6 +30,9 @@ import * as XLSX from "xlsx";
 const IMPORTABLE = ["PLACE NAME", "CHANNEL", "PROVINCE", "REGION", "GPS LATITUDE", "GPS LONGITUDE"];
 
 export async function POST(request: NextRequest) {
+  const denied = await refuseEdit("storeUpload");
+  if (denied) return denied;
+
   try {
     const session = await requirePermission("upload_stores");
 

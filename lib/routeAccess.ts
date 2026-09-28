@@ -14,6 +14,7 @@
  */
 
 import type { Rep, RoutePlanDocument, SessionPayload } from "./types";
+import { isTeamRole } from "./roles";
 
 export function canChangeRoutes(session: Pick<SessionPayload, "role">): boolean {
   return session.role === "admin" || session.role === "superAdmin";
@@ -26,7 +27,7 @@ export function visibleRepCodes(
 ): Set<string> | null {
   if (canChangeRoutes(session)) return null;
   if (session.role === "rep") return new Set(session.repCode ? [session.repCode] : []);
-  if (session.role === "teamManager") {
+  if (isTeamRole(session.role)) {
     // A manager with no team resolved sees nobody, never everybody: a blank
     // teamId must not match every rep who also has a blank one.
     if (!session.teamId) return new Set();

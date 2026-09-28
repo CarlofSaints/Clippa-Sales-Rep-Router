@@ -5,6 +5,7 @@ import { logActivity } from "@/lib/activityLog";
 import { findTeamForManager, normaliseEmail } from "@/lib/manager";
 import { SessionPayload } from "@/lib/types";
 import bcrypt from "bcryptjs";
+import { isTeamRole } from "@/lib/roles";
 
 /**
  * The forced password change on first sign-in.
@@ -54,7 +55,7 @@ export async function POST(request: NextRequest) {
       const reps = await getReps();
       const rep = reps.find((r) => normaliseEmail(r.email) === normaliseEmail(session.email));
       if (rep) session.repCode = rep.code;
-    } else if (session.role === "teamManager") {
+    } else if (isTeamRole(session.role)) {
       const team = findTeamForManager(await getTeams(), session.email);
       if (team) session.teamId = team.id;
     }

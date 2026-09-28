@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { refuseEdit } from "@/lib/editGuard";
 import { getChannels, saveChannels, getStores, saveStores, getStoreOverrides } from "@/lib/data";
 import { applyChannelDefaults, overriddenStoreIds } from "@/lib/channelDefaults";
 import { Channel, FrequencyType, FREQUENCY_OPTIONS, parseFrequency } from "@/lib/types";
@@ -7,6 +8,9 @@ import { logActivity } from "@/lib/activityLog";
 import * as XLSX from "xlsx";
 
 export async function POST(request: NextRequest) {
+  const denied = await refuseEdit("channels");
+  if (denied) return denied;
+
   try {
     const session = await requireSession();
 

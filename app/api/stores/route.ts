@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { refuseEdit } from "@/lib/editGuard";
 import { getStores, saveStores, getChannels, getStoreOverrides, saveStoreOverrides, getSubChannels } from "@/lib/data";
 import { Store, FrequencyType } from "@/lib/types";
 import { getSession } from "@/lib/auth";
@@ -15,6 +16,9 @@ export async function GET() {
 }
 
 export async function PUT(request: NextRequest) {
+  const denied = await refuseEdit("stores");
+  if (denied) return denied;
+
   try {
     const body = await request.json();
     const { id, ...updates } = body as Partial<Store> & { id: string };

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { refuseEdit } from "@/lib/editGuard";
 import { requirePermission } from "@/lib/auth";
 import { getStores, saveStores, getChannels } from "@/lib/data";
 import { isSqlProxyConfigured, sqlQuery } from "@/lib/sqlProxy";
@@ -24,6 +25,9 @@ export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
+  const denied = await refuseEdit("storeUpload");
+  if (denied) return denied;
+
   try {
     await requirePermission("upload_stores");
 

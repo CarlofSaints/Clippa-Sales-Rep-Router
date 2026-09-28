@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { refuseEdit } from "@/lib/editGuard";
 import { getStores, saveStores, getChannels } from "@/lib/data";
 import { buildDuplicateGroups } from "@/lib/duplicates";
 import { getSession, requireSession } from "@/lib/auth";
@@ -32,6 +33,9 @@ export async function GET() {
 }
 
 export async function POST() {
+  const denied = await refuseEdit("storeDuplicates");
+  if (denied) return denied;
+
   try {
     await requireSession();
     const stores = await getStores();

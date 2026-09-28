@@ -3,6 +3,7 @@ import { getRoutes, getReps, getTeams } from "@/lib/data";
 import { requireSession } from "@/lib/auth";
 import { WeekLabel, DayLabel } from "@/lib/types";
 import XLSX from "xlsx";
+import { isTeamRole } from "@/lib/roles";
 
 const WEEKS: WeekLabel[] = ["Wk1", "Wk2", "Wk3", "Wk4"];
 const DAYS: DayLabel[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
@@ -44,7 +45,7 @@ export async function GET(request: NextRequest) {
     if (session.role === "rep") {
       const own = session.repCode;
       repPlans = own ? repPlans.filter((p) => p.repCode === own) : [];
-    } else if (session.role === "teamManager") {
+    } else if (isTeamRole(session.role)) {
       const theirs = new Set(
         reps.filter((r) => r.teamId && r.teamId === session.teamId).map((r) => r.code)
       );
