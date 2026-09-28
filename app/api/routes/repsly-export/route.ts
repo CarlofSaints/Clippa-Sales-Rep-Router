@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRoutes, getRoutesForType, getStores } from "@/lib/data";
-import { requireSession } from "@/lib/auth";
+import { requireAdmin } from "@/lib/auth";
 import { cycleStartMonday, parseIsoDate } from "@/lib/repslySchedule";
 import { buildRepslyWorkbook } from "@/lib/repslyWorkbook";
 import XLSX from "xlsx";
 
 export async function GET(request: NextRequest) {
   try {
-    await requireSession();
+    // Admin only: this is the whole business's call cycle, the file CS loads into Repsly.
+    await requireAdmin();
 
     const sp = request.nextUrl.searchParams;
     const typeId = sp.get("typeId");
@@ -46,6 +47,9 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (err) {
+    if (String(err).includes("Forbidden")) {
+      return NextResponse.json({ error: "Only an admin can build the Repsly file." }, { status: 403 });
+    }
     if (String(err).includes("Unauthorized")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

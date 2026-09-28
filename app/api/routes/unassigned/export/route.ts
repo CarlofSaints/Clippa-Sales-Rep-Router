@@ -1,14 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getRoutes, getRoutesForType, getStores, getChannels } from "@/lib/data";
+import { getRoutes, getRoutesForType, getStores, getChannels, getReps } from "@/lib/data";
 import { requireSession } from "@/lib/auth";
 import XLSX from "xlsx";
+import { scopeRouteDoc, visibleRepCodes } from "@/lib/routeAccess";
 
 export async function GET(request: NextRequest) {
   try {
-    await requireSession();
+    const session = await requireSession();
 
     const typeId = request.nextUrl.searchParams.get("typeId");
-    const doc = typeId ? await getRoutesForType(typeId) : await getRoutes();
+    // Scoped like the Routes page: a manager gets their own team, never the book.
+    const doc = scopeRouteDoc(
+      typeId ? await getRoutesForType(typeId) : await getRoutes(),
+      visibleRepCodes(session, await getReps())
+    );
 
     const [stores, channels] = await Promise.all([getStores(), getChannels()]);
     const storeById = new Map(stores.map((s) => [s.id, s]));

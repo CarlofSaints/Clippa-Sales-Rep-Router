@@ -7,6 +7,7 @@ import { getSession, sessionHasPermission } from "@/lib/auth";
 import { logActivity } from "@/lib/activityLog";
 import { routableStores } from "@/lib/routable";
 import { countRoadRouting } from "@/lib/roadRouting";
+import { canChangeRoutes } from "@/lib/routeAccess";
 
 /** Only the two counted facts are stored; the rest of the summary is derived. */
 const storedRoadRouting = (plans: RepRoutePlan[]) => {
@@ -45,6 +46,15 @@ function getStoresForRep(
 }
 
 export async function POST(request: NextRequest) {
+  // 🔴 Checked FIRST. This used to read the session only after the new plan
+  // was saved, to name the actor in the log, so any signed-in login could
+  // regenerate every rep's week (and spend the Google Directions budget).
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!canChangeRoutes(session)) {
+    return NextResponse.json({ error: "Only an admin can generate routes." }, { status: 403 });
+  }
+
   try {
     const body = await request.json().catch(() => ({}));
     const repCodes: string[] | undefined = body.repCodes;
@@ -191,11 +201,10 @@ export async function POST(request: NextRequest) {
     }
     await saveRoutes(doc);
 
-    const session = await getSession();
     logActivity({
       action: "Generated routes",
-      actor: session?.email || "unknown",
-      actorName: session?.name || "Unknown",
+      actor: session.email,
+      actorName: session.name,
       summary:
         `Generated routes for ${repPlans.length} rep${repPlans.length === 1 ? "" : "s"}` +
         (activeType ? ` (${activeType.name})` : "") +

@@ -14,6 +14,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { dayTotals } from "@/lib/dayTotals";
 import type { RouteDayPlan } from "@/lib/types";
+import { guessCycleDay } from "@/lib/cycleWeek";
 
 const MyRouteMap = dynamic(() => import("@/components/MyRouteMap"), { ssr: false });
 
@@ -71,16 +72,13 @@ function directionsForDay(home: { lat: number; lng: number } | null, day: RouteD
   return `https://www.google.com/maps/dir/?${params.toString()}`;
 }
 
-function todayWeekday(): (typeof DAYS)[number] {
-  const i = new Date().getDay(); // 0 Sunday
-  return i >= 1 && i <= 5 ? DAYS[i - 1] : "Monday";
-}
-
 export default function MyRoutePage() {
   const [data, setData] = useState<MyRouteResponse | null>(null);
   const [loadError, setLoadError] = useState("");
-  const [week, setWeek] = useState<(typeof WEEKS)[number]>("Wk1");
-  const [day, setDay] = useState<(typeof DAYS)[number]>(todayWeekday());
+  // A calendar guess, said to be one on screen; see lib/cycleWeek.ts.
+  const [guess] = useState(() => guessCycleDay(new Date()));
+  const [week, setWeek] = useState<(typeof WEEKS)[number]>(guess.week);
+  const [day, setDay] = useState<(typeof DAYS)[number]>(guess.day);
 
   useEffect(() => {
     fetch("/api/my-route")
@@ -185,6 +183,14 @@ export default function MyRoutePage() {
                 );
               })}
             </div>
+            {/* Said out loud because it IS a guess: nothing records when Week 1
+                began. Gone once the rep picks a week themselves. */}
+            {week === guess.week && (
+              <p className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+                We have assumed it is <strong>week {WEEKS.indexOf(guess.week) + 1}</strong> based on today&apos;s
+                date, but we may be wrong. If you want, you can change the week using the buttons above.
+              </p>
+            )}
           </div>
 
           {!current || current.stops.length === 0 ? (
