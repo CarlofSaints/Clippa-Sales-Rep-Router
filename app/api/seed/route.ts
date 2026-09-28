@@ -23,7 +23,24 @@ const RAW_REPS: Record<string, string> = {
   "GAU018": "David Dikolomela",
 };
 
-export async function POST() {
+export async function POST(request: Request) {
+  // 🔴 Two gates, both inside the route. The middleware lets ANY signed-in
+  // session through to here, so a team manager could POST this and it would
+  // replace every login with three accounts on a password written in this
+  // PUBLIC repo, then overwrite reps, teams and channels. Seeding exists only
+  // to bootstrap an empty deploy, so it needs the server secret AND an empty
+  // user table.
+  const secret = process.env.CRON_SECRET;
+  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
+    return NextResponse.json({ error: "Seeding needs the server secret." }, { status: 403 });
+  }
+  if ((await getUsers()).length > 0) {
+    return NextResponse.json(
+      { error: "This deploy already has users. Seeding would wipe them, so it is refused." },
+      { status: 409 }
+    );
+  }
+
   try {
     // 1. Channels
     const channels: Channel[] = RAW_CHANNELS.map((name) => ({
