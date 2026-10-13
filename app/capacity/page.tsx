@@ -12,6 +12,7 @@ import {
   type TeamSelection,
 } from "@/lib/teamFilter";
 import { isTeamRole } from "@/lib/roles";
+import CapacityWhyModal from "@/components/CapacityWhyModal";
 
 interface RepCapacity {
   repCode: string;
@@ -72,6 +73,7 @@ export default function CapacityPage() {
   const [data, setData] = useState<CapacityResponse | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [teamSel, setTeamSel] = useState<TeamSelection>(EMPTY_SELECTION);
+  const [whyFor, setWhyFor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [outliers, setOutliers] = useState<OutlierResponse | null>(null);
   const [radiusInput, setRadiusInput] = useState("150");
@@ -260,6 +262,7 @@ export default function CapacityPage() {
 
   return (
     <div className="p-6">
+      {whyFor && <CapacityWhyModal repCode={whyFor} onClose={() => setWhyFor(null)} />}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Rep Efficiency &amp; Capacity</h1>
@@ -376,6 +379,17 @@ export default function CapacityPage() {
                     <td className="px-4 py-3">
                       <div className="font-medium text-gray-900">{r.repName}</div>
                       <div className="text-xs text-gray-400 font-mono">{r.repCode}</div>
+                      {/* Next to the name, not in a column off the right edge:
+                          the grid is wider than most screens. */}
+                      {r.hasRoute && (
+                        <button
+                          onClick={() => setWhyFor(r.repCode)}
+                          title="Show the sum behind this rep's utilisation and what is causing it"
+                          className="mt-1 rounded border border-gray-200 px-1.5 py-0.5 text-[11px] font-medium text-clippa-red hover:bg-gray-50"
+                        >
+                          Tell me why
+                        </button>
+                      )}
                     </td>
                     {isAdmin && <td className="px-4 py-3 text-gray-600">{teamName(r.teamId)}</td>}
                     <td className="px-4 py-3 text-right text-gray-700">{r.storeCount}</td>
