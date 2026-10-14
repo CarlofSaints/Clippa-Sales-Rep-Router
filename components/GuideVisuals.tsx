@@ -76,7 +76,7 @@ const FLOW_STEPS = [
     n: 8,
     title: "Send it to Repsly",
     where: "Routes → Repsly export",
-    what: "The cycle becomes dated visits on the calendar.",
+    what: "Each visit becomes a schedule that repeats every four weeks.",
     icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z",
   },
 ];
@@ -280,8 +280,9 @@ export function TwoDoors() {
         use="The full picture. Use it to add new stores, or to load the store list for the first time."
         rows={[
           { label: "Adds new stores.", yes: false, text: "" },
-          { label: "Rewrites the rep on every row it touches.", yes: true, text: "A missing column writes a blank." },
-          { label: "Rewrites the monthly average too.", yes: true, text: "Same again." },
+          { label: "Rewrites the rep on every row it touches.", yes: true, text: "Only when the file has a rep column." },
+          { label: "Rewrites the monthly average too.", yes: true, text: "A blank sales cell is saved as zero." },
+          { label: "Always overwrites the store name.", yes: true, text: "" },
         ]}
       />
       <Door
