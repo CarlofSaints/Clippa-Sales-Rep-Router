@@ -32,7 +32,7 @@ export interface GuideSection {
   blocks: Block[];
 }
 
-export const GUIDE_VERSION = "1.1";
+export const GUIDE_VERSION = "1.2";
 
 export const GUIDE: GuideSection[] = [
   // ─────────────────────────────────────────────────────────────────────
@@ -122,7 +122,45 @@ export const GUIDE: GuideSection[] = [
         kind: "note",
         tone: "info",
         title: "Overriding a single store",
-        text: "If one particular store genuinely needs a different rhythm from the rest of its channel, use Call Overrides. A store with an approved override keeps its own values and is left alone when channel defaults are applied.",
+        text: "If one particular store genuinely needs a different rhythm from the rest of its channel, use Call Overrides. Pick the channel, search for the store, set its frequency and visit length, then Save override. A manager's change is approved straight away; anyone else's waits for a manager to Approve it. A store with an approved override keeps its own values and is left alone when channel defaults are applied. Reset to channel default puts it back.",
+      },
+      {
+        kind: "text",
+        text: "Not every channel is one reps visit. Some retailers order automatically and nobody calls on them. The Called on? switch on each channel says which.",
+      },
+      {
+        kind: "table",
+        head: ["Called on?", "What happens to the channel's open stores"],
+        rows: [
+          ["Reps call here (green)", "They are planned into call cycles as normal"],
+          ["Not a rep channel (grey)", "They leave every call cycle, and Rep Capacity, Not in a Cycle and Data Health stop counting them"],
+        ],
+      },
+      {
+        kind: "steps",
+        items: [
+          { do: "Check the Stores column first", detail: "It counts the open stores in the channel, so you can see the size of the change before you make it." },
+          { do: "Click the switch", detail: "Switching a channel off asks you to confirm and tells you how many stores will leave the cycles. Switching it back on happens straight away." },
+          { do: "Regenerate routes", detail: "Nothing reaches a rep until you do." },
+        ],
+      },
+      {
+        kind: "note",
+        tone: "info",
+        title: "Sub-channels: when only some formats of a retailer are called on",
+        text: "A sub-channel sits under a channel, for example the liquor format of a supermarket chain. Its own Called on? setting beats the channel's in either direction, so one format can be visited while another is not. Use Add sub-channels from IMS to bring in the ones IMS already uses; that also files the stores under them by Place ID. A new sub-channel follows its channel until you set it either way. Sub-channels do not carry a frequency or a visit length: those still come from the channel or from a Call Override.",
+      },
+      {
+        kind: "note",
+        tone: "info",
+        title: "New channels from IMS",
+        text: "Add channels from IMS lists every channel IMS holds that this system does not, and warns you when one looks like a different spelling of a channel you already have, because creating it would split the same shops across two channels. New channels arrive as once a month, 30 minutes, and called on. The Came from column records where each channel originally came from.",
+      },
+      {
+        kind: "note",
+        tone: "warn",
+        title: "Who may change channels and teams",
+        text: "Super Admins, Admins and Team Admins can change channels, sub-channels, teams, Store Upload and Duplicate Stores. Team Managers cannot. The buttons still show for everyone, but a save from a role that is not allowed is refused with a message saying so.",
       },
     ],
   },
@@ -156,7 +194,7 @@ export const GUIDE: GuideSection[] = [
           ["REPNAME or Rep Name", "Display name. See the note below about spellings."],
           ["REPEMAILADDRESS or Email", "Needed only if the rep will have their own login."],
           ["Cell Number", "Optional contact detail."],
-          ["Home Address", "Optional. See section 6."],
+          ["Home Address", "Optional. See section 8."],
           ["Hours/Day", "Optional. Defaults to 8.5 hours."],
         ],
       },
@@ -177,6 +215,16 @@ export const GUIDE: GuideSection[] = [
         tone: "warn",
         title: "Reps also appear by themselves",
         text: "When you upload stores, any rep code the system has not seen before is created automatically with a blank name and no email. That keeps the store allocation intact, but it means the rep list can fill up with codes rather than people. The Data Health page lists reps with no stores and reps with no email so you can tidy them up.",
+      },
+      {
+        kind: "note",
+        tone: "info",
+        title: "Codes that are not people: Rep Codes",
+        text: "The sales data carries codes that are not reps at all: third-party agents, other businesses and house accounts. Control Centre → Rep Codes is where you say so. Mark a single code Not a rep, or add a Starts with rule that covers a whole family of codes at once. A code marked not a rep stops counting as missed coverage, is never turned into a rep record, and Store Upload will not give it stores. It does not change any route, and stores already on that code stay where they are.",
+      },
+      {
+        kind: "text",
+        text: "The filter box at the top of the Reps page searches name, code, email, cell and address. Press Esc to clear it.",
       },
     ],
   },
@@ -200,17 +248,30 @@ export const GUIDE: GuideSection[] = [
           ["Where", "Control Centre → Store Upload", "Stores → Import Excel"],
           ["Use it for", "The full picture: new stores, their reps, their channels", "Correcting stores that already exist"],
           ["Adds new stores", "Yes", "No, it reports them instead"],
-          ["Touches rep allocation", "Yes, it rewrites it", "No, never"],
-          ["Touches monthly average", "Yes, it rewrites it", "No, never"],
-          ["Safe for a coordinates-only file", "No", "Yes"],
+          ["Touches rep allocation", "Yes, when the file has a rep column", "No, never"],
+          ["Touches monthly average", "Yes, when the file has a sales column", "No, never"],
+          ["Overwrites the store name", "Yes, always", "Only if the file has a name column"],
+          ["Best for a coordinates-only fix", "No", "Yes"],
         ],
       },
       { kind: "diagram", id: "doors", caption: "Two ways in, and what each one overwrites" },
       {
         kind: "note",
+        tone: "warn",
+        title: "Fix existing stores through Import Excel, not Store Upload",
+        text: "Store Upload now leaves alone any column your file does not carry, and a blank rep, channel or GPS cell is left alone too. Two things still write over what you have. A blank cell in a sales column is saved as zero. And the store name is always overwritten from the file. When you only want to fix details such as coordinates, Import Excel on the Stores page is still the safe door. Note that Import Excel works the other way round on blanks: a column you keep but leave blank clears that field.",
+      },
+      {
+        kind: "note",
         tone: "danger",
-        title: "Never send a stores-only file through Store Upload",
-        text: "Store Upload owns the whole store picture, so it writes the rep code and the monthly average on every row it touches. If those columns are missing from your file it writes blanks, silently unassigning the rep and zeroing the sales figure on every store in the file. When you only want to fix store details such as coordinates, always use Import Excel on the Stores page instead.",
+        title: "Replace the allocation for the reps in this file",
+        text: "Store Upload has a tick box that turns the file into the complete list of stores for every rep code it contains. Their other stores are un-assigned, not deleted, and reps who are not in the file are not touched. Because it removes stores from reps, it always shows a preview first: which reps are in the file and every store that would be un-assigned. Nothing is saved until you press Apply to stores. A file with no rep column is refused in this mode.",
+      },
+      {
+        kind: "note",
+        tone: "info",
+        title: "When IMS owns the allocation, uploads cannot move stores",
+        text: "If IMS has been made the source of the store-to-rep allocation (section 6), Store Upload cannot change the rep on an existing store. Editing the rep by hand on the Stores page still works.",
       },
       {
         kind: "steps",
@@ -232,6 +293,29 @@ export const GUIDE: GuideSection[] = [
         title: "If you upload a Repsly Places export, check the tag order",
         text: "A Repsly export carries a Tags column such as INDEPENDENT','GAUTENG. The system takes the FIRST tag as the channel. If a store's tags happen to start with the province instead, that store ends up with a province as its channel, which means it inherits no call frequency at all. The Data Health page reports these under stores with a missing or unknown channel.",
       },
+      {
+        kind: "text",
+        text: "The Stores grid shows each store as the router sees it and as IMS sees it. Every column sorts, and you can drag a column edge to widen it.",
+      },
+      {
+        kind: "table",
+        head: ["Column", "What it tells you"],
+        rows: [
+          ["Status", "Active or Closed. A closed store is in no call cycle. Change it with Edit; a change made by hand is never undone by IMS."],
+          ["Map Status", "How the store matches IMS: Matched, Matched with missing data, In RR only, In IMS only, or In IMS with no rep. Chips flag No sales, Dormant, Duplicate account, Rep mismatch and Closed in IMS. Needs an IMS snapshot."],
+          ["RR Rep", "The rep the router plans this store for. Editable."],
+          ["IMS Rep", "The rep IMS bills it through. Read-only, and amber when the two disagree."],
+          ["Sub-channel", "Blank means the store follows its channel."],
+          ["Avg Monthly Sales, 6-Month Sales", "From IMS."],
+          ["Rank Overall, Rank/Rep, Rank/Channel", "Where the store stands by sales. A store with no sales figure is not ranked."],
+        ],
+      },
+      {
+        kind: "note",
+        tone: "info",
+        title: "Outlets IMS has that the router does not",
+        text: "Tick Show IMS-only outlets to add them to the grid as blue, italic, read-only rows. They are outlets nobody is routed to. Export Excel then includes a sheet called IMS-only outlets with a column saying what is wrong with each one. The fix is made in IMS, and the next snapshot picks the outlet up.",
+      },
     ],
   },
 
@@ -251,7 +335,7 @@ export const GUIDE: GuideSection[] = [
         kind: "steps",
         items: [
           { do: "In bulk: put the rep code in your store file", detail: "Through Store Upload, the REPRESENTATIVE ID column sets who each store belongs to." },
-          { do: "One store at a time: edit it on the Stores page", detail: "Change the rep on the row and it moves immediately." },
+          { do: "One store at a time: edit it on the Stores page", detail: "Change the RR Rep on the row and it moves immediately." },
           { do: "Confirm the result on Store Coverage", detail: "It tells you how much of the store base can actually be routed." },
         ],
       },
@@ -380,7 +464,7 @@ export const GUIDE: GuideSection[] = [
     id: "data-health",
     number: "7",
     title: "Checking the data before you plan",
-    blurb: "Thirteen checks in one place",
+    blurb: "Fourteen checks in one place",
     icon: "M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z",
     blocks: [
       {
@@ -408,7 +492,20 @@ export const GUIDE: GuideSection[] = [
           "Duplicate store records",
           "Reps with no stores, no email, or sharing an email address",
           "Reps whose home address never became coordinates",
+          "Reps whose call cycle cannot fit their hours: their stores ask for more visit time than they work, before any driving",
         ],
+      },
+      {
+        kind: "note",
+        tone: "warn",
+        title: "A rep whose cycle cannot fit is a frequency problem, not a routing one",
+        text: "This check adds up the visit time alone, with no travel, and compares it to the rep's working hours. If even that does not fit, no route can fix it. Lower the call frequencies or visit lengths on the channels or stores, or move stores to another rep. The same problem shows as a red Calls / Day figure on Rep Sales & Activity.",
+      },
+      {
+        kind: "note",
+        tone: "info",
+        title: "Closed stores and non-rep channels are left out",
+        text: "Every check runs only on stores reps actually call on. Closed stores, and stores in a channel marked not a rep channel, are counted separately at the top of the page and excluded, because a shop that is never routed cannot have a routing problem. Reopen one and it returns to the checks.",
       },
       {
         kind: "steps",
@@ -472,21 +569,47 @@ export const GUIDE: GuideSection[] = [
           },
           {
             do: "The rep capturing it themselves, which is better",
-            detail: "Give the rep a login. They sign in, open Account, and tap Use my current location while standing at home. That records the exact spot from the phone's GPS with nothing to look up and nothing to get wrong. This is the only method that works reliably for an informal address.",
+            detail: "Give the rep a login. They sign in, open Account, and use the Where your day starts card. Use my current location, tapped while standing at home, records the exact spot from the phone's GPS. Drop a pin on the map works from anywhere: they click their house, drag the pin to fine-tune, and press Use this location. Either way there is nothing to look up and nothing to get wrong, which makes these the only methods that work reliably for an informal address.",
           },
         ],
       },
       {
+        kind: "text",
+        text: "A rep can also type their address on that card. If Google finds the exact house, it is saved. If Google only finds the area, the pin map opens on that area so they can drag the pin onto their house. If it finds nothing, they are told to drop a pin or use their location instead.",
+      },
+      {
         kind: "shot",
         slot: "rep-account",
-        caption: "What a rep sees: their own profile, and nothing else",
-        capture: "The /account page signed in as a rep, showing the Where your day starts card and the Use my current location button",
+        caption: "A rep setting where their day starts",
+        capture: "The /account page signed in as a rep, showing the Where your day starts card with the Use my current location and Drop a pin on the map buttons",
       },
       {
         kind: "note",
         tone: "info",
         title: "Giving reps their own logins",
-        text: "On the Reps page, Create login makes an account for a rep and emails them their sign-in details. A rep login can reach their own profile and nothing else: not the rep list, not the store list, not anyone's routes. They are asked to choose their own password the first time they sign in.",
+        text: "On the Reps page, Create login makes an account for one rep and emails them their sign-in details; Create Logins does it for every rep who has an email address and no login yet. A rep login sees My Route, Guide and Account, and nothing else. Section 14 covers what they see and what the other roles can do.",
+      },
+      {
+        kind: "text",
+        text: "Reps who have not set a home are reminded by email every Monday at 08:00. The Home address reminders panel at the top of the Reps page controls it.",
+      },
+      {
+        kind: "table",
+        head: ["Who", "What happens on Monday"],
+        rows: [
+          ["A rep with no usable home, an email address, a login, and a team whose manager has an email", "Emailed a reminder, and their manager is copied with a list of their team's outstanding reps"],
+          ["A rep missing any of those", "Held back. The panel says why: no email address, no login yet, or no team manager"],
+          ["A rep whose home is pinned", "Nothing. They are done"],
+        ],
+      },
+      {
+        kind: "steps",
+        items: [
+          { do: "Click Show who", detail: "Lists everyone outstanding, who will be emailed, who is held back and why." },
+          { do: "Click Email me the list to preview", detail: "Sends the list to you only. No rep is contacted." },
+          { do: "Fix the held-back reps", detail: "Most are held back because they are not in a team with a manager. Put them in a team and they join the next run." },
+          { do: "Use Turn off to pause it", detail: "The schedule still runs and is still logged; it just sends nothing. Send reminders now sends straight away, after a confirmation." },
+        ],
       },
       {
         kind: "note",
@@ -515,9 +638,45 @@ export const GUIDE: GuideSection[] = [
         kind: "steps",
         items: [
           { do: "Choose the call cycle type", detail: "Geography plans every store allocated to the rep, clustered by area. Channel Dedicated plans only the channels that rep is assigned to." },
-          { do: "Generate for one rep, or for all of them", detail: "A single rep is quick. All reps takes longer and is worth doing when you have finished a round of data fixes." },
+          { do: "Generate for some reps, or for all of them", detail: "Tick reps in the Reps list to rebuild only those; everyone else keeps their saved week. With nobody ticked, Generate Routes covers every rep in view. Admins can narrow the view to one team first." },
           { do: "Wait for it to finish", detail: "Do not navigate away. When it completes, the Routes page shows the new plan." },
         ],
+      },
+      {
+        kind: "note",
+        tone: "warn",
+        title: "Only admins can change routes",
+        text: "Generating, clearing and exporting routes is limited to Super Admins and Admins. Team Managers and Team Admins can read their own team's routes but not change them.",
+      },
+      {
+        kind: "text",
+        text: "By default a day is sized by the rep's working hours: it fills until the day, including the drive home, is used up. The Calls per day card on the Routes page sets a fixed number of calls a day instead.",
+      },
+      {
+        kind: "steps",
+        items: [
+          { do: "Tick one or two reps in the Reps list", detail: "Leave everyone unticked and the number applies to all reps." },
+          { do: "Type a number in Calls per day", detail: "The ticked reps are rebuilt on their own, in about a second, so you can see the effect. Nobody else moves." },
+          { do: "Press Apply", detail: "It applies to the ticked reps, or to all reps when none are ticked, and regenerates their routes. Only applying to everyone changes the default. Clear goes back to sizing days by working hours." },
+        ],
+      },
+      {
+        kind: "note",
+        tone: "info",
+        title: "With a target, the calls win over the clock",
+        text: "A day built to a calls-per-day target keeps all its calls even if it runs past the working day, and the Routes page says by how much it overruns. Without a target, the day stops when the hours run out.",
+      },
+      {
+        kind: "note",
+        tone: "good",
+        title: "When a day is too full, the least valuable stores move first",
+        text: "If a day has more stores than it can hold, the lowest-selling stores are taken off it, not whichever happen to fall last on the drive. They are then fitted onto quieter days, best-selling first. A store with no sales figure counts as typical for that rep. Anything that still does not fit is listed under the plan as stores that could not be scheduled, with the reason, and Export all puts that list in Excel.",
+      },
+      {
+        kind: "note",
+        tone: "info",
+        title: "The drive home counts",
+        text: "Each day's hours and kilometres include the drive back home at the end, not only the drives between calls. A day cell turns amber above 85% of the working day and red above 100%.",
       },
       {
         kind: "table",
@@ -536,8 +695,8 @@ export const GUIDE: GuideSection[] = [
       {
         kind: "note",
         tone: "info",
-        title: "Why the ordering sometimes differs between runs",
-        text: "Where possible the system asks Google for real road distances, which is what makes a day's order genuinely efficient rather than merely tidy on a map. A large all-reps run has a time budget: once it is spent, the remaining reps are ordered by straight-line distance instead, so the run always completes. Generating for a single rep always gets the full road-based treatment.",
+        title: "Check the line under the heading after every run",
+        text: "The system asks Google for real road distances, which is what makes a day's order genuinely efficient rather than merely tidy on a map. After a run, the Routes page says real road routes, all days in green when every day got one. If it says only some days have a real road route, the rest are straight-line estimates, so their distances and drive times are understated. Regenerate to fix it. Regenerating with no change to the data gives the same week every time.",
       },
       {
         kind: "note",
@@ -580,16 +739,129 @@ export const GUIDE: GuideSection[] = [
         capture: "Rep Capacity page showing the table of reps with utilisation percentages",
       },
       {
+        kind: "note",
+        tone: "good",
+        title: "Tell me why",
+        text: "Every rep on Rep Capacity has a Tell me why button. It opens the sum behind their percentage: time in store plus driving, against the hours available. It compares what their stores ask for with what actually made it onto the route, because a rep can look comfortable only because visits fell off. Then it ranks the causes, each with steps to fix it: a home far from the stores, a home added after the plan, no home at all, more store visits than hours, more driving than selling, days stretched to meet a calls-per-day target, or what looks like the same store twice. A day-by-day table shows which days are over.",
+      },
+      {
+        kind: "text",
+        text: "Admins can narrow Rep Capacity, Routes, the Map and Not in a Cycle to one team, and Export Excel on Rep Capacity exports only the reps on screen.",
+      },
+      {
         kind: "shot",
         slot: "map",
         caption: "The Map: one rep's week, in order",
         capture: "Map page with a rep selected, showing numbered stops and the route line",
       },
       {
+        kind: "table",
+        head: ["On the Map", "What it means"],
+        rows: [
+          ["home badge beside a rep", "Their day starts and ends at their home"],
+          ["centroid badge", "No usable home, so the day starts from the middle of their stores"],
+          ["centroid with a warning", "A home was added after the routes were generated. Regenerate to use it"],
+          ["8/day or no target badge", "The calls-per-day target their week was built on"],
+          ["Solid line", "A real road route"],
+          ["Dashed line", "Call order only; no road route was saved for that day"],
+          ["Stores not in the cycle", "Shows every store that is not visited, coloured by the reason"],
+        ],
+      },
+      {
+        kind: "text",
+        text: "Click any store for its card: channel, rep, average monthly and six-month sales, and its rank overall and within the rep's stores, for example 34th of 101. Stops on a route also show arrival, departure and visit time.",
+      },
+      {
         kind: "note",
         tone: "info",
         title: "Stores that look wrongly placed",
-        text: "A store a long way from the rest of a rep's round is flagged rather than silently planned. If it is a genuine outlying call, confirm it in cycle and it stops being reported. If it is not, either the store belongs to a different rep or its coordinates are wrong.",
+        text: "A store a long way from the rest of a rep's round is flagged rather than silently planned. If it is a genuine outlying call, use Confirm in cycle and it stops being reported. If it is not, either the store belongs to a different rep or its coordinates are wrong. A store whose coordinates put it outside South Africa is never treated as an outlier: it is reported as having no usable coordinates, because the fix is to correct it, not confirm it.",
+      },
+    ],
+  },
+
+  // ─────────────────────────────────────────────────────────────────────
+  {
+    id: "not-in-cycle",
+    number: "11",
+    title: "Stores nobody visits",
+    blurb: "Not in a Cycle, and fixing coordinates where you find them",
+    icon: "M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636",
+    blocks: [
+      {
+        kind: "lead",
+        text: "Not in a Cycle lists every open store that could be visited and is not in anyone's route, with how much it sells and why it was left out. It is sorted by sales, so the most valuable gaps come first.",
+      },
+      { kind: "where", path: "Not in a Cycle", text: "every store the current plan misses" },
+      {
+        kind: "table",
+        head: ["Why not in a cycle", "What to do"],
+        rows: [
+          ["Over the calls-per-day target", "Raise the target, or move the store to another rep"],
+          ["Over the working day", "The day ran out of hours before this store was reached. Lighten the rep's round"],
+          ["Too far outside the rep's area", "Confirm it on the Routes page to force it into the cycle, or move it to a nearer rep"],
+          ["No usable coordinates", "Enter them in the row, then regenerate"],
+          ["Loaded after these routes were generated", "Regenerate routes"],
+          ["In a channel nobody calls on", "Nothing. It is correctly out"],
+          ["Closed", "Nothing. It is correctly out"],
+        ],
+      },
+      {
+        kind: "text",
+        text: "Filter by rep, channel, reason or open and closed, or search by name, ID or rep code. The Map shows the same stores with Stores not in the cycle switched on.",
+      },
+      {
+        kind: "note",
+        tone: "good",
+        title: "Fixing a coordinate where you find it",
+        text: "Rows with no usable coordinates, here and in the could-not-be-scheduled list on the Routes page, carry their own entry boxes. Type or paste the latitude and longitude, or press Drop a pin and click the store's spot on a map that also shows the rep's other stores. The boxes catch the usual mistakes: the two numbers the wrong way round (with a button to swap them), 0,0, and anything outside South Africa. Save GPS, then regenerate routes to bring the store in.",
+      },
+    ],
+  },
+
+  // ─────────────────────────────────────────────────────────────────────
+  {
+    id: "sales",
+    number: "12",
+    title: "Rep sales, activity and commission",
+    blurb: "What each rep's book is worth, and what it earns",
+    icon: "M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z",
+    blocks: [
+      {
+        kind: "lead",
+        text: "Rep Sales & Activity puts each rep's stores, calls and IMS sales in one row, and shows what they would earn in commission, today and under a new call cycle.",
+      },
+      { kind: "where", path: "Rep Sales & Activity", text: "one row per rep" },
+      {
+        kind: "table",
+        head: ["Column", "What it tells you"],
+        rows: [
+          ["Stores (Repsly)", "Stores the router allocates to the rep"],
+          ["Stores (IMS)", "Outlets IMS bills through the rep. A blue (12 unrouted) means 12 of those are not in the router at all; click it to see them on the Stores page"],
+          ["Calls / Month, Week, Day", "The visits their stores ask for. Calls / Day in red is more than a working day holds, and the store frequencies, not the routes, are the cause"],
+          ["Portfolio / Month", "Their IMS sales. A grey number in brackets counts stores with no IMS figure"],
+          ["Potential Earning", "Commission on that portfolio, using the rules on the Commission page"],
+          ["New Cycle columns", "The same figures for the plan chosen in the New cycle filter"],
+        ],
+      },
+      {
+        kind: "text",
+        text: "Filter by team, by whether the rep earns commission, or by coverage problems such as reps with unrouted IMS outlets. Reading this table, at the bottom of the page, explains every marker.",
+      },
+      { kind: "where", path: "Control Centre → Commission", text: "the rate and threshold, Super Admins and Admins only" },
+      {
+        kind: "table",
+        head: ["How the threshold works", "What a rep earns"],
+        rows: [
+          ["Reach the threshold, then earn on the whole portfolio (the default)", "Nothing below the threshold. At or above it, the rate applies to everything"],
+          ["Earn only on the amount above the threshold", "The rate applies only to the part above the threshold"],
+        ],
+      },
+      {
+        kind: "note",
+        tone: "warn",
+        title: "Earnings are only as complete as the IMS match",
+        text: "Portfolio revenue comes from IMS, so a store that does not match an IMS outlet adds nothing to a rep's portfolio. The Commission page shows what share of the store base currently matches. Use the Worked example box there to check a figure before quoting it to a rep.",
       },
     ],
   },
@@ -597,29 +869,111 @@ export const GUIDE: GuideSection[] = [
   // ─────────────────────────────────────────────────────────────────────
   {
     id: "repsly",
-    number: "11",
+    number: "13",
     title: "Sending the cycle to Repsly",
-    blurb: "Turning the plan into dated visits",
+    blurb: "Turning the plan into repeating schedules",
     icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z",
     blocks: [
       {
         kind: "lead",
-        text: "The plan is a repeating four-week cycle. Repsly wants dated appointments. The export projects the cycle forward across the calendar and produces one row per visit, with a real date on it.",
+        text: "The plan is a repeating four-week cycle, and the export hands it to Repsly that way. Each visit becomes one schedule row with a first date that repeats every four weeks with no end date, so the cycle never needs re-exporting just because the calendar moved on. A store visited weekly appears on four rows, one per week of the cycle.",
       },
-      { kind: "where", path: "Routes → Repsly export", text: "the schedule as dated visits" },
+      { kind: "where", path: "Routes → Repsly, week 1 starts", text: "admins only" },
       {
         kind: "steps",
         items: [
-          { do: "Generate routes first", detail: "The export reads the saved plan, so it can only export what has been generated." },
-          { do: "Choose how many months to project", detail: "Between one and six. Three is the usual choice." },
-          { do: "Download and check the first few rows", detail: "Confirm the dates and rep codes look right before importing anything into Repsly." },
+          { do: "Generate routes first", detail: "The export reads the saved plan for the call cycle type selected, so it can only export what has been generated." },
+          { do: "Pick the Monday that week 1 starts", detail: "It defaults to next Monday. Any other day you pick moves to the Monday after it." },
+          { do: "Click Export all, or Export rep while viewing one rep", detail: "You get one Excel file with four sheets." },
+          { do: "Read the Read me sheet, then import only the Repsly Import sheet", detail: "In Repsly: Schedules → Import." },
+        ],
+      },
+      {
+        kind: "table",
+        head: ["Sheet", "What it is for"],
+        rows: [
+          ["Repsly Import", "The only sheet you upload: Representative ID, Place ID, From Date, Repeat every (x) week, Time, Duration"],
+          ["Check", "The same visits in a readable form: rep name, cycle week, day, stop and store name"],
+          ["Not in cycle", "Stores that lost some or all of their visits, and why"],
+          ["Read me", "The import steps"],
         ],
       },
       {
         kind: "note",
+        tone: "danger",
+        title: "End the existing schedules in Repsly first",
+        text: "Importing adds schedules; it does not replace them. End or delete the reps' current schedules in Repsly before importing, or every visit is doubled. Every Representative ID and Place ID must already exist in Repsly. Try one rep before importing everyone.",
+      },
+      {
+        kind: "note",
+        tone: "info",
+        title: "The Repsly page reads from Repsly, it never writes",
+        text: "Control Centre → Repsly holds the API connection. Test Connection checks the key and passcode. Each row under Sync Controls has Test, which shows what would be fetched, and Import, which saves it: visits, clients, working time, reps, and Repsly's own call cycles, for comparing what Repsly has scheduled against this plan.",
+      },
+    ],
+  },
+
+  // ─────────────────────────────────────────────────────────────────────
+  {
+    id: "logins",
+    number: "14",
+    title: "Logins, roles and what reps see",
+    blurb: "Who can do what, and the rep's own screen",
+    icon: "M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z",
+    blocks: [
+      {
+        kind: "lead",
+        text: "Every login has a role, and the role decides what that person can see and change. A rep sees only their own route. A manager sees only their own team.",
+      },
+      {
+        kind: "table",
+        head: ["Role", "Sees", "Can change"],
+        rows: [
+          ["Super Admin", "Everything", "Everything, including users and other Super Admins"],
+          ["Admin", "Everything", "Everything except users: reps, stores, channels, teams, uploads, routes, commission"],
+          ["Team Admin", "Their own team's routes", "Stores, store overrides, call cycle types, settings, channels, sub-channels, teams, Store Upload and Duplicate Stores. Not routes"],
+          ["Team Manager", "Their own team's routes", "Stores, store overrides, call cycle types and settings. Not routes"],
+          ["Viewer", "Dashboards and reports, but no one's routes", "Nothing"],
+          ["Rep", "My Route, Guide and Account only", "Their own profile and home"],
+        ],
+        caption: "A Team Admin or Team Manager with no team linked to them sees no routes at all",
+      },
+      {
+        kind: "note",
         tone: "warn",
-        title: "Confirm the column headings against your Repsly template",
-        text: "The export uses our best understanding of Repsly's import format. Before running a large import, check the headings against the Import Schedules template in your own Repsly account, and try a small batch first.",
+        title: "A role change needs a fresh sign-in",
+        text: "A person's role is read when they sign in. After promoting or changing someone, ask them to sign out and back in before it takes effect.",
+      },
+      { kind: "where", path: "User Admin", text: "Super Admins only: add users, set roles, send welcome emails" },
+      {
+        kind: "text",
+        text: "Reps get their logins from the Reps page (section 8). Everyone else is added in User Admin with + Add User. Each row there can force a password change at next sign-in, send a welcome email with a temporary password, or, for a Super Admin, set the password directly.",
+      },
+      {
+        kind: "note",
+        tone: "good",
+        title: "Forgotten passwords",
+        text: "Anyone can reset their own password. On the sign-in page, click Forgot your password?, type the email address they sign in with, and a link arrives by email. The link works once, for one hour. A new password needs at least 8 characters, with a letter and a number. If nothing arrives within a few minutes, check the junk folder and the address typed: for security the page never says whether an account exists.",
+      },
+      {
+        kind: "text",
+        text: "When a rep signs in, they land on My Route: their own four-week cycle, read-only.",
+      },
+      {
+        kind: "bullets",
+        items: [
+          "Week 1 to Week 4 and Mon to Fri buttons pick the day, with the number of calls on each. The page opens on its best guess of the current week from the date and says so, so the rep can change it.",
+          "Each day shows the number of calls, the hours, the kilometres and the time on the road, a map of the day, and every call in order with its arrival and departure time.",
+          "Open the day in Google Maps gives turn-by-turn directions for the whole day, home to home. Google takes 9 stops at a time, so on a longer day each call also has its own Directions link.",
+          "If the rep has not set their home, the page says the day starts from the middle of their stores and links straight to Account to set it.",
+          "Until routes have been generated, it says their manager has not planned a route yet.",
+        ],
+      },
+      {
+        kind: "note",
+        tone: "info",
+        title: "A rep only ever sees their own route",
+        text: "There is no setting a rep could change to see anyone else's week, and the planning pages, the store list and everyone's sales are closed to them. My Route shows the saved plan, so a rep sees changes only after routes are regenerated.",
       },
     ],
   },
@@ -627,7 +981,7 @@ export const GUIDE: GuideSection[] = [
   // ─────────────────────────────────────────────────────────────────────
   {
     id: "maintenance",
-    number: "12",
+    number: "15",
     title: "Keeping it up to date",
     blurb: "What to do when something changes",
     icon: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15",
@@ -639,20 +993,23 @@ export const GUIDE: GuideSection[] = [
           ["A new rep joins", "Reps → Import Excel, or Add Rep", "Yes"],
           ["A rep leaves", "Move their stores to another rep code first", "Yes"],
           ["New stores opened", "Control Centre → Store Upload", "Yes"],
-          ["A store closed", "Remove it on the Stores page", "Yes"],
+          ["A store closed", "Set its Status to Closed on the Stores page, or close it from IMS Reconciliation", "Yes"],
+          ["A channel or sub-channel is no longer visited", "Channels → switch Called on? off", "Yes"],
+          ["A code turns out not to be a person", "Rep Codes → Not a rep", "No"],
           ["Stores move between reps", "Change the rep code on those stores", "Yes"],
           ["Coordinates corrected", "Stores → Export, fix, Import", "Yes"],
           ["Call frequency changes", "Channels, then Apply defaults to stores", "Yes"],
           ["A rep's home address captured", "Reps page, or the rep's own profile", "Yes"],
           ["A rep's working hours change", "Edit the rep", "Yes"],
+          ["The calls-per-day target changes", "Routes → Calls per day, then Apply", "Apply does it for you"],
         ],
-        caption: "The answer to the last column is always yes",
+        caption: "If a change reaches the plan, regenerate. Rep codes are the one exception, because they never move a store",
       },
       {
         kind: "note",
         tone: "info",
         title: "A sensible routine",
-        text: "Once a month, open Data Health, work the blocking items, then regenerate routes. That is enough to stop the plan drifting away from reality, and takes very little time once the data is clean.",
+        text: "Once a month: refresh the IMS snapshot, open Data Health and work the blocking items, look down Not in a Cycle for valuable stores that are being missed, then regenerate routes. If anything changed, export to Repsly again. That is enough to stop the plan drifting away from reality, and takes very little time once the data is clean.",
       },
     ],
   },
@@ -660,7 +1017,7 @@ export const GUIDE: GuideSection[] = [
   // ─────────────────────────────────────────────────────────────────────
   {
     id: "troubleshooting",
-    number: "13",
+    number: "16",
     title: "When something looks wrong",
     blurb: "The usual causes, in order of likelihood",
     icon: "M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
@@ -675,7 +1032,11 @@ export const GUIDE: GuideSection[] = [
           ],
           [
             "Stores are missing from the plan entirely",
-            "They have no coordinates, or their rep code matches nobody. Check Data Health.",
+            "Not in a Cycle gives the reason for each one. Otherwise their rep code matches nobody: check Data Health.",
+          ],
+          [
+            "A whole channel has dropped out of the routes",
+            "Its Called on? switch is off on the Channels page, or the stores are closed.",
           ],
           [
             "The map shows a rep's day zig-zagging",
@@ -683,7 +1044,7 @@ export const GUIDE: GuideSection[] = [
           ],
           [
             "A rep looks massively over capacity",
-            "Channel frequencies may have been applied without checking the total workload. Check Rep Capacity.",
+            "Click Tell me why on Rep Capacity. Most often the store frequencies ask for more hours than the rep works, or the rep's home is far from their stores.",
           ],
           [
             "A change I made has not appeared",
@@ -695,11 +1056,27 @@ export const GUIDE: GuideSection[] = [
           ],
           [
             "A rep did not receive their login email",
-            "Check the address on the rep record, and whether another rep shares it. Only one login can exist per address.",
+            "Check the address on the rep record, and whether another rep shares it. Only one login can exist per address. If they have a login already, resend their details from User Admin.",
+          ],
+          [
+            "Someone cannot sign in",
+            "Send them to Forgot your password? on the sign-in page. The link lasts one hour.",
+          ],
+          [
+            "A rep says there is nothing on their screen",
+            "Routes have not been generated for them, or their login is not linked to a rep. A login made with Create login on the Reps page is linked automatically; one made in User Admin is linked only if its email matches the rep record.",
+          ],
+          [
+            "A rep's route ignores their home",
+            "The home was set after the routes were generated. The Map shows a warning on their badge. Regenerate.",
+          ],
+          [
+            "Someone was promoted but still sees the old pages",
+            "Roles are read at sign-in. Ask them to sign out and back in.",
           ],
           [
             "The route ordering looks less efficient than usual",
-            "A large generation run may have fallen back to straight-line distances. Regenerate that rep on their own.",
+            "Look at the line under the Routes heading. Days without a real road route are straight-line estimates. Regenerate.",
           ],
         ],
       },
@@ -715,7 +1092,7 @@ export const GUIDE: GuideSection[] = [
   // ─────────────────────────────────────────────────────────────────────
   {
     id: "glossary",
-    number: "14",
+    number: "17",
     title: "Glossary",
     blurb: "The words this system uses",
     icon: "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.247m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.247",
@@ -733,6 +1110,14 @@ export const GUIDE: GuideSection[] = [
           ["Override", "A deliberate exception to a channel's call rules for one store"],
           ["Utilisation", "Scheduled hours as a percentage of the hours a rep actually works"],
           ["Generation", "Building and saving a new plan from the current data"],
+          ["Sub-channel", "A format within a channel whose Called on? setting can differ from its channel's"],
+          ["Called on?", "Whether reps visit a channel or sub-channel at all"],
+          ["Calls per day", "An optional fixed number of calls in each rep's day, instead of filling it by hours"],
+          ["RR Rep / IMS Rep", "The rep the router plans a store for, and the rep IMS bills it through"],
+          ["Map Status", "How a store in the router matches its outlet in IMS"],
+          ["Unrouted outlet", "An outlet IMS bills that is not in the router, so nobody is routed to it"],
+          ["Not a rep", "A code in the sales data that is an agent, business or house account, not a person"],
+          ["Snapshot", "The saved copy of IMS that every IMS figure on the site reads"],
         ],
       },
     ],
