@@ -569,7 +569,7 @@ export const GUIDE: GuideSection[] = [
           },
           {
             do: "The rep capturing it themselves, which is better",
-            detail: "Give the rep a login. They sign in, open Account, and use the Where your day starts card. Use my current location, tapped while standing at home, records the exact spot from the phone's GPS. Drop a pin on the map works from anywhere: they click their house, drag the pin to fine-tune, and press Use this location. Either way there is nothing to look up and nothing to get wrong, which makes these the only methods that work reliably for an informal address.",
+            detail: "Give the rep a login. They sign in, open Account, and use the Where your day starts card. Use my current location, tapped while standing at home, records the exact spot from the phone's GPS. Drop a pin on the map works from anywhere: it opens where the phone is (if they allow location), they move the pin onto their house, drag the pin to fine-tune, and press Use this location. Either way there is nothing to look up and nothing to get wrong, which makes these the only methods that work reliably for an informal address.",
           },
         ],
       },
@@ -599,6 +599,7 @@ export const GUIDE: GuideSection[] = [
         rows: [
           ["A rep with no usable home, an email address, a login, and a team whose manager has an email", "Emailed a reminder, and their manager is copied with a list of their team's outstanding reps"],
           ["A rep missing any of those", "Held back. The panel says why: no email address, no login yet, or no team manager"],
+          ["A rep who typed a real address (street number and name) that won't pin on the map", "Not emailed: they have done their part. Held back as admin work: set their GPS on the Reps page"],
           ["A rep whose home is pinned", "Nothing. They are done"],
         ],
       },

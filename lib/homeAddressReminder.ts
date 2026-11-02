@@ -118,6 +118,17 @@ export function hasRoutableHome(rep: Rep): boolean {
   return parseLatLng(rep.homeGpsLat, rep.homeGpsLng) !== null;
 }
 
+/**
+ * A typed home address that reads like a real one: a street number plus words.
+ * Carl, 2 Nov 2026: a rep who has given us a real address has done their part
+ * and is not emailed again, even if it won't pin. Fixing the pin is admin work.
+ * "n/a", "-", "home", a suburb on its own stay outstanding and keep being asked.
+ */
+export function hasRealAddress(rep: Pick<Rep, "homeAddress">): boolean {
+  const a = (rep.homeAddress || "").trim();
+  return a.length >= 8 && /\d/.test(a) && /[a-z]{3,}/i.test(a);
+}
+
 /** The same shape the Reps page uses, so both agree on an unusable address. */
 export function hasUsableEmail(rep: Pick<Rep, "email">): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((rep.email || "").trim());
@@ -211,7 +222,8 @@ export function classifyReps(input: ClassifyInput): ReminderPlan {
     const managerReachable = hasUsableEmail({ email: o.managerEmail });
     if (!managerReachable) repsWithNoManagerContact++;
 
-    if (!hasUsableEmail(rep)) o.blockedReason = "no_email";
+    if (hasRealAddress(rep)) o.blockedReason = "address_no_pin";
+    else if (!hasUsableEmail(rep)) o.blockedReason = "no_email";
     else if (!findRepLogin(rep, users)) o.blockedReason = "no_login";
     // Carl's rule, 3 Sep 2026: nobody is chased unless their manager is chased
     // with them. An automated mail nobody is following up gets ignored, and on
@@ -449,6 +461,7 @@ function rowStatus(r: OutstandingRep): string {
   if (!r.blockedReason) return "Emailed";
   if (r.blockedReason === "no_login") return "Needs a login first";
   if (r.blockedReason === "no_email") return "No email address";
+  if (r.blockedReason === "address_no_pin") return "Address won't pin";
   return "Not emailed";
 }
 
@@ -550,7 +563,8 @@ export function buildManagerDigestEmail(input: ManagerDigestEmailInput): {
             <tr>
               <td style="padding:22px 32px 0 32px;font-family:Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:${BRAND.grey};">
                 "Reminders" is how many times we have already asked. All they need to do is sign in,
-                open Account, and tap "Use my current location" while standing at home. Anyone not
+                open Account (<a href="${resolveAppUrl()}/account" style="color:${BRAND.redDark};">${resolveAppUrl()}/account</a>),
+                and tap "Use my current location" while standing at home. Anyone not
                 marked Emailed could not be written to &mdash; those need sorting out on the Rep
                 Router first.
               </td>
@@ -581,8 +595,10 @@ export function buildManagerDigestEmail(input: ManagerDigestEmailInput): {
         } reminder(s)   ${rowStatus(r)}`
     ),
     ``,
-    `Everyone marked Emailed has been written to directly with instructions. You are`,
-    `copied so you know who to ask about it. Anyone not marked Emailed could not be`,
+    `Everyone marked Emailed has been written to directly with instructions. All they`,
+    `need to do is sign in at ${resolveAppUrl()}/account`,
+    `and tap "Use my current location" at home. You are copied so you know who to`,
+    `ask about it. Anyone not marked Emailed could not be`,
     `written to and needs sorting out on the Rep Router first.`,
     ``,
     `Thanks,`,
@@ -612,6 +628,7 @@ export interface AdminSummaryInput {
 }
 
 export const BLOCK_REASON_LABEL: Record<ReminderBlockReason, string> = {
+  address_no_pin: "Gave an address that won't pin on the map: set their GPS on the Reps page",
   no_email: "No email address on file",
   no_login: "No login yet — create one on the Reps page",
   no_manager: "No team manager to copy — put them in a team on the Teams page",
