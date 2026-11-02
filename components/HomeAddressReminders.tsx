@@ -30,7 +30,7 @@ interface OutstandingRep {
   lastRemindedAt: string | null;
 }
 
-type BlockReason = "no_email" | "no_login" | "no_manager";
+type BlockReason = "address_no_pin" | "no_email" | "no_login" | "no_manager";
 
 interface BlockedRep extends OutstandingRep {
   reason: BlockReason;
@@ -71,6 +71,7 @@ interface ReminderStatus {
 }
 
 const BLOCK_LABEL: Record<BlockReason, string> = {
+  address_no_pin: "Address given, won't pin: set GPS",
   no_email: "No email address",
   no_login: "No login yet",
   no_manager: "No team manager",

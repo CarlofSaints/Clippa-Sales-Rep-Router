@@ -413,7 +413,7 @@ export interface RepCodeRules {
  * unless their team manager is copied on the same run. An automated mail with
  * no human behind it gets ignored, and there is nobody to follow it up.
  */
-export type ReminderBlockReason = "no_email" | "no_login" | "no_manager";
+export type ReminderBlockReason = "address_no_pin" | "no_email" | "no_login" | "no_manager";
 
 /** What has been asked of one rep, and how that went. */
 export interface ReminderState {
