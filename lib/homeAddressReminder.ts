@@ -44,6 +44,8 @@ export interface OutstandingRep {
   /** Reminders already sent, before this run. */
   timesReminded: number;
   lastRemindedAt: string | null;
+  /** Resend accepted the mail but never got it to them (suppressed or bounced). */
+  notDelivered?: boolean;
   /**
    * Set when this rep will NOT be written to, and why. Absent means they will.
    *
@@ -129,6 +131,11 @@ export function hasRealAddress(rep: Pick<Rep, "homeAddress">): boolean {
   return a.length >= 8 && /\d/.test(a) && /[a-z]{3,}/i.test(a);
 }
 
+/** Resend took the mail but it did not reach the person. "complained" did arrive. */
+export function isUndelivered(lastEvent: string): boolean {
+  return lastEvent === "suppressed" || lastEvent === "bounced" || lastEvent === "failed";
+}
+
 /** The same shape the Reps page uses, so both agree on an unusable address. */
 export function hasUsableEmail(rep: Pick<Rep, "email">): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((rep.email || "").trim());
@@ -204,6 +211,7 @@ export function classifyReps(input: ClassifyInput): ReminderPlan {
       managerEmail: (team?.managerEmail || "").trim(),
       timesReminded: prior?.count ?? 0,
       lastRemindedAt: prior?.lastSentAt ?? null,
+      notDelivered: prior?.lastResult === "not_delivered",
     });
   }
 
@@ -458,6 +466,7 @@ export function buildRepReminderEmail(input: RepReminderInput): {
 
 /** What a row says about a rep who is not being written to this week. */
 function rowStatus(r: OutstandingRep): string {
+  if (r.notDelivered && !r.blockedReason) return "Not delivered";
   if (!r.blockedReason) return "Emailed";
   if (r.blockedReason === "no_login") return "Needs a login first";
   if (r.blockedReason === "no_email") return "No email address";
@@ -710,7 +719,7 @@ export function buildAdminSummaryEmail(input: AdminSummaryInput): {
     ? `
             <tr>
               <td style="padding:22px 32px 0 32px;font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:${BRAND.dark};">
-                <strong style="color:${BRAND.redDark};">Failed to send (${failed.length})</strong><br>
+                <strong style="color:${BRAND.redDark};">Not delivered (${failed.length})</strong><br>
                 ${failed
                   .map(
                     (f) =>
@@ -809,7 +818,7 @@ ${failedBlock}
     ...(failed.length
       ? [
           ``,
-          `Failed to send (${failed.length}):`,
+          `Not delivered (${failed.length}):`,
           ...failed.map((f) => `  ${f.code} ${f.name} <${f.email}> — ${f.reason}`),
         ]
       : []),

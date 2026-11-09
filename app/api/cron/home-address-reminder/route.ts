@@ -13,12 +13,13 @@ import {
 } from "@/lib/data";
 import { getSession, sessionHasPermission } from "@/lib/auth";
 import { logActivity } from "@/lib/activityLog";
-import { sendEmail } from "@/lib/welcomeEmail";
+import { sendEmail, getEmailLastEvent } from "@/lib/welcomeEmail";
 import {
   classifyReps,
   buildRepReminderEmail,
   buildManagerDigestEmail,
   buildAdminSummaryEmail,
+  isUndelivered,
   type ReminderPlan,
 } from "@/lib/homeAddressReminder";
 import type { ReminderRun, ReminderStateMap } from "@/lib/types";
@@ -95,6 +96,18 @@ async function sendPaced(input: Parameters<typeof sendEmail>[0]) {
   return result;
 }
 
+/** Time for Resend to decide a mail's fate before we ask. */
+const DELIVERY_WAIT_MS = 5000;
+
+const UNDELIVERED_REASON =
+  "Not delivered: the mail server rejected this address, or Resend has it on its suppression list after an earlier bounce. Check the address is right.";
+
+async function lastEventPaced(id: string) {
+  const event = await getEmailLastEvent(id);
+  await sleep(SEND_GAP_MS);
+  return event;
+}
+
 interface RunOptions {
   trigger: "cron" | "manual";
   dryRun: boolean;
@@ -140,10 +153,12 @@ async function runReminders(options: RunOptions) {
   const failed: { code: string; name: string; email: string; reason: string }[] = [];
   let sent = 0;
   let managersEmailed = 0;
+  let statusUnknown = 0;
   const nextState: ReminderStateMap = { ...state };
   const now = new Date().toISOString();
 
   if (!options.dryRun) {
+    const accepted: { rep: (typeof plan.mailable)[number]; id: string }[] = [];
     for (const rep of plan.mailable) {
       const { subject, html, text } = buildRepReminderEmail({
         name: rep.name,
@@ -154,8 +169,10 @@ async function runReminders(options: RunOptions) {
       const result = await sendPaced({ to: rep.email, subject, html, text });
 
       const prior = nextState[rep.repId];
+      rep.notDelivered = false;
       if (result.sent) {
         sent++;
+        if (result.id) accepted.push({ rep, id: result.id });
         nextState[rep.repId] = {
           repId: rep.repId,
           repCode: rep.code,
@@ -180,6 +197,26 @@ async function runReminders(options: RunOptions) {
       }
     }
 
+    // shortcut: a bounce that lands after this check still reads as Emailed, a webhook would catch it.
+    if (accepted.length) await sleep(DELIVERY_WAIT_MS);
+    for (const { rep, id } of accepted) {
+      const event = await lastEventPaced(id);
+      if (event === null) statusUnknown++;
+      if (event === null || !isUndelivered(event)) continue;
+      rep.notDelivered = true;
+      sent--;
+      failed.push({ code: rep.code, name: rep.name, email: rep.email, reason: UNDELIVERED_REASON });
+      const entry = nextState[rep.repId];
+      nextState[rep.repId] = {
+        ...entry,
+        // Same rule as a refused send: a mail that never arrived asked nobody anything.
+        count: Math.max(0, entry.count - 1),
+        lastResult: "not_delivered",
+        lastError: UNDELIVERED_REASON,
+      };
+    }
+
+    const acceptedDigests: { digest: (typeof plan.managerDigests)[number]; id: string }[] = [];
     for (const digest of plan.managerDigests) {
       const { subject, html, text } = buildManagerDigestEmail({
         managerName: digest.managerName,
@@ -187,14 +224,25 @@ async function runReminders(options: RunOptions) {
         reps: digest.reps,
       });
       const result = await sendPaced({ to: digest.managerEmail, subject, html, text });
-      if (result.sent) managersEmailed++;
-      else
+      if (result.sent) {
+        managersEmailed++;
+        if (result.id) acceptedDigests.push({ digest, id: result.id });
+      } else
         failed.push({
           code: "MANAGER",
           name: digest.managerName || digest.teamName,
           email: digest.managerEmail,
           reason: result.reason,
         });
+    }
+
+    if (acceptedDigests.length) await sleep(DELIVERY_WAIT_MS);
+    for (const { digest, id } of acceptedDigests) {
+      const event = await lastEventPaced(id);
+      if (event === null) statusUnknown++;
+      if (event === null || !isUndelivered(event)) continue;
+      managersEmailed--;
+      failed.push({ code: "MANAGER", name: digest.managerName || digest.teamName, email: digest.managerEmail, reason: UNDELIVERED_REASON });
     }
 
     // Written once, after every send, so a crash mid-run cannot leave the state
@@ -231,6 +279,7 @@ async function runReminders(options: RunOptions) {
     summarySent,
     settled: plan.settled.length,
     ...(to ? {} : { error: "No REMINDER_SUMMARY_TO or RESEND_REPLY_TO set — no summary was sent." }),
+    ...(statusUnknown ? { error: `Could not confirm delivery of ${statusUnknown} mail(s), so they count as sent.` } : {}),
   });
 
   logActivity({
