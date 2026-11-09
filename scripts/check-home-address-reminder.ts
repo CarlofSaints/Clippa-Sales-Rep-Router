@@ -17,6 +17,7 @@ import {
   findRepLogin,
   buildRepReminderEmail,
   buildManagerDigestEmail,
+  isUndelivered,
   buildAdminSummaryEmail,
 } from "../lib/homeAddressReminder";
 import { remindersEnabled, type AppSettings } from "../lib/data";
@@ -365,6 +366,12 @@ const team = (over: Partial<Team> = {}): Team => ({
   ok("it lists their reps", mgr.html.includes("Big Book") && mgr.html.includes("Small Book"));
   // A manager who thinks they are first to hear chases people already chased.
   ok("it says the reps were written to as well", /written to directly/i.test(mgr.html));
+
+  const undeliveredRep = { ...plan.managerDigests[0].reps[0], notDelivered: true };
+  const undelivered = buildManagerDigestEmail({ managerName: "Manager One", teamName: "REGION A", reps: [undeliveredRep] });
+  ok("a suppressed mail reads Not delivered, html and text", undelivered.html.includes("Not delivered") && undelivered.text.includes("Not delivered"));
+  ok("suppressed and bounced count as undelivered", isUndelivered("suppressed") && isUndelivered("bounced"));
+  ok("delivered, sent and delayed do not", !isUndelivered("delivered") && !isUndelivered("sent") && !isUndelivered("delivery_delayed"));
   // And a manager who assumes EVERY name got the mail would chase the one
   // person who never received it for ignoring it.
   ok("every row says whether that rep was actually emailed", mgr.html.includes("Emailed"));
