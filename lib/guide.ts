@@ -680,6 +680,12 @@ export const GUIDE: GuideSection[] = [
       {
         kind: "note",
         tone: "info",
+        title: "A minimum calls a day, per rep",
+        text: "On the Reps page, Edit a rep and set Min Calls/Day, then choose what happens when their stores can't fill it. Fewer, fuller days packs the week into fewer days so every planned day reaches the minimum, and shows the rest as Free day on the Routes page (it never packs so tight that a day goes past the working hours or the calls-per-day target). Flag short days keeps the week as it is. Top up with extra calls adds an extra visit to the rep's better-selling stores near that day, marked extra call; these are on top of the store's normal frequency and go into the Repsly export too. Whatever you choose, a day still short of the minimum shows how many calls short it is in red. A minimum above the calls-per-day target is treated as the target. Regenerate routes after changing it.",
+      },
+      {
+        kind: "note",
+        tone: "info",
         title: "The drive home counts",
         text: "Each day's hours and kilometres include the drive back home at the end, not only the drives between calls. A day cell turns amber above 85% of the working day and red above 100%.",
       },
