@@ -274,6 +274,7 @@ export async function generateRepRoute(
             storeId: s.id,
             storeName: s.name,
             reason: `Over the ${callsPerDay} calls per day target`,
+            week,
             // Carried so rebalancing can still place this store on a quieter
             // day. Built from the store rather than from a planned stop,
             // because this one never got as far as being planned.
@@ -337,6 +338,7 @@ export async function generateRepRoute(
           reason: callsPerDay && callsPerDay > 0
             ? `Over the ${callsPerDay} calls per day target`
             : "Over daily capacity",
+          week: plan.week,
           stop: r,
         });
       }
@@ -1001,6 +1003,8 @@ type OverflowCandidate = {
   storeId: string;
   storeName: string;
   reason: string;
+  /** The week it was trimmed from. A refit may only put it back in THIS week. */
+  week?: WeekLabel;
   stop?: RouteStop;
 };
 
@@ -1030,6 +1034,11 @@ async function rebalanceOverflow(
     // failed whenever that day was in the other area (home vs overnight stay),
     // even though a nearer day had room.
     const candidates = dayPlans
+      // Only the week the store was trimmed from, and never a day that already
+      // holds it: otherwise a weekly store can land twice in one week and not
+      // at all in another.
+      .filter((plan) => !(store.week && plan.week !== store.week))
+      .filter((plan) => !plan.stops.some((s) => s.storeId === store.storeId))
       // A day already at the target has no room, however much clock is left.
       // Without this the refit pass would quietly undo the cap it just applied.
       .filter((plan) => !(callsPerDay && callsPerDay > 0 && plan.stops.length >= callsPerDay))
