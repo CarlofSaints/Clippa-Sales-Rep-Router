@@ -1085,7 +1085,7 @@ export default function RoutesPage() {
                     />
                   </svg>
                 </div>
-                <span>Start from home</span>
+                <span>{selectedDayPlan.startLatLng ? "Start from overnight stay" : "Start from home"}</span>
               </div>
             )}
 
@@ -1141,7 +1141,7 @@ export default function RoutesPage() {
                     and the time the rep gets in is the difference between a day
                     that "ends at the last shop" and one that ends at home. */}
                 <span>
-                  Return home
+                  {selectedDayPlan.endLatLng ? "Drive to overnight stay" : "Return home"}
                   {selectedTotals?.returnKm !== null && selectedTotals && (
                     <span className="text-gray-500">
                       {" "}

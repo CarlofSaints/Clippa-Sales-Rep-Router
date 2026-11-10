@@ -578,6 +578,10 @@ export const GUIDE: GuideSection[] = [
         text: "A rep can also type their address on that card. If Google finds the exact house, it is saved. If Google only finds the area, the pin map opens on that area so they can drag the pin onto their house. If it finds nothing, they are told to drop a pin or use their location instead.",
       },
       {
+        kind: "text",
+        text: "Reps who travel to an area and stay over can set a second start point on the same card, under Staying over somewhere. Use my current location (while at the place they stay) or Drop a pin where I stay. When routes are generated, stores closer to the stay than to home get their own days, back to back at the end of the week. The first away day drives out from home and ends at the stay, the middle ones start and end at the stay, and Friday starts at the stay and drives home. So the trip out and back is counted once, not every day. A store called on several times a week is only called on during days spent on its own side; any calls lost that way are listed in Could not be scheduled. Remove overnight stay puts every day back on home. Regenerate routes after it changes.",
+      },
+      {
         kind: "shot",
         slot: "rep-account",
         caption: "A rep setting where their day starts",
