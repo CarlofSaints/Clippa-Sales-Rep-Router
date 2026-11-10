@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Rep } from "@/lib/types";
+import { Rep, MinCallsMode, MIN_CALLS_MODE_LABELS } from "@/lib/types";
 import { useSession } from "@/components/SessionProvider";
 import { useTableSort, useSortedRows, SortableTh } from "@/components/TableSort";
 import HomeAddressReminders from "@/components/HomeAddressReminders";
@@ -143,7 +143,7 @@ export default function RepsPage() {
     );
   }, [reps, search, editing]);
 
-  const sort = useTableSort("code", "asc", ["workingHoursPerDay"]);
+  const sort = useTableSort("code", "asc", ["workingHoursPerDay", "minCallsPerDay"]);
   const sortedReps = useSortedRows<Rep>(visibleReps, {
     code: (r) => r.code,
     name: (r) => r.name,
@@ -155,6 +155,7 @@ export default function RepsPage() {
     startsDayAt: (r) => (hasHomeGps(r) ? 1 : 0),
     login: (r) => (repIdsWithLogin.has(r.id) ? 2 : hasUsableEmail(r) ? 1 : 0),
     workingHoursPerDay: (r) => r.workingHoursPerDay ?? null,
+    minCallsPerDay: (r) => r.minCallsPerDay ?? null,
   }, sort);
 
   const [newRep, setNewRep] = useState<Partial<Rep>>({ code: "", name: "", email: "", cell: "", homeAddress: "", workingHoursPerDay: 8.5 });
@@ -777,6 +778,7 @@ export default function RepsPage() {
                 <SortableTh sortId="startsDayAt" sort={sort} className="px-6 py-3">Starts Day At</SortableTh>
                 <SortableTh sortId="login" sort={sort} className="px-6 py-3">Login</SortableTh>
                 <SortableTh sortId="workingHoursPerDay" sort={sort} align="center" className="px-6 py-3">Hours/Day</SortableTh>
+                <SortableTh sortId="minCallsPerDay" sort={sort} align="center" className="px-6 py-3">Min Calls/Day</SortableTh>
                 <th className="px-6 py-3 text-right">Actions</th>
               </tr>
             </thead>
@@ -835,6 +837,32 @@ export default function RepsPage() {
                           onChange={(e) => setEditData({ ...editData, workingHoursPerDay: parseFloat(e.target.value) || 8.5 })}
                           className="border border-gray-200 rounded px-2 py-1 text-sm w-16 text-center focus:outline-none focus:ring-1 focus:ring-clippa-red"
                         />
+                      </td>
+                      <td className="px-6 py-3 text-center">
+                        {/* Blank = no minimum (sent as 0, which the API stores as none) */}
+                        <input
+                          type="number"
+                          min={0}
+                          max={30}
+                          placeholder="none"
+                          aria-label="Minimum calls per day"
+                          value={editData.minCallsPerDay || ""}
+                          onChange={(e) => setEditData({ ...editData, minCallsPerDay: Math.round(Number(e.target.value)) || 0 })}
+                          className="border border-gray-200 rounded px-2 py-1 text-sm w-16 text-center focus:outline-none focus:ring-1 focus:ring-clippa-red"
+                        />
+                        {!!editData.minCallsPerDay && (
+                          <select
+                            aria-label="If their stores can't fill the minimum"
+                            title="If their stores can't fill the minimum"
+                            value={editData.minCallsMode ?? "flag"}
+                            onChange={(e) => setEditData({ ...editData, minCallsMode: e.target.value as MinCallsMode })}
+                            className="mt-1 block w-44 border border-gray-200 rounded px-1 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-clippa-red"
+                          >
+                            {(Object.keys(MIN_CALLS_MODE_LABELS) as MinCallsMode[]).map((m) => (
+                              <option key={m} value={m}>{MIN_CALLS_MODE_LABELS[m]}</option>
+                            ))}
+                          </select>
+                        )}
                       </td>
                       <td className="px-6 py-3 text-right space-x-2">
                         <button onClick={() => saveEdit(rep.id)} disabled={saving} className="text-green-600 hover:text-green-800 text-xs font-medium">
@@ -909,6 +937,16 @@ export default function RepsPage() {
                         )}
                       </td>
                       <td className="px-6 py-3 text-center text-gray-600">{rep.workingHoursPerDay ?? 8.5}</td>
+                      <td className="px-6 py-3 text-center text-gray-600">
+                        {rep.minCallsPerDay ? (
+                          <>
+                            {rep.minCallsPerDay}
+                            <span className="block text-[11px] text-gray-400">{MIN_CALLS_MODE_LABELS[rep.minCallsMode ?? "flag"]}</span>
+                          </>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </td>
                       <td className="px-6 py-3 text-right space-x-2">
                         <button onClick={() => startEdit(rep)} className="text-clippa-red hover:text-red-800 text-xs font-medium">
                           Edit
@@ -923,7 +961,7 @@ export default function RepsPage() {
               ))}
               {sortedReps.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-6 py-8 text-center text-sm text-gray-500">
+                  <td colSpan={10} className="px-6 py-8 text-center text-sm text-gray-500">
                     No rep matches &ldquo;{search}&rdquo;.{" "}
                     <button onClick={() => setSearch("")} className="text-clippa-red hover:underline">
                       Clear the filter

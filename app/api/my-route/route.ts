@@ -43,6 +43,7 @@ export async function GET() {
           stops: d.stops.map((s) => ({
             storeId: s.storeId,
             storeName: s.storeName,
+            extraVisit: s.extraVisit,
             lat: s.lat,
             lng: s.lng,
             visitDuration: s.visitDuration,
