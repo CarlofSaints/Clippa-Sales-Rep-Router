@@ -457,6 +457,12 @@ export default function MapView({
    * Every day on screen gets its own leg home. A week view is four days, so
    * there are four drives home, not one.
    */
+  // The overnight stay, when any day on screen starts or ends there.
+  const stayPoint = useMemo(() => {
+    const d = (routeDays ?? []).find((x) => x.startLatLng || x.endLatLng);
+    return d ? (d.startLatLng ?? d.endLatLng)! : null;
+  }, [routeDays]);
+
   const routeSummary = useMemo(() => {
     if (!showRoute || !routeDays || routeDays.length === 0) return null;
     const anchor = repHome ? { lat: repHome.lat, lng: repHome.lng } : null;
@@ -604,6 +610,7 @@ export default function MapView({
             positions={[
               ...(routeStops ?? []).map((s) => [s.lat, s.lng] as [number, number]),
               ...(repHome ? [[repHome.lat, repHome.lng] as [number, number]] : []),
+              ...(stayPoint ? [[stayPoint.lat, stayPoint.lng] as [number, number]] : []),
             ]}
           />
         )}
@@ -618,6 +625,15 @@ export default function MapView({
             dayRanks={dayRanks}
             fmt6={fmt6}
           />
+        )}
+
+        {showRoute && stayPoint && (
+          <Marker position={[stayPoint.lat, stayPoint.lng]} icon={homeIcon}>
+            <Popup>
+              <p className="text-xs font-bold">Overnight stay</p>
+              <p className="text-xs text-gray-500">Away days start and end here</p>
+            </Popup>
+          </Marker>
         )}
 
         {/* Rep home marker */}
