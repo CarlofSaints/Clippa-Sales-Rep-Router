@@ -60,6 +60,7 @@ export async function GET() {
           returnDistanceKm: d.returnDistanceKm,
           returnTravelTime: d.returnTravelTime,
           arriveHomeTime: d.arriveHomeTime,
+          startLatLng: d.startLatLng,
           polyline: d.polyline,
         })),
       },

@@ -100,8 +100,11 @@ export default function MyRoutePage() {
   }, [plan]);
 
   const current = byKey.get(`${week}|${day}`) ?? null;
+  // A day planned from the overnight stay starts and ends there instead of home.
+  const atStay = !!current?.startLatLng;
+  const start = current?.startLatLng ?? home;
   const totals = current ? dayTotals(current, home, plan?.workingHoursPerDay) : null;
-  const dayLink = current ? directionsForDay(home, current) : null;
+  const dayLink = current ? directionsForDay(start, current) : null;
 
   if (loadError) {
     return <div className="p-6 text-sm text-red-600">{loadError}</div>;
@@ -236,7 +239,7 @@ export default function MyRoutePage() {
 
               <div className="h-[320px] sm:h-[420px] overflow-hidden rounded-xl border border-gray-100">
                 <MyRouteMap
-                  home={home}
+                  home={start}
                   stops={current.stops}
                   polyline={current.polyline}
                   fitKey={`${week}|${day}`}
@@ -244,8 +247,8 @@ export default function MyRoutePage() {
               </div>
 
               <div className="rounded-xl border border-gray-100 bg-white divide-y divide-gray-100">
-                {home && totals?.leaveHome && (
-                  <Row title="Leave home" sub={totals.leaveHome} />
+                {start && totals?.leaveHome && (
+                  <Row title={atStay ? "Leave where you're staying" : "Leave home"} sub={totals.leaveHome} />
                 )}
                 {current.stops.map((s, i) => (
                   <div key={`${s.storeId}-${i}`} className="flex items-center gap-3 p-3">
@@ -269,9 +272,9 @@ export default function MyRoutePage() {
                     </a>
                   </div>
                 ))}
-                {home && totals?.returnKm != null && (
+                {start && totals?.returnKm != null && (
                   <Row
-                    title="Back home"
+                    title={atStay ? "Back where you're staying" : "Back home"}
                     sub={`${totals.arriveHome ?? ""} · ${Math.round(totals.returnKm)} km, ${fmtMinutes(
                       totals.returnMinutes ?? 0
                     )} drive`}
